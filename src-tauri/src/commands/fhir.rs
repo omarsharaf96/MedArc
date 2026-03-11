@@ -1,17 +1,24 @@
 use tauri::State;
 
+use crate::auth::session::SessionManager;
 use crate::db::connection::Database;
 use crate::db::models::{CreateFhirResource, FhirResource, FhirResourceList, UpdateFhirResource};
 use crate::error::AppError;
+use crate::rbac::field_filter;
+use crate::rbac::middleware;
+use crate::rbac::roles::{self, Action, Resource};
 
 /// Create a new FHIR resource in the encrypted database.
 ///
-/// Generates a UUID, sets timestamps, and inserts a new row into fhir_resources.
+/// Requires authenticated session with ClinicalRecords:Create permission.
 #[tauri::command]
 pub fn create_resource(
     db: State<'_, Database>,
+    session: State<'_, SessionManager>,
     input: CreateFhirResource,
 ) -> Result<FhirResource, AppError> {
+    middleware::check_permission(&session, Resource::ClinicalRecords, Action::Create)?;
+
     let conn = db
         .conn
         .lock()
@@ -39,9 +46,16 @@ pub fn create_resource(
     })
 }
 
-/// Retrieve a single FHIR resource by ID.
+/// Retrieve a single FHIR resource by ID with role-based field filtering.
 #[tauri::command]
-pub fn get_resource(db: State<'_, Database>, id: String) -> Result<FhirResource, AppError> {
+pub fn get_resource(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    id: String,
+) -> Result<FhirResource, AppError> {
+    let (_user_id, role) =
+        middleware::check_permission(&session, Resource::ClinicalRecords, Action::Read)?;
+
     let conn = db
         .conn
         .lock()
@@ -52,7 +66,7 @@ pub fn get_resource(db: State<'_, Database>, id: String) -> Result<FhirResource,
          FROM fhir_resources WHERE id = ?1",
     )?;
 
-    let resource = stmt
+    let mut resource = stmt
         .query_row(rusqlite::params![id], |row| {
             let resource_str: String = row.get(2)?;
             let resource: serde_json::Value = serde_json::from_str(&resource_str)
@@ -74,17 +88,24 @@ pub fn get_resource(db: State<'_, Database>, id: String) -> Result<FhirResource,
             other => AppError::Database(other.to_string()),
         })?;
 
+    // Apply field-level filtering based on role
+    let allowed_fields = roles::visible_fields(role, &resource.resource_type);
+    let field_refs: Vec<&str> = allowed_fields.iter().copied().collect();
+    resource.resource = field_filter::filter_resource(&resource.resource, &field_refs);
+
     Ok(resource)
 }
 
-/// List FHIR resources, optionally filtered by resource type.
-///
-/// Returns resources ordered by last_updated DESC with a total count.
+/// List FHIR resources with role-based field filtering.
 #[tauri::command]
 pub fn list_resources(
     db: State<'_, Database>,
+    session: State<'_, SessionManager>,
     resource_type: Option<String>,
 ) -> Result<FhirResourceList, AppError> {
+    let (_user_id, role) =
+        middleware::check_permission(&session, Resource::ClinicalRecords, Action::Read)?;
+
     let conn = db
         .conn
         .lock()
@@ -115,7 +136,7 @@ pub fn list_resources(
     let mut stmt = conn.prepare(query)?;
     let param_refs: Vec<&dyn rusqlite::types::ToSql> =
         params.iter().map(|p| p.as_ref()).collect();
-    let resources = stmt
+    let resources: Vec<FhirResource> = stmt
         .query_map(param_refs.as_slice(), |row| {
             let resource_str: String = row.get(2)?;
             let resource: serde_json::Value =
@@ -132,23 +153,39 @@ pub fn list_resources(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(FhirResourceList { resources, total })
+    // Apply field-level filtering to each resource based on role
+    let filtered_resources: Vec<FhirResource> = resources
+        .into_iter()
+        .map(|mut r| {
+            let allowed_fields = roles::visible_fields(role, &r.resource_type);
+            let field_refs: Vec<&str> = allowed_fields.iter().copied().collect();
+            r.resource = field_filter::filter_resource(&r.resource, &field_refs);
+            r
+        })
+        .collect();
+
+    Ok(FhirResourceList {
+        resources: filtered_resources,
+        total,
+    })
 }
 
 /// Update an existing FHIR resource's JSON content.
 ///
-/// Increments version_id for optimistic locking and updates timestamps.
+/// Requires ClinicalRecords:Update permission.
 #[tauri::command]
 pub fn update_resource(
     db: State<'_, Database>,
+    session: State<'_, SessionManager>,
     input: UpdateFhirResource,
 ) -> Result<FhirResource, AppError> {
+    middleware::check_permission(&session, Resource::ClinicalRecords, Action::Update)?;
+
     let conn = db
         .conn
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    // Verify the resource exists and get current version
     let current_version: i64 = conn
         .query_row(
             "SELECT version_id FROM fhir_resources WHERE id = ?1",
@@ -173,7 +210,6 @@ pub fn update_resource(
         rusqlite::params![resource_json, new_version, now, now, input.id],
     )?;
 
-    // Re-read the full resource to return
     let mut stmt = conn.prepare(
         "SELECT id, resource_type, resource, version_id, last_updated, created_at, updated_at
          FROM fhir_resources WHERE id = ?1",
@@ -199,9 +235,15 @@ pub fn update_resource(
 
 /// Delete a FHIR resource by ID.
 ///
-/// CASCADE will automatically clean up related fhir_identifiers rows.
+/// Requires ClinicalRecords:Delete permission.
 #[tauri::command]
-pub fn delete_resource(db: State<'_, Database>, id: String) -> Result<(), AppError> {
+pub fn delete_resource(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    id: String,
+) -> Result<(), AppError> {
+    middleware::check_permission(&session, Resource::ClinicalRecords, Action::Delete)?;
+
     let conn = db
         .conn
         .lock()
