@@ -1,4 +1,5 @@
 use serde::Serialize;
+use totp_rs::{Algorithm, Secret, TOTP};
 
 use crate::error::AppError;
 
@@ -12,14 +13,68 @@ pub struct TotpSetup {
 }
 
 /// Generate a TOTP setup for a user, producing a secret, otpauth URL, and QR code.
-pub fn generate_totp_setup(_username: &str) -> Result<TotpSetup, AppError> {
-    todo!("Not implemented yet")
+///
+/// Uses SHA-1 algorithm with 6 digits, 30-second period, and 1-step skew (90-second window)
+/// for maximum authenticator app compatibility.
+pub fn generate_totp_setup(username: &str) -> Result<TotpSetup, AppError> {
+    // Generate a random secret
+    let secret = Secret::generate_secret();
+    let secret_bytes = secret.to_bytes().map_err(|e| {
+        AppError::Authentication(format!("Failed to generate TOTP secret: {}", e))
+    })?;
+    let secret_base32 = secret.to_encoded().to_string();
+
+    // Create TOTP instance: SHA-1, 6 digits, skew=1, period=30s, issuer=MedArc
+    let totp = TOTP::new(
+        Algorithm::SHA1,
+        6,    // digits
+        1,    // skew (allows 1 step before/after = 90 second window)
+        30,   // period in seconds
+        secret_bytes,
+        Some("MedArc".to_string()),
+        username.to_string(),
+    )
+    .map_err(|e| AppError::Authentication(format!("Failed to create TOTP: {}", e)))?;
+
+    // Get the otpauth URL
+    let otpauth_url = totp.get_url();
+
+    // Generate QR code as base64 PNG
+    let qr_base64 = totp
+        .get_qr_base64()
+        .map_err(|e| AppError::Authentication(format!("Failed to generate QR code: {}", e)))?;
+
+    Ok(TotpSetup {
+        secret_base32,
+        otpauth_url,
+        qr_base64,
+    })
 }
 
 /// Verify a TOTP code against a stored base32 secret.
 /// Returns Ok(true) if valid, Ok(false) if invalid code, Err if secret is malformed.
-pub fn verify_totp(_secret_base32: &str, _code: &str) -> Result<bool, AppError> {
-    todo!("Not implemented yet")
+pub fn verify_totp(secret_base32: &str, code: &str) -> Result<bool, AppError> {
+    // Decode the base32 secret
+    let secret_bytes = Secret::Encoded(secret_base32.to_string())
+        .to_bytes()
+        .map_err(|e| AppError::Authentication(format!("Invalid TOTP secret: {}", e)))?;
+
+    // Reconstruct TOTP with same parameters as generation
+    let totp = TOTP::new(
+        Algorithm::SHA1,
+        6,
+        1,    // skew=1 for 90-second window
+        30,
+        secret_bytes,
+        Some("MedArc".to_string()),
+        String::new(), // account name not needed for verification
+    )
+    .map_err(|e| AppError::Authentication(format!("Failed to create TOTP for verification: {}", e)))?;
+
+    // Check if the code is valid for the current time
+    Ok(totp.check_current(code).map_err(|e| {
+        AppError::Authentication(format!("TOTP verification error: {}", e))
+    })?)
 }
 
 #[cfg(test)]
