@@ -35,3 +35,6 @@ Architectural and implementation decisions extracted from completed work.
 - break_glass invoke wrapper includes password param matching actual Rust command signature
 - useIdleTimer debounces refreshSession IPC to once per 30 seconds to avoid excessive backend calls
 - LockScreen renders as overlay on top of content (preserves React state while obscuring UI)
+- Two-phase login pattern: `login` returns `mfa_required: true + pending_user_id` when TOTP enabled; `complete_login` verifies TOTP then atomically creates the session — session creation is never attempted before TOTP is confirmed
+- useAuth stores pendingMfaUserId in-memory only (not persisted) — MFA flow is intentionally lost on page refresh, requiring re-login (correct security behavior)
+- All login failure paths return `AppError::Authentication("Invalid credentials")` regardless of failure reason — prevents username enumeration (HIPAA-aligned)

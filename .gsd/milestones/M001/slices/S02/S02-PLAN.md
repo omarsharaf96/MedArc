@@ -32,7 +32,7 @@ Output: TOTP module with secret generation/QR codes/verification, Touch ID integ
 Purpose: The backend auth layer from Plans 01-02 is useless without a frontend that actually enforces login, handles session states, and provides the UI for MFA enrollment. This plan creates the user-facing authentication experience.
 
 Output: Auth TypeScript types, invoke wrappers for all auth commands, useAuth and useIdleTimer hooks, five auth UI components, and App.tsx rewired to gate all content behind authentication.
-- [ ] **T05: 02-auth-access-control 05**
+- [x] **T05: 02-auth-access-control 05**
   - Final integration wiring and human verification of the complete auth system. Ensure the login flow integrates MFA check, the first-run setup works, and all 8 AUTH requirements are met end-to-end.
 
 Purpose: Plans 01-04 built the pieces independently. This plan ensures they work together as a coherent auth system and gets human confirmation that all requirements are met.
