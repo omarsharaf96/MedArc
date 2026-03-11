@@ -14,6 +14,15 @@ pub enum AppError {
     #[error("Not found: {0}")]
     NotFound(String),
 
+    #[error("Authentication error: {0}")]
+    Authentication(String),
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("Validation error: {0}")]
+    Validation(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
