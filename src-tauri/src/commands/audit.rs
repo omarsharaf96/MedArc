@@ -9,7 +9,9 @@
 ///   Returns a boolean `valid` field plus row count and optional error description.
 use tauri::State;
 
-use crate::audit::query::{query_audit_log, verify_audit_chain, AuditLogPage, AuditQuery, ChainVerificationResult};
+use crate::audit::query::{
+    query_audit_log, verify_audit_chain, AuditLogPage, AuditQuery, ChainVerificationResult,
+};
 use crate::auth::session::SessionManager;
 use crate::db::connection::Database;
 use crate::error::AppError;
@@ -52,7 +54,10 @@ pub fn get_audit_log(
         }
     }
 
-    let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
     query_audit_log(&conn, effective_query)
 }
 
@@ -76,6 +81,9 @@ pub fn verify_audit_chain_cmd(
         ));
     }
 
-    let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
     verify_audit_chain(&conn)
 }

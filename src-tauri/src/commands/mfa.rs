@@ -22,17 +22,15 @@ pub struct BiometricStatus {
 /// for display. The secret is NOT stored in the database yet -- the user
 /// must verify with a valid code via `verify_totp_setup` to confirm enrollment.
 #[tauri::command]
-pub fn setup_totp(
-    session: State<'_, SessionManager>,
-) -> Result<totp::TotpSetup, AppError> {
+pub fn setup_totp(session: State<'_, SessionManager>) -> Result<totp::TotpSetup, AppError> {
     // Require active session
     let (_, _) = session.get_current_user()?;
 
     // Get username for the TOTP label
     let state = session.get_state();
-    let user_id = state.user_id.ok_or_else(|| {
-        AppError::Authentication("No active user".to_string())
-    })?;
+    let user_id = state
+        .user_id
+        .ok_or_else(|| AppError::Authentication("No active user".to_string()))?;
 
     // Generate TOTP setup (uses user_id as account name in otpauth URL)
     totp::generate_totp_setup(&user_id)
@@ -138,7 +136,9 @@ pub fn check_totp(
         .map_err(|_| AppError::NotFound("User not found".to_string()))?;
 
     if !totp_enabled {
-        return Err(AppError::Authentication("TOTP not enabled for this user".to_string()));
+        return Err(AppError::Authentication(
+            "TOTP not enabled for this user".to_string(),
+        ));
     }
 
     let secret = totp_secret.ok_or_else(|| {

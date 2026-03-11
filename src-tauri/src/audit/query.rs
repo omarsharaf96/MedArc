@@ -298,7 +298,10 @@ mod tests {
 
         let page = query_audit_log(
             &conn,
-            AuditQuery { user_id: Some("alice".to_string()), ..Default::default() },
+            AuditQuery {
+                user_id: Some("alice".to_string()),
+                ..Default::default()
+            },
         )
         .unwrap();
         assert_eq!(page.total, 2);
@@ -313,7 +316,10 @@ mod tests {
 
         let page = query_audit_log(
             &conn,
-            AuditQuery { patient_id: Some("p1".to_string()), ..Default::default() },
+            AuditQuery {
+                patient_id: Some("p1".to_string()),
+                ..Default::default()
+            },
         )
         .unwrap();
         assert_eq!(page.total, 1);
@@ -328,7 +334,11 @@ mod tests {
         }
         let page = query_audit_log(
             &conn,
-            AuditQuery { limit: Some(3), offset: Some(0), ..Default::default() },
+            AuditQuery {
+                limit: Some(3),
+                offset: Some(0),
+                ..Default::default()
+            },
         )
         .unwrap();
         assert_eq!(page.total, 10);
@@ -336,7 +346,11 @@ mod tests {
 
         let page2 = query_audit_log(
             &conn,
-            AuditQuery { limit: Some(3), offset: Some(9), ..Default::default() },
+            AuditQuery {
+                limit: Some(3),
+                offset: Some(9),
+                ..Default::default()
+            },
         )
         .unwrap();
         assert_eq!(page2.entries.len(), 1); // last row
@@ -361,7 +375,11 @@ mod tests {
         write_audit_entry(&conn, make_input("u", None, false)).unwrap();
 
         let result = verify_audit_chain(&conn).unwrap();
-        assert!(result.valid, "expected valid chain, got: {:?}", result.error);
+        assert!(
+            result.valid,
+            "expected valid chain, got: {:?}",
+            result.error
+        );
         assert_eq!(result.rows_checked, 3);
     }
 

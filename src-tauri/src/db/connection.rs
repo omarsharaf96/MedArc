@@ -19,7 +19,11 @@ impl Database {
         // Verify encryption is working by reading cipher_version.
         // If the key is wrong, this will fail.
         conn.pragma_query_value(None, "cipher_version", |row| row.get::<_, String>(0))
-            .map_err(|_| AppError::Database("Failed to verify encryption -- wrong key or corrupted database".to_string()))?;
+            .map_err(|_| {
+                AppError::Database(
+                    "Failed to verify encryption -- wrong key or corrupted database".to_string(),
+                )
+            })?;
 
         // Enable WAL mode for better concurrent read performance
         conn.pragma_update(None, "journal_mode", "WAL")?;

@@ -15,39 +15,39 @@ Audit logs are retained for minimum 6 years
 
 ### PTNT-08 — User can track patient allergies with drug, food, environmental categories, severity, and reaction type (FHIR AllergyIntolerance)
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S05
 
-User can track patient allergies with drug, food, environmental categories, severity, and reaction type (FHIR AllergyIntolerance)
+User can track patient allergies with drug, food, environmental categories, severity, and reaction type (FHIR AllergyIntolerance). Proven by S05: `add_allergy`, `list_allergies`, `update_allergy`, `delete_allergy` commands create and manage FHIR AllergyIntolerance resources with RxNorm-coded substances, category (drug/food/environment/biologic), severity, and reaction. Test `ptnt_08_allergy_intolerance_fhir_complete` asserts all required fields.
 
 ### PTNT-09 — User can maintain active problem list with ICD-10 coded diagnoses (active/inactive/resolved status)
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S05
 
-User can maintain active problem list with ICD-10 coded diagnoses (active/inactive/resolved status)
+User can maintain active problem list with ICD-10 coded diagnoses (active/inactive/resolved status). Proven by S05: `add_problem`, `list_problems`, `update_problem` commands manage FHIR Condition resources with ICD-10-CM coded diagnoses, problem-list-item category, and active/inactive/resolved clinical status with optional abatement date. Test `ptnt_09_condition_fhir_with_icd10_and_status` asserts all required fields.
 
 ### PTNT-10 — User can maintain medication list (active, discontinued, historical) linked to RxNorm codes
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S05
 
-User can maintain medication list (active, discontinued, historical) linked to RxNorm codes
+User can maintain medication list (active, discontinued, historical) linked to RxNorm codes. Proven by S05: `add_medication`, `list_medications`, `update_medication` commands manage FHIR MedicationStatement resources with RxNorm-coded drugs, status lifecycle (active/completed/stopped/on-hold/unknown/not-taken), dosage text, and effective period. Test `ptnt_10_medication_statement_fhir_complete` asserts all required fields.
 
 ### PTNT-11 — User can record immunization history with CVX codes, lot numbers, administration dates
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S05
 
-User can record immunization history with CVX codes, lot numbers, administration dates
+User can record immunization history with CVX codes, lot numbers, administration dates. Proven by S05: `add_immunization`, `list_immunizations` commands manage FHIR Immunization resources with CVX-coded vaccines, lot numbers, expiration dates, administration dates, site, route, and dose number. Test `ptnt_11_immunization_fhir_complete` asserts all required fields.
 
 ### SCHD-01 — User can view multi-provider calendar in day, week, and month views
 

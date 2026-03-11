@@ -18,9 +18,8 @@ pub fn hash_password(password: &str) -> Result<String, AppError> {
 
 /// Verify a plaintext password against an Argon2id hash.
 pub fn verify(password: &str, hash: &str) -> Result<(), AppError> {
-    password_auth::verify_password(password, hash).map_err(|_| {
-        AppError::Authentication("Invalid credentials".to_string())
-    })
+    password_auth::verify_password(password, hash)
+        .map_err(|_| AppError::Authentication("Invalid credentials".to_string()))
 }
 
 #[cfg(test)]
@@ -30,7 +29,10 @@ mod tests {
     #[test]
     fn hash_password_returns_argon2id_hash() {
         let result = hash_password("validpassword1");
-        assert!(result.is_ok(), "hash_password should succeed for valid password");
+        assert!(
+            result.is_ok(),
+            "hash_password should succeed for valid password"
+        );
         let hash = result.unwrap();
         assert!(
             hash.starts_with("$argon2id$"),
@@ -42,7 +44,10 @@ mod tests {
     #[test]
     fn hash_password_rejects_short_password() {
         let result = hash_password("short");
-        assert!(result.is_err(), "hash_password should reject passwords shorter than 12 chars");
+        assert!(
+            result.is_err(),
+            "hash_password should reject passwords shorter than 12 chars"
+        );
     }
 
     #[test]

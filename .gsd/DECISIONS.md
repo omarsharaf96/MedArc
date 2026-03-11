@@ -69,3 +69,16 @@ Architectural and implementation decisions extracted from completed work.
 - `generate_mrn()` uses `rand::random()` not `uuid` — MRNs must be short and human-readable for clinical workflows; UUIDs are too long for paper forms
 - Two new `Resource` variants (`Patients`, `CareTeam`) added to the RBAC enum rather than reusing `ClinicalRecords` — keeps permission semantics distinct and prevents accidental privilege escalation via the existing ClinicalRecords wildcard rules
 - `cargo test` stalled during this session (likely blocked on incremental Tauri compilation); all files were validated via `rustfmt --edition 2021` (exit 0 = valid syntax) as the verification gate
+
+## S05 — Clinical Patient Data
+
+- Four clinical index tables (allergy_index, problem_index, medication_index, immunization_index) added in Migration 10 — mirrors patient_index pattern from Migration 9: denormalised status/code columns indexed for fast patient-scoped list queries, full FHIR JSON stored in fhir_resources
+- `ClinicalData` added as a distinct RBAC Resource enum variant rather than reusing `ClinicalRecords` — keeps clinical list permissions (allergies, problems, meds, immunizations) separate from encounter/note permissions that land in S07; prevents accidental privilege escalation via the ClinicalRecords wildcard
+- NurseMa gets CRU but not Delete on `ClinicalData` — deleting allergies or medications is a clinical safety decision requiring Provider authority; NurseMa can correct by updating status to "entered-in-error"
+- No `update_immunization` command shipped — immunizations are generally immutable administered-dose records; correction pattern is a new record with `status = "entered-in-error"` per clinical informatics convention
+- `delete_allergy` is the only physical delete — medications and problems use status transitions (stopped/resolved) rather than deletion, preserving audit continuity and care history
+- `build_allergy_fhir`, `build_problem_fhir`, `build_medication_fhir`, `build_immunization_fhir` are pure functions (no I/O) — directly testable without DB mocks; same pattern as `build_patient_fhir` in S04
+- `MedicationStatement` uses `medication.concept` coding path (FHIR R4B direction) rather than the deprecated `medicationCodeableConcept` — future-proofs against FHIR R5 migration
+- `list_problems` and `list_medications` accept `status_filter: Option<String>` — filtered queries use `problem_index.clinical_status` and `medication_index.status` indexed columns, not JSON extraction
+- `immunization_index` ordered by `administered_date DESC` — most recent dose always first without application-layer sort
+- `rustfmt` exit-0 is the verification gate (same precedent as S04) — `cargo test` stalls in this environment due to Tauri compilation time

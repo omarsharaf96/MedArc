@@ -19,17 +19,17 @@ pub struct TotpSetup {
 pub fn generate_totp_setup(username: &str) -> Result<TotpSetup, AppError> {
     // Generate a random secret
     let secret = Secret::generate_secret();
-    let secret_bytes = secret.to_bytes().map_err(|e| {
-        AppError::Authentication(format!("Failed to generate TOTP secret: {}", e))
-    })?;
+    let secret_bytes = secret
+        .to_bytes()
+        .map_err(|e| AppError::Authentication(format!("Failed to generate TOTP secret: {}", e)))?;
     let secret_base32 = secret.to_encoded().to_string();
 
     // Create TOTP instance: SHA-1, 6 digits, skew=1, period=30s, issuer=MedArc
     let totp = TOTP::new(
         Algorithm::SHA1,
-        6,    // digits
-        1,    // skew (allows 1 step before/after = 90 second window)
-        30,   // period in seconds
+        6,  // digits
+        1,  // skew (allows 1 step before/after = 90 second window)
+        30, // period in seconds
         secret_bytes,
         Some("MedArc".to_string()),
         username.to_string(),
@@ -63,18 +63,20 @@ pub fn verify_totp(secret_base32: &str, code: &str) -> Result<bool, AppError> {
     let totp = TOTP::new(
         Algorithm::SHA1,
         6,
-        1,    // skew=1 for 90-second window
+        1, // skew=1 for 90-second window
         30,
         secret_bytes,
         Some("MedArc".to_string()),
         String::new(), // account name not needed for verification
     )
-    .map_err(|e| AppError::Authentication(format!("Failed to create TOTP for verification: {}", e)))?;
+    .map_err(|e| {
+        AppError::Authentication(format!("Failed to create TOTP for verification: {}", e))
+    })?;
 
     // Check if the code is valid for the current time
-    Ok(totp.check_current(code).map_err(|e| {
-        AppError::Authentication(format!("TOTP verification error: {}", e))
-    })?)
+    Ok(totp
+        .check_current(code)
+        .map_err(|e| AppError::Authentication(format!("TOTP verification error: {}", e)))?)
 }
 
 #[cfg(test)]
@@ -88,11 +90,16 @@ mod tests {
         let setup = result.unwrap();
 
         // Secret should be a non-empty base32 string
-        assert!(!setup.secret_base32.is_empty(), "secret_base32 should not be empty");
+        assert!(
+            !setup.secret_base32.is_empty(),
+            "secret_base32 should not be empty"
+        );
 
         // otpauth URL should have correct format
         assert!(
-            setup.otpauth_url.starts_with("otpauth://totp/MedArc:testuser"),
+            setup
+                .otpauth_url
+                .starts_with("otpauth://totp/MedArc:testuser"),
             "otpauth_url should start with otpauth://totp/MedArc:testuser, got: {}",
             setup.otpauth_url
         );
@@ -106,34 +113,52 @@ mod tests {
         let setup = generate_totp_setup("testuser").expect("setup should succeed");
 
         // Generate a valid code using the same secret
-        use totp_rs::{Algorithm, TOTP, Secret};
+        use totp_rs::{Algorithm, Secret, TOTP};
         let secret_bytes = Secret::Encoded(setup.secret_base32.clone())
             .to_bytes()
             .expect("secret should decode");
         let totp = TOTP::new(
-            Algorithm::SHA1, 6, 1, 30, secret_bytes,
-            Some("MedArc".to_string()), "testuser".to_string(),
-        ).expect("totp should create");
+            Algorithm::SHA1,
+            6,
+            1,
+            30,
+            secret_bytes,
+            Some("MedArc".to_string()),
+            "testuser".to_string(),
+        )
+        .expect("totp should create");
         let valid_code = totp.generate_current().expect("should generate code");
 
         let result = verify_totp(&setup.secret_base32, &valid_code);
         assert!(result.is_ok(), "verify_totp should not error");
-        assert!(result.unwrap(), "verify_totp should return true for valid code");
+        assert!(
+            result.unwrap(),
+            "verify_totp should return true for valid code"
+        );
     }
 
     #[test]
     fn verify_with_wrong_code_returns_false() {
         let setup = generate_totp_setup("testuser").expect("setup should succeed");
         let result = verify_totp(&setup.secret_base32, "000000");
-        assert!(result.is_ok(), "verify_totp should not error for wrong code");
+        assert!(
+            result.is_ok(),
+            "verify_totp should not error for wrong code"
+        );
         // Note: There's a tiny chance "000000" is the current valid code,
         // but this is astronomically unlikely in practice
-        assert!(!result.unwrap(), "verify_totp should return false for wrong code");
+        assert!(
+            !result.unwrap(),
+            "verify_totp should return false for wrong code"
+        );
     }
 
     #[test]
     fn verify_with_invalid_secret_returns_error() {
         let result = verify_totp("invalid_secret!!!", "123456");
-        assert!(result.is_err(), "verify_totp should error for invalid secret");
+        assert!(
+            result.is_err(),
+            "verify_totp should error for invalid secret"
+        );
     }
 }

@@ -121,7 +121,15 @@ mod tests {
             "clinicalNotes": "Confidential clinical data",
             "medications": ["metformin"]
         });
-        let billing_fields = vec!["id", "name", "birthDate", "gender", "address", "telecom", "identifier"];
+        let billing_fields = vec![
+            "id",
+            "name",
+            "birthDate",
+            "gender",
+            "address",
+            "telecom",
+            "identifier",
+        ];
         let result = filter_resource(&resource, &billing_fields);
 
         // Should include demographics

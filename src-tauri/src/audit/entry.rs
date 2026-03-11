@@ -107,7 +107,10 @@ pub fn compute_hash(
 ///
 /// # Errors
 /// Returns `AppError::Database` on any SQLite failure.
-pub fn write_audit_entry(conn: &Connection, input: AuditEntryInput) -> Result<AuditEntry, AppError> {
+pub fn write_audit_entry(
+    conn: &Connection,
+    input: AuditEntryInput,
+) -> Result<AuditEntry, AppError> {
     // Resolve the previous hash (tip of the chain).
     let previous_hash: String = conn
         .query_row(
@@ -237,17 +240,26 @@ mod tests {
         let entry = write_audit_entry(&conn, sample_input()).unwrap();
 
         // Read back from DB and assert all 9 mandatory fields are present.
-        let (timestamp, user_id, action, resource_type, resource_id,
-             patient_id, device_id, success, details): (
-            String,          // timestamp
-            String,          // user_id
-            String,          // action
-            String,          // resource_type
-            String,          // resource_id  (NOT NULL in sample)
-            Option<String>,  // patient_id
-            String,          // device_id
-            i32,             // success
-            Option<String>,  // details
+        let (
+            timestamp,
+            user_id,
+            action,
+            resource_type,
+            resource_id,
+            patient_id,
+            device_id,
+            success,
+            details,
+        ): (
+            String,         // timestamp
+            String,         // user_id
+            String,         // action
+            String,         // resource_type
+            String,         // resource_id  (NOT NULL in sample)
+            Option<String>, // patient_id
+            String,         // device_id
+            i32,            // success
+            Option<String>, // details
         ) = conn
             .query_row(
                 "SELECT timestamp, user_id, action, resource_type, resource_id,
@@ -271,14 +283,18 @@ mod tests {
             .unwrap();
 
         assert!(!timestamp.is_empty(), "timestamp missing");
-        assert_eq!(user_id,    "user-123",   "user_id mismatch");
-        assert_eq!(action,     "fhir.create", "action mismatch");
+        assert_eq!(user_id, "user-123", "user_id mismatch");
+        assert_eq!(action, "fhir.create", "action mismatch");
         assert_eq!(resource_type, "Patient", "resource_type mismatch");
-        assert_eq!(resource_id,   "pat-456", "resource_id mismatch");
-        assert_eq!(patient_id.as_deref(), Some("pat-456"), "patient_id mismatch");
-        assert_eq!(device_id,  "device-abc", "device_id mismatch");
-        assert_eq!(success,    1i32,          "success should be 1");
-        assert!(details.is_none(),            "details should be None");
+        assert_eq!(resource_id, "pat-456", "resource_id mismatch");
+        assert_eq!(
+            patient_id.as_deref(),
+            Some("pat-456"),
+            "patient_id mismatch"
+        );
+        assert_eq!(device_id, "device-abc", "device_id mismatch");
+        assert_eq!(success, 1i32, "success should be 1");
+        assert!(details.is_none(), "details should be None");
     }
 
     // ── Must-Have 2: Hash chain integrity ────────────────────────────────
@@ -298,8 +314,14 @@ mod tests {
         let e3 = write_audit_entry(&conn, sample_input()).unwrap();
 
         // Row N's previous_hash == row N-1's entry_hash
-        assert_eq!(e2.previous_hash, e1.entry_hash, "chain broken between e1 and e2");
-        assert_eq!(e3.previous_hash, e2.entry_hash, "chain broken between e2 and e3");
+        assert_eq!(
+            e2.previous_hash, e1.entry_hash,
+            "chain broken between e1 and e2"
+        );
+        assert_eq!(
+            e3.previous_hash, e2.entry_hash,
+            "chain broken between e2 and e3"
+        );
     }
 
     #[test]
@@ -391,26 +413,65 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert!(details.is_some(), "details should be present for failed entry");
+        assert!(
+            details.is_some(),
+            "details should be present for failed entry"
+        );
     }
 
     // ── compute_hash determinism ──────────────────────────────────────────
 
     #[test]
     fn compute_hash_is_deterministic() {
-        let h1 = compute_hash("GENESIS", "id1", "2026-01-01T00:00:00Z",
-            "u1", "fhir.get", "Patient", Some("p1"), Some("p1"), "dev1", true, None);
-        let h2 = compute_hash("GENESIS", "id1", "2026-01-01T00:00:00Z",
-            "u1", "fhir.get", "Patient", Some("p1"), Some("p1"), "dev1", true, None);
+        let h1 = compute_hash(
+            "GENESIS",
+            "id1",
+            "2026-01-01T00:00:00Z",
+            "u1",
+            "fhir.get",
+            "Patient",
+            Some("p1"),
+            Some("p1"),
+            "dev1",
+            true,
+            None,
+        );
+        let h2 = compute_hash(
+            "GENESIS",
+            "id1",
+            "2026-01-01T00:00:00Z",
+            "u1",
+            "fhir.get",
+            "Patient",
+            Some("p1"),
+            Some("p1"),
+            "dev1",
+            true,
+            None,
+        );
         assert_eq!(h1, h2);
     }
 
     #[test]
     fn compute_hash_changes_on_any_field_mutation() {
-        let base = compute_hash("GENESIS", "id1", "t", "u", "a", "r", None, None, "d", true, None);
-        assert_ne!(base, compute_hash("OTHER", "id1", "t", "u", "a", "r", None, None, "d", true, None));
-        assert_ne!(base, compute_hash("GENESIS", "id2", "t", "u", "a", "r", None, None, "d", true, None));
-        assert_ne!(base, compute_hash("GENESIS", "id1", "t2", "u", "a", "r", None, None, "d", true, None));
-        assert_ne!(base, compute_hash("GENESIS", "id1", "t", "u", "a", "r", None, None, "d", false, None));
+        let base = compute_hash(
+            "GENESIS", "id1", "t", "u", "a", "r", None, None, "d", true, None,
+        );
+        assert_ne!(
+            base,
+            compute_hash("OTHER", "id1", "t", "u", "a", "r", None, None, "d", true, None)
+        );
+        assert_ne!(
+            base,
+            compute_hash("GENESIS", "id2", "t", "u", "a", "r", None, None, "d", true, None)
+        );
+        assert_ne!(
+            base,
+            compute_hash("GENESIS", "id1", "t2", "u", "a", "r", None, None, "d", true, None)
+        );
+        assert_ne!(
+            base,
+            compute_hash("GENESIS", "id1", "t", "u", "a", "r", None, None, "d", false, None)
+        );
     }
 }

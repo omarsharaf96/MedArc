@@ -19,7 +19,7 @@
   > After this: Create the audit logging data layer: Migration 8 (audit_logs table + immutability triggers) and the audit Rust module (entry.
 - [x] **S04: Patient Demographics & Care Teams** `risk:medium` `depends:[S03]`
   > After this: unit tests prove Patient Demographics & Care Teams works
-- [ ] **S05: Clinical Patient Data** `risk:medium` `depends:[S04]`
+- [x] **S05: Clinical Patient Data** `risk:medium` `depends:[S04]`
   > After this: unit tests prove Clinical Patient Data works
 - [ ] **S06: Scheduling** `risk:medium` `depends:[S05]`
   > After this: unit tests prove Scheduling works

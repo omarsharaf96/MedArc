@@ -61,7 +61,10 @@ pub fn register_user(
         )));
     }
 
-    let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
 
     // Check authorization: first-run bootstrap or SystemAdmin only
     let user_count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
@@ -115,7 +118,10 @@ pub fn login(
     username: String,
     password: String,
 ) -> Result<LoginResponse, AppError> {
-    let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
 
     // Look up user by username
     let user_row = conn.query_row(
@@ -135,7 +141,16 @@ pub fn login(
         },
     ).map_err(|_| AppError::Authentication("Invalid credentials".to_string()))?;
 
-    let (user_id, _username, password_hash, display_name, role, is_active, failed_attempts, locked_until) = user_row;
+    let (
+        user_id,
+        _username,
+        password_hash,
+        display_name,
+        role,
+        is_active,
+        failed_attempts,
+        locked_until,
+    ) = user_row;
 
     // Check if account is active
     if !is_active {
@@ -174,7 +189,8 @@ pub fn login(
                     },
                 );
                 return Err(AppError::Authentication(
-                    "Account is temporarily locked due to too many failed login attempts".to_string(),
+                    "Account is temporarily locked due to too many failed login attempts"
+                        .to_string(),
                 ));
             }
             // Lock has expired, reset
@@ -347,13 +363,19 @@ pub fn logout(
 ) -> Result<(), AppError> {
     // Capture user_id and session_id before the state transition.
     let session_info = session.get_state();
-    let user_id_for_audit = session_info.user_id.clone().unwrap_or_else(|| "UNAUTHENTICATED".to_string());
+    let user_id_for_audit = session_info
+        .user_id
+        .clone()
+        .unwrap_or_else(|| "UNAUTHENTICATED".to_string());
 
     session.logout()?;
 
     // Update session row in database and write audit entry.
     if let Some(session_id) = session_info.session_id {
-        let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| AppError::Database(e.to_string()))?;
         conn.execute(
             "UPDATE sessions SET state = 'expired' WHERE id = ?1",
             rusqlite::params![session_id],
@@ -390,7 +412,10 @@ pub fn complete_login(
     user_id: String,
     totp_code: String,
 ) -> Result<LoginResponse, AppError> {
-    let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
 
     // Fetch the user's TOTP secret and verify the code
     let (totp_secret, totp_enabled, username, display_name, role): (
@@ -454,7 +479,9 @@ pub fn complete_login(
                 details: Some("Invalid MFA code".to_string()),
             },
         );
-        return Err(AppError::Authentication("Invalid verification code".to_string()));
+        return Err(AppError::Authentication(
+            "Invalid verification code".to_string(),
+        ));
     }
 
     // TOTP verified -- now create the full session
@@ -500,7 +527,10 @@ pub fn complete_login(
 /// should show the first-run registration form with SystemAdmin role locked.
 #[tauri::command]
 pub fn check_first_run(db: State<'_, Database>) -> Result<bool, AppError> {
-    let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
     Ok(count == 0)
 }

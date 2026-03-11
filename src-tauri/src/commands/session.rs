@@ -15,7 +15,10 @@ pub fn lock_session(
     session.lock()?;
 
     if let Some(session_id) = session_info.session_id {
-        let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| AppError::Database(e.to_string()))?;
         conn.execute(
             "UPDATE sessions SET state = 'locked' WHERE id = ?1",
             rusqlite::params![session_id],
@@ -45,7 +48,10 @@ pub fn unlock_session(
     }
 
     // Verify password against stored hash
-    let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
     let password_hash: String = conn.query_row(
         "SELECT password_hash FROM users WHERE id = ?1",
         rusqlite::params![user_id],
@@ -78,7 +84,10 @@ pub fn refresh_session(
 
     let session_info = session.get_state();
     if let Some(session_id) = session_info.session_id {
-        let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| AppError::Database(e.to_string()))?;
         conn.execute(
             "UPDATE sessions SET last_activity = datetime('now') WHERE id = ?1",
             rusqlite::params![session_id],
@@ -97,7 +106,10 @@ pub fn get_session_state(session: State<'_, SessionManager>) -> Result<SessionIn
 /// Get the session timeout value from app_settings.
 #[tauri::command]
 pub fn get_session_timeout(db: State<'_, Database>) -> Result<u32, AppError> {
-    let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
     let timeout_str: String = conn
         .query_row(
             "SELECT value FROM app_settings WHERE key = 'session_timeout_minutes'",

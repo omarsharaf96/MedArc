@@ -168,6 +168,64 @@ static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             CREATE INDEX IF NOT EXISTS idx_patient_index_given   ON patient_index(given_name);
             CREATE INDEX IF NOT EXISTS idx_patient_index_dob     ON patient_index(birth_date);"
         ),
+        // Migration 10: Clinical data index tables for S05
+        //
+        // Four index tables support the clinical data lists:
+        //   - allergy_index:       maps AllergyIntolerance resources by patient / status / category
+        //   - problem_index:       maps Condition resources by patient / status / ICD-10 code
+        //   - medication_index:    maps MedicationStatement resources by patient / status / RxNorm
+        //   - immunization_index:  maps Immunization resources by patient / CVX code / date
+        //
+        // All four use ON DELETE CASCADE from fhir_resources so that deleting the FHIR resource
+        // automatically removes the corresponding index row.  This mirrors the patient_index
+        // pattern established in Migration 9.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS allergy_index (
+                allergy_id      TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                clinical_status TEXT NOT NULL DEFAULT 'active',
+                category        TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_allergy_patient   ON allergy_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_allergy_status    ON allergy_index(clinical_status);
+            CREATE INDEX IF NOT EXISTS idx_allergy_category  ON allergy_index(category);
+
+            CREATE TABLE IF NOT EXISTS problem_index (
+                problem_id      TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                clinical_status TEXT NOT NULL DEFAULT 'active',
+                icd10_code      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_problem_patient   ON problem_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_problem_status    ON problem_index(clinical_status);
+            CREATE INDEX IF NOT EXISTS idx_problem_icd10     ON problem_index(icd10_code);
+
+            CREATE TABLE IF NOT EXISTS medication_index (
+                medication_id   TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'active',
+                rxnorm_code     TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_medication_patient ON medication_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_medication_status  ON medication_index(status);
+            CREATE INDEX IF NOT EXISTS idx_medication_rxnorm  ON medication_index(rxnorm_code);
+
+            CREATE TABLE IF NOT EXISTS immunization_index (
+                immunization_id TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                cvx_code        TEXT NOT NULL,
+                administered_date TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_immunization_patient ON immunization_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_immunization_cvx     ON immunization_index(cvx_code);
+            CREATE INDEX IF NOT EXISTS idx_immunization_date    ON immunization_index(administered_date);"
+        ),
     ])
 });
 

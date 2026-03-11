@@ -89,22 +89,23 @@ pub fn create_resource(
     input: CreateFhirResource,
 ) -> Result<FhirResource, AppError> {
     // Permission check — runs before acquiring the DB lock.
-    let (user_id, _role) = match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Create) {
-        Ok(pair) => pair,
-        Err(e) => {
-            audit_denied(
-                &db,
-                &device_id,
-                "UNAUTHENTICATED",
-                "fhir.create",
-                &input.resource_type,
-                None,
-                extract_patient_id(&input.resource_type, &input.resource),
-                &format!("Permission denied: {}", e),
-            );
-            return Err(e);
-        }
-    };
+    let (user_id, _role) =
+        match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Create) {
+            Ok(pair) => pair,
+            Err(e) => {
+                audit_denied(
+                    &db,
+                    &device_id,
+                    "UNAUTHENTICATED",
+                    "fhir.create",
+                    &input.resource_type,
+                    None,
+                    extract_patient_id(&input.resource_type, &input.resource),
+                    &format!("Permission denied: {}", e),
+                );
+                return Err(e);
+            }
+        };
 
     let conn = db
         .conn
@@ -113,8 +114,8 @@ pub fn create_resource(
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
-    let resource_json = serde_json::to_string(&input.resource)
-        .map_err(|e| AppError::Database(e.to_string()))?;
+    let resource_json =
+        serde_json::to_string(&input.resource).map_err(|e| AppError::Database(e.to_string()))?;
 
     let insert_result = conn.execute(
         "INSERT INTO fhir_resources (id, resource_type, resource, version_id, last_updated, created_at, updated_at)
@@ -177,22 +178,23 @@ pub fn get_resource(
     device_id: State<'_, DeviceId>,
     id: String,
 ) -> Result<FhirResource, AppError> {
-    let (user_id, role) = match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Read) {
-        Ok(pair) => pair,
-        Err(e) => {
-            audit_denied(
-                &db,
-                &device_id,
-                "UNAUTHENTICATED",
-                "fhir.get",
-                "unknown",
-                Some(id.clone()),
-                None,
-                &format!("Permission denied: {}", e),
-            );
-            return Err(e);
-        }
-    };
+    let (user_id, role) =
+        match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Read) {
+            Ok(pair) => pair,
+            Err(e) => {
+                audit_denied(
+                    &db,
+                    &device_id,
+                    "UNAUTHENTICATED",
+                    "fhir.get",
+                    "unknown",
+                    Some(id.clone()),
+                    None,
+                    &format!("Permission denied: {}", e),
+                );
+                return Err(e);
+            }
+        };
 
     let conn = db
         .conn
@@ -207,8 +209,8 @@ pub fn get_resource(
     let fetch_result = stmt
         .query_row(rusqlite::params![id.clone()], |row| {
             let resource_str: String = row.get(2)?;
-            let resource: serde_json::Value = serde_json::from_str(&resource_str)
-                .unwrap_or(serde_json::Value::Null);
+            let resource: serde_json::Value =
+                serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
             Ok(FhirResource {
                 id: row.get(0)?,
                 resource_type: row.get(1)?,
@@ -275,22 +277,23 @@ pub fn list_resources(
     device_id: State<'_, DeviceId>,
     resource_type: Option<String>,
 ) -> Result<FhirResourceList, AppError> {
-    let (user_id, role) = match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Read) {
-        Ok(pair) => pair,
-        Err(e) => {
-            audit_denied(
-                &db,
-                &device_id,
-                "UNAUTHENTICATED",
-                "fhir.list",
-                &resource_type.clone().unwrap_or_else(|| "all".to_string()),
-                None,
-                None,
-                &format!("Permission denied: {}", e),
-            );
-            return Err(e);
-        }
-    };
+    let (user_id, role) =
+        match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Read) {
+            Ok(pair) => pair,
+            Err(e) => {
+                audit_denied(
+                    &db,
+                    &device_id,
+                    "UNAUTHENTICATED",
+                    "fhir.list",
+                    &resource_type.clone().unwrap_or_else(|| "all".to_string()),
+                    None,
+                    None,
+                    &format!("Permission denied: {}", e),
+                );
+                return Err(e);
+            }
+        };
 
     let conn = db
         .conn
@@ -341,8 +344,7 @@ pub fn list_resources(
     };
 
     let mut stmt = conn.prepare(query)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-        params.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     let resources: Vec<FhirResource> = stmt
         .query_map(param_refs.as_slice(), |row| {
             let resource_str: String = row.get(2)?;
@@ -402,22 +404,23 @@ pub fn update_resource(
     device_id: State<'_, DeviceId>,
     input: UpdateFhirResource,
 ) -> Result<FhirResource, AppError> {
-    let (user_id, _role) = match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Update) {
-        Ok(pair) => pair,
-        Err(e) => {
-            audit_denied(
-                &db,
-                &device_id,
-                "UNAUTHENTICATED",
-                "fhir.update",
-                "unknown",
-                Some(input.id.clone()),
-                extract_patient_id("unknown", &input.resource),
-                &format!("Permission denied: {}", e),
-            );
-            return Err(e);
-        }
-    };
+    let (user_id, _role) =
+        match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Update) {
+            Ok(pair) => pair,
+            Err(e) => {
+                audit_denied(
+                    &db,
+                    &device_id,
+                    "UNAUTHENTICATED",
+                    "fhir.update",
+                    "unknown",
+                    Some(input.id.clone()),
+                    extract_patient_id("unknown", &input.resource),
+                    &format!("Permission denied: {}", e),
+                );
+                return Err(e);
+            }
+        };
 
     let conn = db
         .conn
@@ -446,7 +449,10 @@ pub fn update_resource(
                     details: Some(format!("Not found: {}", input.id)),
                 },
             );
-            return Err(AppError::NotFound(format!("Resource not found: {}", input.id)));
+            return Err(AppError::NotFound(format!(
+                "Resource not found: {}",
+                input.id
+            )));
         }
         Err(e) => {
             let _ = write_audit_entry(
@@ -468,8 +474,8 @@ pub fn update_resource(
 
     let now = chrono::Utc::now().to_rfc3339();
     let new_version = current_version + 1;
-    let resource_json = serde_json::to_string(&input.resource)
-        .map_err(|e| AppError::Database(e.to_string()))?;
+    let resource_json =
+        serde_json::to_string(&input.resource).map_err(|e| AppError::Database(e.to_string()))?;
 
     let update_result = conn.execute(
         "UPDATE fhir_resources SET resource = ?1, version_id = ?2, last_updated = ?3, updated_at = ?4
@@ -543,22 +549,23 @@ pub fn delete_resource(
     device_id: State<'_, DeviceId>,
     id: String,
 ) -> Result<(), AppError> {
-    let (user_id, _role) = match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Delete) {
-        Ok(pair) => pair,
-        Err(e) => {
-            audit_denied(
-                &db,
-                &device_id,
-                "UNAUTHENTICATED",
-                "fhir.delete",
-                "unknown",
-                Some(id.clone()),
-                None,
-                &format!("Permission denied: {}", e),
-            );
-            return Err(e);
-        }
-    };
+    let (user_id, _role) =
+        match middleware::check_permission(&session, Resource::ClinicalRecords, Action::Delete) {
+            Ok(pair) => pair,
+            Err(e) => {
+                audit_denied(
+                    &db,
+                    &device_id,
+                    "UNAUTHENTICATED",
+                    "fhir.delete",
+                    "unknown",
+                    Some(id.clone()),
+                    None,
+                    &format!("Permission denied: {}", e),
+                );
+                return Err(e);
+            }
+        };
 
     let conn = db
         .conn

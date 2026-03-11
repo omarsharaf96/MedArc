@@ -23,17 +23,15 @@ pub fn run() {
             let db_path = app_data_dir.join("medarc.db");
             let key = keychain::get_or_create_db_key()?;
 
-            let database = Database::open(
-                db_path.to_str().expect("Invalid DB path"),
-                &key,
-            )?;
+            let database = Database::open(db_path.to_str().expect("Invalid DB path"), &key)?;
 
             db::migrations::run(&database)?;
 
             let timeout: u32 = {
-                let conn = database.conn.lock().map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-                })?;
+                let conn = database
+                    .conn
+                    .lock()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
                 conn.query_row(
                     "SELECT value FROM app_settings WHERE key = 'session_timeout_minutes'",
                     [],
@@ -90,6 +88,19 @@ pub fn run() {
             commands::patient::get_care_team,
             commands::patient::add_related_person,
             commands::patient::list_related_persons,
+            // S05 — Clinical Patient Data
+            commands::clinical::add_allergy,
+            commands::clinical::list_allergies,
+            commands::clinical::update_allergy,
+            commands::clinical::delete_allergy,
+            commands::clinical::add_problem,
+            commands::clinical::list_problems,
+            commands::clinical::update_problem,
+            commands::clinical::add_medication,
+            commands::clinical::list_medications,
+            commands::clinical::update_medication,
+            commands::clinical::add_immunization,
+            commands::clinical::list_immunizations,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -50,6 +50,8 @@ pub enum Resource {
     Patients,
     /// Care Team assignments (S04)
     CareTeam,
+    /// Clinical data lists: allergies, problems, medications, immunizations (S05)
+    ClinicalData,
 }
 
 /// Actions that can be performed on resources.
@@ -143,6 +145,19 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (NurseMa, CareTeam, Create | Read | Update) => true,
         (NurseMa, CareTeam, Delete) => false,
         (BillingStaff, CareTeam, _) => false,
+
+        // ── ClinicalData resource (S05) ──────────────────────────────────────
+        // Allergies, problems, medications, immunizations.
+        // SystemAdmin covered by wildcard above. Provider: full CRUD.
+        // NurseMa: CRU (no delete — clinical safety concern).
+        // BillingStaff/FrontDesk: Read-only (need to see medications for billing).
+        (Provider, ClinicalData, _) => true,
+        (NurseMa, ClinicalData, Create | Read | Update) => true,
+        (NurseMa, ClinicalData, Delete) => false,
+        (BillingStaff, ClinicalData, Read) => true,
+        (BillingStaff, ClinicalData, _) => false,
+        (FrontDesk, ClinicalData, Read) => true,
+        (FrontDesk, ClinicalData, _) => false,
     }
 }
 

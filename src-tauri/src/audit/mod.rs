@@ -15,4 +15,6 @@ pub mod entry;
 pub mod query;
 
 pub use entry::{write_audit_entry, AuditEntry, AuditEntryInput};
-pub use query::{query_audit_log, verify_audit_chain, AuditLogPage, AuditQuery, ChainVerificationResult};
+pub use query::{
+    query_audit_log, verify_audit_chain, AuditLogPage, AuditQuery, ChainVerificationResult,
+};

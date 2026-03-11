@@ -4,7 +4,7 @@
 
 ## M001: MedArc Phase 1 MVP
 
-- Slices: 4/9 complete (S01, S02, S03, S04); S05 up next
-- Active Slice: none — S04 fully complete, S05 not yet started
-- Last Completed: S04 (2026-03-11) — Patient Demographics & Care Teams: 9 Tauri commands (create/get/update/delete/search patient, upsert/get care team, add/list related persons), Migration 9 (patient_index with 4 indexes), PTNT-01–07 validated, 28 unit tests, full audit trail on every command
-- Next: S05 — Clinical Patient Data (allergies, medications, problems, immunizations)
+- Slices: 5/9 complete (S01, S02, S03, S04, S05); S06 up next
+- Active Slice: none — S05 fully complete, S06 not yet started
+- Last Completed: S05 (2026-03-11) — Clinical Patient Data: 12 Tauri commands (add/list/update/delete allergy, add/list/update problem, add/list/update medication, add/list immunization), Migration 10 (4 clinical index tables with 12 indexes), PTNT-08–11 validated, 38 unit tests, full audit trail on every command, ClinicalData RBAC resource
+- Next: S06 — Scheduling (multi-provider calendar, patient flow board, appointments, recurring, waitlist, recall board)

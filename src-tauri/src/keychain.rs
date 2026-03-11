@@ -9,8 +9,8 @@ const ACCOUNT_NAME: &str = "database-encryption-key";
 /// on first launch by generating 32 cryptographically random bytes and storing
 /// the resulting raw hex key in the Keychain.
 pub fn get_or_create_db_key() -> Result<String, AppError> {
-    let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME)
-        .map_err(|e| AppError::Keychain(e.to_string()))?;
+    let entry =
+        Entry::new(SERVICE_NAME, ACCOUNT_NAME).map_err(|e| AppError::Keychain(e.to_string()))?;
 
     match entry.get_password() {
         Ok(key) => Ok(key),

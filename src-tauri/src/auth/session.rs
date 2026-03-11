@@ -57,7 +57,10 @@ impl SessionManager {
 
     /// Transition to Active state on successful login. Returns a new session ID.
     pub fn login(&self, user_id: &str, role: &str) -> Result<String, AppError> {
-        let mut state = self.state.lock().map_err(|e| AppError::Authentication(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| AppError::Authentication(e.to_string()))?;
         let session_id = uuid::Uuid::new_v4().to_string();
         *state = SessionState::Active {
             user_id: user_id.to_string(),
@@ -70,16 +73,27 @@ impl SessionManager {
 
     /// Transition to Unauthenticated state.
     pub fn logout(&self) -> Result<(), AppError> {
-        let mut state = self.state.lock().map_err(|e| AppError::Authentication(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| AppError::Authentication(e.to_string()))?;
         *state = SessionState::Unauthenticated;
         Ok(())
     }
 
     /// Transition from Active to Locked state.
     pub fn lock(&self) -> Result<(), AppError> {
-        let mut state = self.state.lock().map_err(|e| AppError::Authentication(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| AppError::Authentication(e.to_string()))?;
         match state.clone() {
-            SessionState::Active { user_id, role, session_id, .. } => {
+            SessionState::Active {
+                user_id,
+                role,
+                session_id,
+                ..
+            } => {
                 *state = SessionState::Locked {
                     user_id,
                     role,
@@ -88,15 +102,25 @@ impl SessionManager {
                 };
                 Ok(())
             }
-            _ => Err(AppError::Authentication("Can only lock an active session".to_string())),
+            _ => Err(AppError::Authentication(
+                "Can only lock an active session".to_string(),
+            )),
         }
     }
 
     /// Transition from Locked back to Active state.
     pub fn unlock(&self, _user_id: &str) -> Result<(), AppError> {
-        let mut state = self.state.lock().map_err(|e| AppError::Authentication(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| AppError::Authentication(e.to_string()))?;
         match state.clone() {
-            SessionState::Locked { user_id, role, session_id, .. } => {
+            SessionState::Locked {
+                user_id,
+                role,
+                session_id,
+                ..
+            } => {
                 *state = SessionState::Active {
                     user_id,
                     role,
@@ -105,13 +129,18 @@ impl SessionManager {
                 };
                 Ok(())
             }
-            _ => Err(AppError::Authentication("Can only unlock a locked session".to_string())),
+            _ => Err(AppError::Authentication(
+                "Can only unlock a locked session".to_string(),
+            )),
         }
     }
 
     /// Refresh the last activity timestamp (keeps session alive).
     pub fn refresh_activity(&self) -> Result<(), AppError> {
-        let mut state = self.state.lock().map_err(|e| AppError::Authentication(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| AppError::Authentication(e.to_string()))?;
         if let SessionState::Active { last_activity, .. } = &mut *state {
             *last_activity = Utc::now();
         }
@@ -141,21 +170,37 @@ impl SessionManager {
                 state: "unauthenticated".to_string(),
                 last_activity: None,
             },
-            SessionState::Active { user_id, role, last_activity, session_id } => SessionInfo {
+            SessionState::Active {
+                user_id,
+                role,
+                last_activity,
+                session_id,
+            } => SessionInfo {
                 session_id: Some(session_id.clone()),
                 user_id: Some(user_id.clone()),
                 role: Some(role.clone()),
                 state: "active".to_string(),
                 last_activity: Some(last_activity.to_rfc3339()),
             },
-            SessionState::Locked { user_id, role, session_id, .. } => SessionInfo {
+            SessionState::Locked {
+                user_id,
+                role,
+                session_id,
+                ..
+            } => SessionInfo {
                 session_id: Some(session_id.clone()),
                 user_id: Some(user_id.clone()),
                 role: Some(role.clone()),
                 state: "locked".to_string(),
                 last_activity: None,
             },
-            SessionState::BreakGlass { user_id, original_role, session_id, expires_at, .. } => SessionInfo {
+            SessionState::BreakGlass {
+                user_id,
+                original_role,
+                session_id,
+                expires_at,
+                ..
+            } => SessionInfo {
                 session_id: Some(session_id.clone()),
                 user_id: Some(user_id.clone()),
                 role: Some(original_role.clone()),
@@ -167,17 +212,18 @@ impl SessionManager {
 
     /// Get the current user ID and role. Fails if not in Active or BreakGlass state.
     pub fn get_current_user(&self) -> Result<(String, String), AppError> {
-        let state = self.state.lock().map_err(|e| AppError::Authentication(e.to_string()))?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|e| AppError::Authentication(e.to_string()))?;
         match &*state {
-            SessionState::Active { user_id, role, .. } => {
-                Ok((user_id.clone(), role.clone()))
-            }
-            SessionState::Locked { user_id, role, .. } => {
-                Ok((user_id.clone(), role.clone()))
-            }
-            SessionState::BreakGlass { user_id, original_role, .. } => {
-                Ok((user_id.clone(), original_role.clone()))
-            }
+            SessionState::Active { user_id, role, .. } => Ok((user_id.clone(), role.clone())),
+            SessionState::Locked { user_id, role, .. } => Ok((user_id.clone(), role.clone())),
+            SessionState::BreakGlass {
+                user_id,
+                original_role,
+                ..
+            } => Ok((user_id.clone(), original_role.clone())),
             _ => Err(AppError::Authentication("Not authenticated".to_string())),
         }
     }
@@ -190,10 +236,17 @@ impl SessionManager {
         permissions: Vec<String>,
         expires_at: DateTime<Utc>,
     ) -> Result<(), AppError> {
-        let mut state = self.state.lock().map_err(|e| AppError::Authentication(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| AppError::Authentication(e.to_string()))?;
         let session_id = match &*state {
             SessionState::Active { session_id, .. } => session_id.clone(),
-            _ => return Err(AppError::Authentication("Must be in active session to activate break-glass".to_string())),
+            _ => {
+                return Err(AppError::Authentication(
+                    "Must be in active session to activate break-glass".to_string(),
+                ))
+            }
         };
         *state = SessionState::BreakGlass {
             user_id,
@@ -207,9 +260,17 @@ impl SessionManager {
 
     /// Deactivate break-glass and return to active session with original role.
     pub fn deactivate_break_glass(&self) -> Result<(), AppError> {
-        let mut state = self.state.lock().map_err(|e| AppError::Authentication(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| AppError::Authentication(e.to_string()))?;
         match state.clone() {
-            SessionState::BreakGlass { user_id, original_role, session_id, .. } => {
+            SessionState::BreakGlass {
+                user_id,
+                original_role,
+                session_id,
+                ..
+            } => {
                 *state = SessionState::Active {
                     user_id,
                     role: original_role,
@@ -218,7 +279,9 @@ impl SessionManager {
                 };
                 Ok(())
             }
-            _ => Err(AppError::Authentication("Not in break-glass session".to_string())),
+            _ => Err(AppError::Authentication(
+                "Not in break-glass session".to_string(),
+            )),
         }
     }
 }
@@ -250,7 +313,10 @@ mod tests {
     fn check_timeout_false_within_window() {
         let manager = SessionManager::new(15);
         manager.login("user-1", "Physician").unwrap();
-        assert!(!manager.check_timeout(), "Session should not be timed out immediately after login");
+        assert!(
+            !manager.check_timeout(),
+            "Session should not be timed out immediately after login"
+        );
     }
 
     #[test]

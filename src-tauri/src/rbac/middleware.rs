@@ -25,9 +25,7 @@ pub fn check_permission(
         SessionState::Unauthenticated => {
             Err(AppError::Unauthorized("Not authenticated".to_string()))
         }
-        SessionState::Locked { .. } => {
-            Err(AppError::Unauthorized("Session is locked".to_string()))
-        }
+        SessionState::Locked { .. } => Err(AppError::Unauthorized("Session is locked".to_string())),
         SessionState::Active { user_id, role, .. } => {
             let parsed_role = Role::from_str(role)?;
             if has_permission(parsed_role, resource, action) {
