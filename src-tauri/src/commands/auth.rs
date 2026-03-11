@@ -46,9 +46,9 @@ pub fn register_user(
     // Validate role
     let valid_roles = [
         "SystemAdmin",
-        "Physician",
-        "Nurse",
-        "MedicalAssistant",
+        "Provider",
+        "NurseMa",
+        "BillingStaff",
         "FrontDesk",
     ];
     if !valid_roles.contains(&role.as_str()) {

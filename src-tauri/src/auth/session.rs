@@ -172,6 +172,9 @@ impl SessionManager {
             SessionState::Active { user_id, role, .. } => {
                 Ok((user_id.clone(), role.clone()))
             }
+            SessionState::Locked { user_id, role, .. } => {
+                Ok((user_id.clone(), role.clone()))
+            }
             SessionState::BreakGlass { user_id, original_role, .. } => {
                 Ok((user_id.clone(), original_role.clone()))
             }

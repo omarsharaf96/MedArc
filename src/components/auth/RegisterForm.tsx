@@ -2,9 +2,9 @@ import { useState, type FormEvent } from "react";
 
 const ROLES = [
   { value: "SystemAdmin", label: "System Administrator" },
-  { value: "Physician", label: "Physician" },
-  { value: "Nurse", label: "Nurse" },
-  { value: "MedicalAssistant", label: "Medical Assistant" },
+  { value: "Provider", label: "Provider (Physician)" },
+  { value: "NurseMa", label: "Nurse / Medical Assistant" },
+  { value: "BillingStaff", label: "Billing Staff" },
   { value: "FrontDesk", label: "Front Desk" },
 ];
 
@@ -39,7 +39,7 @@ export default function RegisterForm({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [role, setRole] = useState(firstRun ? "SystemAdmin" : "Physician");
+  const [role, setRole] = useState(firstRun ? "SystemAdmin" : "Provider");
 
   const passwordTooShort = password.length > 0 && password.length < 12;
   const passwordsMismatch =

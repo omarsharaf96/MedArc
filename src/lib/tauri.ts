@@ -43,7 +43,7 @@ export const commands = {
   /** List FHIR resources, optionally filtered by resource type. */
   listResources: (resourceType?: string) =>
     invoke<FhirResourceList>("list_resources", {
-      resource_type: resourceType ?? null,
+      resourceType: resourceType ?? null,
     }),
 
   /** Update an existing FHIR resource's JSON content. */
@@ -60,7 +60,7 @@ export const commands = {
     invoke<UserResponse>("register_user", {
       username: input.username,
       password: input.password,
-      display_name: input.displayName,
+      displayName: input.displayName,
       role: input.role,
     }),
 
@@ -77,8 +77,8 @@ export const commands = {
   /** Complete login after MFA verification (password was already checked). */
   completeLogin: (userId: string, totpCode: string) =>
     invoke<LoginResponse>("complete_login", {
-      user_id: userId,
-      totp_code: totpCode,
+      userId: userId,
+      totpCode: totpCode,
     }),
 
   /** Check if this is the first run (no users exist). */
@@ -109,7 +109,7 @@ export const commands = {
 
   /** Verify a TOTP code during setup to finalize enrollment. */
   verifyTotpSetup: (secretBase32: string, code: string) =>
-    invoke<string>("verify_totp_setup", { secret_base32: secretBase32, code }),
+    invoke<string>("verify_totp_setup", { secretBase32: secretBase32, code }),
 
   /** Disable TOTP (requires password confirmation). */
   disableTotp: (password: string) =>
@@ -117,7 +117,7 @@ export const commands = {
 
   /** Check a TOTP code during login (requires user_id since session may not exist yet). */
   checkTotp: (userId: string, code: string) =>
-    invoke<boolean>("check_totp", { user_id: userId, code }),
+    invoke<boolean>("check_totp", { userId: userId, code }),
 
   /** Check biometric (Touch ID) availability and enablement. */
   checkBiometric: () => invoke<BiometricStatus>("check_biometric"),
@@ -136,7 +136,7 @@ export const commands = {
     invoke<BreakGlassResponse>("activate_break_glass", {
       reason,
       password,
-      patient_id: patientId ?? null,
+      patientId: patientId ?? null,
     }),
 
   /** Deactivate break-glass and restore original role. */

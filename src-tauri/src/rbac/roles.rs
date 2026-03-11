@@ -16,11 +16,11 @@ impl Role {
     /// Parse a role from its database string representation.
     pub fn from_str(s: &str) -> Result<Role, AppError> {
         match s {
-            "system_admin" => Ok(Role::SystemAdmin),
-            "provider" => Ok(Role::Provider),
-            "nurse_ma" => Ok(Role::NurseMa),
-            "billing_staff" => Ok(Role::BillingStaff),
-            "front_desk" => Ok(Role::FrontDesk),
+            "system_admin" | "SystemAdmin" => Ok(Role::SystemAdmin),
+            "provider" | "Provider" => Ok(Role::Provider),
+            "nurse_ma" | "NurseMa" => Ok(Role::NurseMa),
+            "billing_staff" | "BillingStaff" => Ok(Role::BillingStaff),
+            "front_desk" | "FrontDesk" => Ok(Role::FrontDesk),
             _ => Err(AppError::Validation(format!("Unknown role: {}", s))),
         }
     }
