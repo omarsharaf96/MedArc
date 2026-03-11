@@ -54,6 +54,9 @@ pub enum Resource {
     ClinicalData,
     /// Scheduling: appointments, waitlist, recall board, patient flow board (S06)
     AppointmentScheduling,
+    /// Clinical Documentation: encounters, SOAP notes, vitals, ROS, physical exam, templates,
+    /// co-sign workflow, drug-allergy CDS (S07)
+    ClinicalDocumentation,
 }
 
 /// Actions that can be performed on resources.
@@ -175,6 +178,20 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (FrontDesk, AppointmentScheduling, _) => true,
         (BillingStaff, AppointmentScheduling, Read) => true,
         (BillingStaff, AppointmentScheduling, _) => false,
+
+        // ── ClinicalDocumentation resource (S07) ─────────────────────────────
+        // Encounters, SOAP notes, vitals, ROS, physical exam, templates, co-sign, CDS.
+        // SystemAdmin: covered by wildcard above.
+        // Provider: full CRUD (creates, reads, updates, signs encounters).
+        // NurseMa: Create + Read + Update (records vitals, reads notes; no delete of clinical docs).
+        // BillingStaff: Read-only (encounter diagnoses / procedure codes for billing).
+        // FrontDesk: no access to clinical documentation.
+        (Provider, ClinicalDocumentation, _) => true,
+        (NurseMa, ClinicalDocumentation, Create | Read | Update) => true,
+        (NurseMa, ClinicalDocumentation, Delete) => false,
+        (BillingStaff, ClinicalDocumentation, Read) => true,
+        (BillingStaff, ClinicalDocumentation, _) => false,
+        (FrontDesk, ClinicalDocumentation, _) => false,
     }
 }
 

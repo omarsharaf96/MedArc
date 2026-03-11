@@ -437,19 +437,21 @@ pub async fn create_appointment(
 
     // --- Validate duration ---
     if input.duration_minutes < 5 || input.duration_minutes > 60 {
-        let _ = write_audit_entry(
-            &db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?,
-            AuditEntryInput {
-                user_id: sess.user_id.clone(),
-                action: "scheduling.appointment.create_failed".to_string(),
-                resource_type: "Appointment".to_string(),
-                resource_id: None,
-                patient_id: Some(input.patient_id.clone()),
-                device_id: device_id.id().to_string(),
-                success: false,
-                details: Some("duration_minutes must be between 5 and 60".to_string()),
-            },
-        );
+        if let Ok(conn) = db.conn.lock() {
+            let _ = write_audit_entry(
+                &conn,
+                AuditEntryInput {
+                    user_id: sess.user_id.clone(),
+                    action: "scheduling.appointment.create_failed".to_string(),
+                    resource_type: "Appointment".to_string(),
+                    resource_id: None,
+                    patient_id: Some(input.patient_id.clone()),
+                    device_id: device_id.id().to_string(),
+                    success: false,
+                    details: Some("duration_minutes must be between 5 and 60".to_string()),
+                },
+            );
+        }
         return Err(AppError::Validation(
             "duration_minutes must be between 5 and 60".to_string(),
         ));

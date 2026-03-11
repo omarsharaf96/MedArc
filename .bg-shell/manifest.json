@@ -1,14 +1,1 @@
-[
-  {
-    "id": "53e92c9d",
-    "label": "cargo-test-s06",
-    "command": "cd /Users/omarsharaf96/Documents/GitHub/MedArc/src-tauri && cargo test --lib commands::scheduling 2>&1",
-    "cwd": "/Users/omarsharaf96/Documents/GitHub/MedArc",
-    "startedAt": 1773244981810,
-    "processType": "test",
-    "group": null,
-    "readyPattern": "test result|error\\[",
-    "readyPort": null,
-    "pid": 2820
-  }
-]
+[]

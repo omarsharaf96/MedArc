@@ -23,7 +23,7 @@
   > After this: unit tests prove Clinical Patient Data works
 - [x] **S06: Scheduling** `risk:medium` `depends:[S05]`
   > After this: unit tests prove Scheduling works
-- [ ] **S07: Clinical Documentation** `risk:medium` `depends:[S06]`
+- [x] **S07: Clinical Documentation** `risk:medium` `depends:[S06]`
   > After this: unit tests prove Clinical Documentation works
 - [ ] **S08: Lab Results & Document Management** `risk:medium` `depends:[S07]`
   > After this: unit tests prove Lab Results & Document Management works

@@ -115,6 +115,23 @@ pub fn run() {
             commands::scheduling::create_recall,
             commands::scheduling::list_recalls,
             commands::scheduling::complete_recall,
+            // S07 — Clinical Documentation
+            commands::documentation::create_encounter,
+            commands::documentation::get_encounter,
+            commands::documentation::list_encounters,
+            commands::documentation::update_encounter,
+            commands::documentation::record_vitals,
+            commands::documentation::list_vitals,
+            commands::documentation::save_ros,
+            commands::documentation::get_ros,
+            commands::documentation::save_physical_exam,
+            commands::documentation::get_physical_exam,
+            commands::documentation::list_templates,
+            commands::documentation::get_template,
+            commands::documentation::request_cosign,
+            commands::documentation::approve_cosign,
+            commands::documentation::list_pending_cosigns,
+            commands::documentation::check_drug_allergy_alerts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

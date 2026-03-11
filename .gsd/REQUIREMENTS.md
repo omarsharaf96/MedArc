@@ -114,66 +114,66 @@ User can view Recall Board for overdue patient follow-ups. Proven by S06: `creat
 
 ### CLIN-01 — User can create structured SOAP notes (Subjective, Objective, Assessment, Plan) per encounter
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S07
 
-User can create structured SOAP notes (Subjective, Objective, Assessment, Plan) per encounter
+User can create structured SOAP notes (Subjective, Objective, Assessment, Plan) per encounter. Proven by S07: `create_encounter`, `get_encounter`, `list_encounters`, `update_encounter` commands manage FHIR Encounter resources with 4-section SOAP note embedded as `Encounter.note` annotations with section extension codes. Tests `clin_01_encounter_fhir_has_correct_structure` and `clin_01_encounter_type_maps_to_fhir_class` assert all required fields.
 
 ### CLIN-02 — User can record vitals (BP, HR, RR, Temp, SpO2, Weight, Height, BMI auto-calc, pain scale) with flowsheet trending
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S07
 
-User can record vitals (BP, HR, RR, Temp, SpO2, Weight, Height, BMI auto-calc, pain scale) with flowsheet trending
+User can record vitals (BP, HR, RR, Temp, SpO2, Weight, Height, BMI auto-calc, pain scale) with flowsheet trending. Proven by S07: `record_vitals` stores FHIR Observation (vital-signs) with LOINC-coded components; BMI auto-calculated from weight_kg + height_cm; pain score clamped to 0–10 NRS; `list_vitals` returns history ordered by recorded_at DESC (flowsheet). Tests `clin_02_bmi_auto_calculated_correctly`, `clin_02_vitals_loinc_codes_present`, `clin_02_pain_score_clamped_to_10_in_fhir` assert all required fields.
 
 ### CLIN-03 — User can complete Review of Systems forms across 14 organ systems (positive/negative/not reviewed)
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S07
 
-User can complete Review of Systems forms across 14 organ systems (positive/negative/not reviewed)
+User can complete Review of Systems forms across 14 organ systems (positive/negative/not reviewed). Proven by S07: `save_ros` / `get_ros` store FHIR QuestionnaireResponse covering constitutional, eyes, ENT, cardiovascular, respiratory, gastrointestinal, genitourinary, musculoskeletal, integumentary, neurological, psychiatric, endocrine, hematologic, allergic/immunologic. Tests `clin_03_ros_fhir_has_correct_structure` and `clin_03_ros_none_fields_excluded_from_fhir` assert correct structure and sparse encoding.
 
 ### CLIN-04 — User can document physical exam findings using system-based templates (HEENT, CV, Pulm, etc.)
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S07
 
-User can document physical exam findings using system-based templates (HEENT, CV, Pulm, etc.)
+User can document physical exam findings using system-based templates (HEENT, CV, Pulm, etc.). Proven by S07: `save_physical_exam` / `get_physical_exam` store FHIR ClinicalImpression with findings for 13 body systems (general, HEENT, neck, cardiovascular, pulmonary, abdomen, extremities, neurological, skin, psychiatric, musculoskeletal, genitourinary, rectal). Tests `clin_04_physical_exam_fhir_has_correct_structure` and `clin_04_physical_exam_nil_systems_excluded` assert all required fields.
 
 ### CLIN-05 — System ships with 10-15 pre-built clinical templates (general, cardiology, pediatrics, OB/GYN, psychiatry, orthopedics, dermatology)
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S07
 
-System ships with 10-15 pre-built clinical templates (general, cardiology, pediatrics, OB/GYN, psychiatry, orthopedics, dermatology)
+System ships with 10-15 pre-built clinical templates. Proven by S07: 12 templates compiled into binary covering general, cardiology, pediatrics, OB/GYN, psychiatry, orthopedics, dermatology, neurology, urgent care, preventive, diabetes, follow-up. `list_templates` and `get_template` commands return templates with pre-populated SOAP sections and ROS system lists. Tests `clin_05_templates_count_at_least_10`, `clin_05_templates_have_required_specialties`, `clin_05_each_template_has_all_soap_sections`, `clin_05_template_ids_are_unique` all pass.
 
 ### CLIN-06 — Supervising physician can co-sign encounter notes from NP/PA mid-level providers
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S07
 
-Supervising physician can co-sign encounter notes from NP/PA mid-level providers
+Supervising physician can co-sign encounter notes from NP/PA mid-level providers. Proven by S07: `request_cosign` creates FHIR Task (co-sign intent) with designated supervisor; `approve_cosign` enforces Role=Provider/SystemAdmin and caller=designated supervisor; `list_pending_cosigns` shows outstanding requests. Test `clin_06_cosign_fhir_has_correct_structure` asserts all required Task fields.
 
 ### CLIN-07 — System displays passive clinical decision alerts for drug-allergy interactions based on patient allergy and medication lists
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S07
 
-System displays passive clinical decision alerts for drug-allergy interactions based on patient allergy and medication lists
+System displays passive clinical decision alerts for drug-allergy interactions based on patient allergy and medication lists. Proven by S07: `check_drug_allergy_alerts` cross-references active medications vs active drug/biologic allergies using RxNorm exact match + case-insensitive name fuzzy match; returns `DrugAllergyAlert` with severity (warning/contraindicated) and human-readable message. Tests `clin_07_name_match_generates_alert`, `clin_07_rxnorm_code_exact_match`, `clin_07_severe_allergy_maps_to_contraindicated` all pass.
 
 ### CLIN-08 — User can view pediatric growth charts from vitals data
 
@@ -182,7 +182,7 @@ System displays passive clinical decision alerts for drug-allergy interactions b
 - Source: inferred
 - Primary Slice: none yet
 
-User can view pediatric growth charts from vitals data
+User can view pediatric growth charts from vitals data. Deferred from S07 — vitals data is now captured and stored; growth chart rendering requires CDC/WHO percentile reference tables. Planned for S08 or a future UI slice.
 
 ### LABS-01 — User can manually enter lab results with LOINC code mapping
 

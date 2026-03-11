@@ -95,3 +95,17 @@ Architectural and implementation decisions extracted from completed work.
 - Open-slot search uses fixed working hours 08:00–17:00 with no provider schedule configuration — sufficient for Phase 1 solo-practitioner MVP; provider schedule blocks deferred to a future slice
 - No overlap/double-booking detection in `create_appointment` — deferred; overlap detection requires a range-overlap query against `appointment_index` (e.g. `start_time < new_end AND start_time + duration > new_start`) which adds complexity without being a Phase 1 blocker
 - Brace-balance + command-count Python check is the verification gate — consistent with S04/S05 precedent; `cargo test` exceeds the session compilation timeout in this environment
+
+## S07 — Clinical Documentation
+
+- SOAP note embedded in `Encounter.note` as a FHIR Annotation array with section extension URLs (subjective/objective/assessment/plan) — keeps documentation co-located with the encounter resource; no separate Composition resource needed for Phase 1
+- Vitals stored as FHIR Observation (vital-signs category) with individual LOINC-coded components — enables interoperability and future flowsheet trending queries; BMI auto-calculated at record time and stored as a component rather than derived at query time
+- ROS stored as FHIR QuestionnaireResponse referencing a canonical Questionnaire URL — natural fit for structured survey responses; sparse encoding (only answered systems stored in item array) keeps resource compact
+- Physical exam stored as FHIR ClinicalImpression with system-coded findings — ClinicalImpression's `finding` array maps cleanly to per-system exam documentation; `itemCodeableConcept.text` carries the free-text exam finding
+- Co-sign workflow uses FHIR Task resource — Task's requester/owner pattern is the correct FHIR primitive for "clinician A requests action from clinician B"; status lifecycle (requested → completed) maps directly to the co-sign workflow
+- 12 built-in templates compiled into binary (`built_in_templates()` pure function) — zero DB reads; templates are reference data not user data; eliminates a migration dependency and allows templates to evolve with code releases
+- Drug-allergy CDS uses two-pass matching: RxNorm code exact match first, then case-insensitive name fuzzy match — RxNorm codes available when substances are coded; name matching handles the common case where substances are free-text; non-drug allergies (food/environment) are explicitly skipped
+- `require_authenticated()` + `require_permission()` helpers added to `middleware.rs` — these were referenced throughout S06/S07 command handlers but never defined; adding them makes the middleware API coherent and eliminates the need to call `check_permission` twice (once for auth, once for permission)
+- `AppError::Serialization` variant added to `error.rs` — serde serialization failures are semantically distinct from database errors; cleaner error messages in production logs
+- `DeviceId::id()` alias added alongside existing `get()` — backwards compatibility; both names now work; all new code should prefer `get()` per Rust naming conventions
+- `cargo test --lib` is now the verification gate — fixes to middleware/error/device_id unblocked full compilation; 219 tests pass in <1s

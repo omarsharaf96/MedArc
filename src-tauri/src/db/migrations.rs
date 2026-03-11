@@ -303,6 +303,57 @@ static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             CREATE INDEX IF NOT EXISTS idx_flow_start_time ON flow_board_index(start_time);
             CREATE INDEX IF NOT EXISTS idx_flow_status     ON flow_board_index(flow_status);"
         ),
+        // Migration 12: Clinical Documentation index tables for S07
+        //
+        // Three index tables support the clinical documentation feature set:
+        //   - encounter_index:  maps Encounter resources by patient, provider, encounter_date, status, type
+        //   - vitals_index:     maps Observation (vital-signs) resources by patient, encounter, recorded_at
+        //   - cosign_index:     maps Task (co-sign) resources by encounter, requesting/supervising provider, status
+        //
+        // All index rows reference fhir_resources via ON DELETE CASCADE.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS encounter_index (
+                encounter_id    TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                provider_id     TEXT NOT NULL,
+                encounter_date  TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'in-progress',
+                encounter_type  TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_encounter_patient  ON encounter_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_encounter_provider ON encounter_index(provider_id);
+            CREATE INDEX IF NOT EXISTS idx_encounter_date     ON encounter_index(encounter_date);
+            CREATE INDEX IF NOT EXISTS idx_encounter_status   ON encounter_index(status);
+            CREATE INDEX IF NOT EXISTS idx_encounter_type     ON encounter_index(encounter_type);
+
+            CREATE TABLE IF NOT EXISTS vitals_index (
+                vitals_id       TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                encounter_id    TEXT NOT NULL,
+                recorded_at     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_vitals_patient     ON vitals_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_vitals_encounter   ON vitals_index(encounter_id);
+            CREATE INDEX IF NOT EXISTS idx_vitals_recorded_at ON vitals_index(recorded_at);
+
+            CREATE TABLE IF NOT EXISTS cosign_index (
+                cosign_id               TEXT PRIMARY KEY NOT NULL
+                                        REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                encounter_id            TEXT NOT NULL,
+                requesting_provider_id  TEXT NOT NULL,
+                supervising_provider_id TEXT NOT NULL,
+                status                  TEXT NOT NULL DEFAULT 'requested',
+                requested_at            TEXT NOT NULL,
+                signed_at               TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_cosign_encounter  ON cosign_index(encounter_id);
+            CREATE INDEX IF NOT EXISTS idx_cosign_supervisor ON cosign_index(supervising_provider_id);
+            CREATE INDEX IF NOT EXISTS idx_cosign_status     ON cosign_index(status);"
+        ),
     ])
 });
 

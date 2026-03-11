@@ -73,4 +73,9 @@ impl DeviceId {
     pub fn get(&self) -> &str {
         &self.id
     }
+
+    /// Alias for `get()` — returns the device identifier string.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
 }

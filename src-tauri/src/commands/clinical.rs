@@ -892,49 +892,40 @@ pub fn list_problems(
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    let records = if let Some(status) = &status_filter {
-        let mut stmt = conn.prepare(
-            "SELECT fr.id, fr.resource, fr.version_id, fr.last_updated
-             FROM fhir_resources fr
-             JOIN problem_index pi ON pi.problem_id = fr.id
-             WHERE pi.patient_id = ?1 AND pi.clinical_status = ?2
-             ORDER BY fr.last_updated DESC",
-        )?;
-        stmt.query_map(rusqlite::params![patient_id, status], |row| {
-            let resource_str: String = row.get(1)?;
-            let resource: serde_json::Value =
-                serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
-            Ok(ProblemRecord {
-                id: row.get(0)?,
-                patient_id: patient_id.clone(),
-                resource,
-                version_id: row.get(2)?,
-                last_updated: row.get(3)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    } else {
-        let mut stmt = conn.prepare(
-            "SELECT fr.id, fr.resource, fr.version_id, fr.last_updated
-             FROM fhir_resources fr
-             JOIN problem_index pi ON pi.problem_id = fr.id
-             WHERE pi.patient_id = ?1
-             ORDER BY fr.last_updated DESC",
-        )?;
-        stmt.query_map(rusqlite::params![patient_id], |row| {
-            let resource_str: String = row.get(1)?;
-            let resource: serde_json::Value =
-                serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
-            Ok(ProblemRecord {
-                id: row.get(0)?,
-                patient_id: patient_id.clone(),
-                resource,
-                version_id: row.get(2)?,
-                last_updated: row.get(3)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    };
+    let mut query = String::from(
+        "SELECT fr.id, fr.resource, fr.version_id, fr.last_updated
+         FROM fhir_resources fr
+         JOIN problem_index pi ON pi.problem_id = fr.id
+         WHERE pi.patient_id = ?1",
+    );
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(patient_id.clone())];
+    if let Some(ref status) = status_filter {
+        query.push_str(&format!(" AND pi.clinical_status = ?{}", params.len() + 1));
+        params.push(Box::new(status.clone()));
+    }
+    query.push_str(" ORDER BY fr.last_updated DESC");
+
+    let records: Vec<ProblemRecord> = conn
+        .prepare(&query)
+        .map_err(|e| AppError::Database(e.to_string()))?
+        .query_map(
+            rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+            |row| {
+                let resource_str: String = row.get(1)?;
+                let resource: serde_json::Value =
+                    serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
+                Ok(ProblemRecord {
+                    id: row.get(0)?,
+                    patient_id: patient_id.clone(),
+                    resource,
+                    version_id: row.get(2)?,
+                    last_updated: row.get(3)?,
+                })
+            },
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .collect();
 
     let _ = write_audit_entry(
         &conn,
@@ -1173,49 +1164,40 @@ pub fn list_medications(
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    let records = if let Some(status) = &status_filter {
-        let mut stmt = conn.prepare(
-            "SELECT fr.id, fr.resource, fr.version_id, fr.last_updated
-             FROM fhir_resources fr
-             JOIN medication_index mi ON mi.medication_id = fr.id
-             WHERE mi.patient_id = ?1 AND mi.status = ?2
-             ORDER BY fr.last_updated DESC",
-        )?;
-        stmt.query_map(rusqlite::params![patient_id, status], |row| {
-            let resource_str: String = row.get(1)?;
-            let resource: serde_json::Value =
-                serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
-            Ok(MedicationRecord {
-                id: row.get(0)?,
-                patient_id: patient_id.clone(),
-                resource,
-                version_id: row.get(2)?,
-                last_updated: row.get(3)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    } else {
-        let mut stmt = conn.prepare(
-            "SELECT fr.id, fr.resource, fr.version_id, fr.last_updated
-             FROM fhir_resources fr
-             JOIN medication_index mi ON mi.medication_id = fr.id
-             WHERE mi.patient_id = ?1
-             ORDER BY fr.last_updated DESC",
-        )?;
-        stmt.query_map(rusqlite::params![patient_id], |row| {
-            let resource_str: String = row.get(1)?;
-            let resource: serde_json::Value =
-                serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
-            Ok(MedicationRecord {
-                id: row.get(0)?,
-                patient_id: patient_id.clone(),
-                resource,
-                version_id: row.get(2)?,
-                last_updated: row.get(3)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    };
+    let mut med_query = String::from(
+        "SELECT fr.id, fr.resource, fr.version_id, fr.last_updated
+         FROM fhir_resources fr
+         JOIN medication_index mi ON mi.medication_id = fr.id
+         WHERE mi.patient_id = ?1",
+    );
+    let mut med_params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(patient_id.clone())];
+    if let Some(ref status) = status_filter {
+        med_query.push_str(&format!(" AND mi.status = ?{}", med_params.len() + 1));
+        med_params.push(Box::new(status.clone()));
+    }
+    med_query.push_str(" ORDER BY fr.last_updated DESC");
+
+    let records: Vec<MedicationRecord> = conn
+        .prepare(&med_query)
+        .map_err(|e| AppError::Database(e.to_string()))?
+        .query_map(
+            rusqlite::params_from_iter(med_params.iter().map(|p| p.as_ref())),
+            |row| {
+                let resource_str: String = row.get(1)?;
+                let resource: serde_json::Value =
+                    serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
+                Ok(MedicationRecord {
+                    id: row.get(0)?,
+                    patient_id: patient_id.clone(),
+                    resource,
+                    version_id: row.get(2)?,
+                    last_updated: row.get(3)?,
+                })
+            },
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .collect();
 
     let _ = write_audit_entry(
         &conn,

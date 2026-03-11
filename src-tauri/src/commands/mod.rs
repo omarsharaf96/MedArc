@@ -2,6 +2,7 @@ pub mod audit;
 pub mod auth;
 pub mod break_glass;
 pub mod clinical;
+pub mod documentation;
 pub mod fhir;
 pub mod health;
 pub mod mfa;

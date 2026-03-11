@@ -4,6 +4,73 @@ use crate::rbac::roles::{has_permission, Action, Resource, Role};
 
 use chrono::Utc;
 
+/// Authenticated session context returned by `require_authenticated`.
+///
+/// Carries the authenticated user's identity and parsed role for use in
+/// command handlers without re-acquiring the session lock.
+#[derive(Debug, Clone)]
+pub struct SessionContext {
+    pub user_id: String,
+    pub role: Role,
+}
+
+/// Require an active session — returns `SessionContext` or an Unauthorized error.
+///
+/// This is a convenience wrapper around `check_permission` for commands that
+/// need the user identity before checking resource-specific permissions.
+pub fn require_authenticated(session: &SessionManager) -> Result<SessionContext, AppError> {
+    let state = session
+        .state
+        .lock()
+        .map_err(|e| AppError::Unauthorized(format!("Failed to read session state: {}", e)))?;
+
+    match &*state {
+        SessionState::Unauthenticated => {
+            Err(AppError::Unauthorized("Not authenticated".to_string()))
+        }
+        SessionState::Locked { .. } => Err(AppError::Unauthorized("Session is locked".to_string())),
+        SessionState::Active { user_id, role, .. } => {
+            let parsed_role = Role::from_str(role)?;
+            Ok(SessionContext {
+                user_id: user_id.clone(),
+                role: parsed_role,
+            })
+        }
+        SessionState::BreakGlass {
+            user_id,
+            original_role,
+            expires_at,
+            ..
+        } => {
+            if Utc::now() > *expires_at {
+                return Err(AppError::Unauthorized(
+                    "Break-glass session has expired".to_string(),
+                ));
+            }
+            let parsed_role = Role::from_str(original_role)?;
+            Ok(SessionContext {
+                user_id: user_id.clone(),
+                role: parsed_role,
+            })
+        }
+    }
+}
+
+/// Require a specific resource permission — returns Ok or Unauthorized.
+///
+/// Typically called immediately after `require_authenticated` with the
+/// `SessionContext.role` from that call.
+pub fn require_permission(role: Role, resource: Resource, action: Action) -> Result<(), AppError> {
+    if has_permission(role, resource, action) {
+        Ok(())
+    } else {
+        Err(AppError::Unauthorized(format!(
+            "Role '{:?}' does not have {:?} permission on {:?}",
+            role, action, resource
+        )))
+    }
+}
+
 /// Check if the current session has permission for the given resource and action.
 ///
 /// Returns `Ok((user_id, role))` if the permission check passes.

@@ -4,7 +4,7 @@
 
 ## M001: MedArc Phase 1 MVP
 
-- Slices: 6/9 complete (S01, S02, S03, S04, S05, S06); S07 up next
-- Active Slice: none — S06 fully complete, S07 not yet started
-- Last Completed: S06 (2026-03-11) — Scheduling: 13 Tauri commands (create/list/update/cancel appointment, search_open_slots, update_flow_status/get_flow_board, add/list/discharge waitlist, create/list/complete recall), Migration 11 (appointment_index, waitlist_index, recall_index, flow_board_index with 15 indexes), SCHD-01–07 validated, 22 unit tests, full audit trail on every command, AppointmentScheduling RBAC resource with 5-role permission matrix, recurring series (weekly/biweekly/monthly) via Julian Day Number arithmetic
-- Next: S07 — Clinical Documentation (SOAP notes, vitals, ROS, physical exam templates, co-signing, decision alerts)
+- Slices: 7/9 complete (S01, S02, S03, S04, S05, S06, S07); S08 up next
+- Active Slice: none — S07 fully complete, S08 not yet started
+- Last Completed: S07 (2026-03-11) — Clinical Documentation: 16 Tauri commands (create/get/list/update encounter, record/list vitals, save/get ROS, save/get physical exam, list/get templates, request/approve/list cosigns, check drug-allergy alerts), Migration 12 (encounter_index, vitals_index, cosign_index with 11 indexes), CLIN-01–07 validated, 24 unit tests (219 total), 12 built-in specialty templates, FHIR Encounter/Observation/QuestionnaireResponse/ClinicalImpression/Task, ClinicalDocumentation RBAC resource, passive drug-allergy CDS, co-sign workflow
+- Next: S08 — Lab Results & Document Management (manual lab entry with LOINC, document upload up to 64 MB, SHA-1 integrity, lab orders, abnormal flagging)

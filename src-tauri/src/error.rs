@@ -28,6 +28,9 @@ pub enum AppError {
 
     #[error("Tauri error: {0}")]
     Tauri(#[from] tauri::Error),
+
+    #[error("Serialization error: {0}")]
+    Serialization(String),
 }
 
 // Tauri requires Serialize for command error types
