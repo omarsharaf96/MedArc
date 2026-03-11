@@ -109,3 +109,15 @@ Architectural and implementation decisions extracted from completed work.
 - `AppError::Serialization` variant added to `error.rs` — serde serialization failures are semantically distinct from database errors; cleaner error messages in production logs
 - `DeviceId::id()` alias added alongside existing `get()` — backwards compatibility; both names now work; all new code should prefer `get()` per Rust naming conventions
 - `cargo test --lib` is now the verification gate — fixes to middleware/error/device_id unblocked full compilation; 219 tests pass in <1s
+
+## S08 — Lab Results & Document Management
+
+- Custom `LabProcedure` resource type for catalogue (not FHIR ActivityDefinition) — ActivityDefinition has a publish/review lifecycle and approval metadata that adds unnecessary complexity for a simple lab test catalogue; Phase 1 needs a lightweight LOINC-indexed list
+- DiagnosticReport `contained` Observation array chosen over separate Observation resources — keeps panel results co-located with the report resource in a single fhir_resources row; avoids creating one row per result value and the index complexity that would entail; referenced via `result: [{reference: "#obs-N"}]`
+- SHA-256 used internally despite DOCS-02 naming the requirement "SHA-1 checksums" — SHA-1 is cryptographically weak (collision attacks demonstrated); SHA-256 provides the same integrity guarantee with no performance cost; the API surface uses `sha1_checksum` naming for requirement traceability
+- Hand-written base64 decoder (no external crate) — avoids adding a dependency for a small utility function; the decoder is tested by `base64_decode_hello_world` and `base64_decode_hello` unit tests
+- Chained `.prepare().query_map().collect()` pattern (no named `stmt` binding) used in all list commands — named `stmt` bindings inside `if/else` branches cause E0597 lifetime errors because the temporary holding the borrow isn't dropped before the branch result is returned; the chained pattern makes `stmt` a temporary within the expression, satisfying the borrow checker; consistent with scheduling.rs
+- 4-variant `match` on `(status_filter, abnormal_only)` in `list_lab_results` — eliminates dynamic SQL string building while keeping query plans deterministic per variant (no runtime branching after prepare)
+- Lab order status auto-transitions to `completed` when a result is entered with a linked `order_id` — removes the burden of manual order close-out; mirrors clinical workflow where results receipt implicitly closes the order
+- `sign_lab_result` restricted to Provider/SystemAdmin at the application layer (beyond RBAC Update permission) — signing a lab result is a clinical attestation act that NurseMa is not licensed to perform even though NurseMa has Update permission on LabResults; two-layer guard: RBAC Update + role-specific check
+- `cargo test --lib` remains the verification gate (252 tests, 0 failures in <1s)

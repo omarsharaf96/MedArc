@@ -20,6 +20,7 @@ Physicians can document patient encounters through voice capture that automatica
 - [x] Clinical patient data: allergy CRUD, problem CRU, medication CRU, immunization CR — FHIR AllergyIntolerance/Condition/MedicationStatement/Immunization with RxNorm/ICD-10/CVX coding — PTNT-08–11 validated, 38 unit tests (S05)
 - [x] Scheduling: appointments (create/list/update/cancel), recurring series (weekly/biweekly/monthly), multi-provider calendar, open-slot search, Patient Flow Board, waitlist, recall board — SCHD-01–07 validated, 22 unit tests, Migration 11, AppointmentScheduling RBAC (S06)
 - [x] Clinical documentation: SOAP notes, vitals (LOINC-coded + BMI auto-calc), 14-system ROS, 13-system physical exam, 12 specialty templates, co-sign workflow, passive drug-allergy CDS — CLIN-01–07 validated, 24 unit tests, Migration 12, ClinicalDocumentation RBAC (S07)
+- [x] Lab results & document management: lab catalogue (LOINC), lab orders (ServiceRequest + provider signature), lab results (DiagnosticReport + abnormal flagging + sign-off), document upload/browse/verify (SHA-256 integrity, 64 MB limit) — LABS-01–04 + DOCS-01–03 validated, 33 unit tests, Migration 13, LabResults + PatientDocuments RBAC (S08)
 
 ### Active
 

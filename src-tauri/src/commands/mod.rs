@@ -5,6 +5,7 @@ pub mod clinical;
 pub mod documentation;
 pub mod fhir;
 pub mod health;
+pub mod labs;
 pub mod mfa;
 pub mod patient;
 pub mod scheduling;

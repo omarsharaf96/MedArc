@@ -132,6 +132,17 @@ pub fn run() {
             commands::documentation::approve_cosign,
             commands::documentation::list_pending_cosigns,
             commands::documentation::check_drug_allergy_alerts,
+            // S08 — Lab Results & Document Management
+            commands::labs::add_lab_catalogue_entry,
+            commands::labs::list_lab_catalogue,
+            commands::labs::create_lab_order,
+            commands::labs::list_lab_orders,
+            commands::labs::enter_lab_result,
+            commands::labs::list_lab_results,
+            commands::labs::sign_lab_result,
+            commands::labs::upload_document,
+            commands::labs::list_documents,
+            commands::labs::verify_document_integrity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

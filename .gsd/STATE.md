@@ -4,7 +4,7 @@
 
 ## M001: MedArc Phase 1 MVP
 
-- Slices: 7/9 complete (S01, S02, S03, S04, S05, S06, S07); S08 up next
-- Active Slice: none — S07 fully complete, S08 not yet started
-- Last Completed: S07 (2026-03-11) — Clinical Documentation: 16 Tauri commands (create/get/list/update encounter, record/list vitals, save/get ROS, save/get physical exam, list/get templates, request/approve/list cosigns, check drug-allergy alerts), Migration 12 (encounter_index, vitals_index, cosign_index with 11 indexes), CLIN-01–07 validated, 24 unit tests (219 total), 12 built-in specialty templates, FHIR Encounter/Observation/QuestionnaireResponse/ClinicalImpression/Task, ClinicalDocumentation RBAC resource, passive drug-allergy CDS, co-sign workflow
-- Next: S08 — Lab Results & Document Management (manual lab entry with LOINC, document upload up to 64 MB, SHA-1 integrity, lab orders, abnormal flagging)
+- Slices: 8/9 complete (S01, S02, S03, S04, S05, S06, S07, S08); S09 up next
+- Active Slice: none — S08 fully complete, S09 not yet started
+- Last Completed: S08 (2026-03-11) — Lab Results & Document Management: 10 Tauri commands (add_lab_catalogue_entry, list_lab_catalogue, create_lab_order, list_lab_orders, enter_lab_result, list_lab_results, sign_lab_result, upload_document, list_documents, verify_document_integrity), Migration 13 (lab_catalogue_index, lab_order_index, lab_result_index, document_index with 17 indexes), LABS-01–04 + DOCS-01–03 validated, 33 unit tests (252 total), FHIR LabProcedure/ServiceRequest/DiagnosticReport/DocumentReference, LabResults + PatientDocuments RBAC resources, SHA-256 document integrity, abnormal flagging (H/L/HH/LL/A/AA), provider sign-off
+- Next: S09 — Backup, Distribution & Release (automated encrypted backups, AES-256 export, restore procedures, code-signed notarized macOS DMG, auto-updates via tauri-plugin-updater with Ed25519, Hardened Runtime + App Sandbox)

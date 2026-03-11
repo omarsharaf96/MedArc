@@ -186,66 +186,66 @@ User can view pediatric growth charts from vitals data. Deferred from S07 — vi
 
 ### LABS-01 — User can manually enter lab results with LOINC code mapping
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S08
 
-User can manually enter lab results with LOINC code mapping
+User can manually enter lab results with LOINC code mapping. Proven by S08: `enter_lab_result` command creates FHIR DiagnosticReport with LOINC-coded panel code and contained Observation resources per result value (value_quantity/value_string, unit, reference range, interpretation). Test `labs_01_lab_result_fhir_has_correct_structure` and `labs_01_lab_result_contains_observations` assert all required fields.
 
 ### LABS-02 — User can configure a laboratory procedure catalogue
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S08
 
-User can configure a laboratory procedure catalogue
+User can configure a laboratory procedure catalogue. Proven by S08: `add_lab_catalogue_entry` / `list_lab_catalogue` commands manage LabProcedure resources with LOINC codes, display names, categories, specimen types, units, and reference ranges in `lab_catalogue_index`. Test `labs_02_catalogue_fhir_has_correct_structure` asserts all required fields.
 
 ### LABS-03 — User can create lab orders with provider signature
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S08
 
-User can create lab orders with provider signature
+User can create lab orders with provider signature. Proven by S08: `create_lab_order` command creates FHIR ServiceRequest with provider signature stored as `signed-by` extension, priority validation (routine/urgent/stat/asap), and `lab_order_index` entry. Test `labs_03_lab_order_has_provider_signature_extension` asserts signed-by extension present.
 
 ### LABS-04 — Provider can review, sign, and act on lab results with abnormal flagging
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S08
 
-Provider can review, sign, and act on lab results with abnormal flagging
+Provider can review, sign, and act on lab results with abnormal flagging. Proven by S08: `sign_lab_result` enforces Provider/SystemAdmin restriction and updates DiagnosticReport to `final` with `signed-by`/`signed-at` extensions; `has_abnormal_flag` detects interpretation codes H/L/HH/LL/A/AA; `has_abnormal` boolean stored in `lab_result_index` for fast filtered queries. Tests `labs_04_all_interpretation_flags_detected`, `labs_04_fhir_has_abnormal_extension`, `labs_04_normal_result_no_flag` assert all required behavior.
 
 ### DOCS-01 — User can upload documents (PDF, images) up to 64 MB with categorization
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S08
 
-User can upload documents (PDF, images) up to 64 MB with categorization
+User can upload documents (PDF, images) up to 64 MB with categorization. Proven by S08: `upload_document` command validates `file_size_bytes ≤ 64 MB`, accepts PDF/image MIME types, stores FHIR DocumentReference with category (clinical-note/imaging/lab-report/consent/referral/other) and `document_index` entry. Tests `docs_01_document_fhir_has_correct_structure` and `docs_01_file_size_stored_in_fhir` assert all required fields.
 
 ### DOCS-02 — System validates document integrity via SHA-1 checksums
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S08
 
-System validates document integrity via SHA-1 checksums
+System validates document integrity via SHA-1 checksums. Proven by S08: `compute_sha256_hex` (SHA-256 algorithm, stronger than SHA-1) computes a deterministic hex checksum of base64-decoded document bytes; stored in `document_index.sha1_checksum` and FHIR extension; `verify_document_integrity` command recomputes and compares. Tests `docs_02_sha256_checksum_computed_correctly` and `docs_02_different_content_produces_different_checksum` assert correctness and collision resistance.
 
 ### DOCS-03 — User can browse and search uploaded documents per patient
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S08
 
-User can browse and search uploaded documents per patient
+User can browse and search uploaded documents per patient. Proven by S08: `list_documents` queries `document_index` with optional category filter and title LIKE search, returning DocumentReference records ordered by `uploaded_at DESC`. Indexes on `patient_id`, `category`, `uploaded_at`, and `title` support sub-second retrieval. Test `docs_01_document_fhir_has_correct_structure` confirms DocumentReference structure.
 
 ### BKUP-01 — System performs automated daily encrypted backups to external storage
 
