@@ -354,6 +354,80 @@ static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             CREATE INDEX IF NOT EXISTS idx_cosign_supervisor ON cosign_index(supervising_provider_id);
             CREATE INDEX IF NOT EXISTS idx_cosign_status     ON cosign_index(status);"
         ),
+        // Migration 13: Lab Results & Document Management index tables for S08
+        //
+        // Four index tables support the lab and document feature set:
+        //   - lab_catalogue_index: maps LabProcedure catalogue entries by LOINC code / display
+        //   - lab_order_index:     maps ServiceRequest (lab order) resources by patient, provider, ordered_at, status
+        //   - lab_result_index:    maps DiagnosticReport resources by patient, order, reported_at, status, abnormal
+        //   - document_index:      maps DocumentReference resources by patient, category, uploaded_at, sha1
+        //
+        // All index rows reference fhir_resources via ON DELETE CASCADE.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            -- Lab catalogue: user-configurable procedure library (LABS-02)
+            CREATE TABLE IF NOT EXISTS lab_catalogue_index (
+                catalogue_id    TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                loinc_code      TEXT NOT NULL,
+                display_name    TEXT NOT NULL,
+                category        TEXT NOT NULL DEFAULT 'laboratory'
+            );
+            CREATE INDEX IF NOT EXISTS idx_lab_cat_loinc    ON lab_catalogue_index(loinc_code);
+            CREATE INDEX IF NOT EXISTS idx_lab_cat_category ON lab_catalogue_index(category);
+            CREATE INDEX IF NOT EXISTS idx_lab_cat_name     ON lab_catalogue_index(display_name);
+
+            -- Lab orders: FHIR ServiceRequest (LABS-03)
+            CREATE TABLE IF NOT EXISTS lab_order_index (
+                order_id        TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                provider_id     TEXT NOT NULL,
+                ordered_at      TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'active',
+                loinc_code      TEXT,
+                priority        TEXT NOT NULL DEFAULT 'routine'
+            );
+            CREATE INDEX IF NOT EXISTS idx_lab_order_patient    ON lab_order_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_lab_order_provider   ON lab_order_index(provider_id);
+            CREATE INDEX IF NOT EXISTS idx_lab_order_status     ON lab_order_index(status);
+            CREATE INDEX IF NOT EXISTS idx_lab_order_ordered_at ON lab_order_index(ordered_at);
+
+            -- Lab results: FHIR DiagnosticReport (LABS-01, LABS-04)
+            CREATE TABLE IF NOT EXISTS lab_result_index (
+                result_id       TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                order_id        TEXT,
+                reported_at     TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'preliminary',
+                has_abnormal    INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_lab_result_patient    ON lab_result_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_lab_result_order      ON lab_result_index(order_id);
+            CREATE INDEX IF NOT EXISTS idx_lab_result_reported   ON lab_result_index(reported_at);
+            CREATE INDEX IF NOT EXISTS idx_lab_result_status     ON lab_result_index(status);
+            CREATE INDEX IF NOT EXISTS idx_lab_result_abnormal   ON lab_result_index(has_abnormal);
+
+            -- Documents: FHIR DocumentReference (DOCS-01, DOCS-02, DOCS-03)
+            CREATE TABLE IF NOT EXISTS document_index (
+                document_id     TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                category        TEXT NOT NULL DEFAULT 'clinical-note',
+                title           TEXT NOT NULL,
+                content_type    TEXT NOT NULL,
+                file_size_bytes INTEGER NOT NULL DEFAULT 0,
+                sha1_checksum   TEXT NOT NULL,
+                uploaded_at     TEXT NOT NULL,
+                uploaded_by     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_document_patient    ON document_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_document_category   ON document_index(category);
+            CREATE INDEX IF NOT EXISTS idx_document_uploaded   ON document_index(uploaded_at);
+            CREATE INDEX IF NOT EXISTS idx_document_title      ON document_index(title);"
+        ),
     ])
 });
 

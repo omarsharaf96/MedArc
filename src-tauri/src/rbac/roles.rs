@@ -57,6 +57,11 @@ pub enum Resource {
     /// Clinical Documentation: encounters, SOAP notes, vitals, ROS, physical exam, templates,
     /// co-sign workflow, drug-allergy CDS (S07)
     ClinicalDocumentation,
+    /// Lab Results & Orders: lab catalogue, lab orders (ServiceRequest), lab results
+    /// (DiagnosticReport) with LOINC coding and abnormal flags (S08)
+    LabResults,
+    /// Document Management: patient document upload, browse, search with SHA-1 integrity (S08)
+    PatientDocuments,
 }
 
 /// Actions that can be performed on resources.
@@ -192,6 +197,35 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (BillingStaff, ClinicalDocumentation, Read) => true,
         (BillingStaff, ClinicalDocumentation, _) => false,
         (FrontDesk, ClinicalDocumentation, _) => false,
+
+        // ── LabResults resource (S08) ─────────────────────────────────────────
+        // Lab catalogue, lab orders, lab results with LOINC coding.
+        // SystemAdmin: covered by wildcard above.
+        // Provider: full CRUD (orders labs, enters results, signs off).
+        // NurseMa: Create + Read + Update (enters results, cannot delete).
+        // BillingStaff: Read-only (needs lab results for billing/coding).
+        // FrontDesk: no access to lab data.
+        (Provider, LabResults, _) => true,
+        (NurseMa, LabResults, Create | Read | Update) => true,
+        (NurseMa, LabResults, Delete) => false,
+        (BillingStaff, LabResults, Read) => true,
+        (BillingStaff, LabResults, _) => false,
+        (FrontDesk, LabResults, _) => false,
+
+        // ── PatientDocuments resource (S08) ──────────────────────────────────
+        // Patient document upload, browse, search with SHA-1 integrity verification.
+        // SystemAdmin: covered by wildcard above.
+        // Provider: full CRUD (uploads, reads, deletes documents).
+        // NurseMa: Create + Read + Update (uploads and reads; no delete).
+        // BillingStaff: Read-only (needs documents for billing/authorization).
+        // FrontDesk: Read-only (needs to locate documents for check-in).
+        (Provider, PatientDocuments, _) => true,
+        (NurseMa, PatientDocuments, Create | Read | Update) => true,
+        (NurseMa, PatientDocuments, Delete) => false,
+        (BillingStaff, PatientDocuments, Read) => true,
+        (BillingStaff, PatientDocuments, _) => false,
+        (FrontDesk, PatientDocuments, Read) => true,
+        (FrontDesk, PatientDocuments, _) => false,
     }
 }
 
