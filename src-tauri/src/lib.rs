@@ -3,7 +3,6 @@ mod commands;
 mod db;
 mod error;
 mod keychain;
-mod rbac;
 
 use auth::session::SessionManager;
 use db::connection::Database;

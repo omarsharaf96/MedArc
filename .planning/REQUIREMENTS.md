@@ -18,9 +18,9 @@ Requirements for initial release (Phase 1 MVP). Core EMR functionality without A
 
 ### Authentication & Access Control
 
-- [ ] **AUTH-01**: User can create account with unique user ID (no shared accounts per HIPAA)
-- [ ] **AUTH-02**: User can log in with password hashed via bcrypt/Argon2 (minimum 12 characters)
-- [ ] **AUTH-03**: User session auto-locks after 10-15 minutes of inactivity (configurable)
+- [x] **AUTH-01**: User can create account with unique user ID (no shared accounts per HIPAA)
+- [x] **AUTH-02**: User can log in with password hashed via bcrypt/Argon2 (minimum 12 characters)
+- [x] **AUTH-03**: User session auto-locks after 10-15 minutes of inactivity (configurable)
 - [ ] **AUTH-04**: User can authenticate via Touch ID on supported hardware
 - [ ] **AUTH-05**: User can enable TOTP-based MFA for their account
 - [ ] **AUTH-06**: System enforces RBAC with 5 roles: System Admin, Provider, Nurse/MA, Billing Staff, Front Desk
@@ -178,9 +178,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUN-04 | Phase 1: Desktop Shell & Encrypted Database | Complete |
 | FOUN-05 | Phase 1: Desktop Shell & Encrypted Database | Complete |
 | FOUN-06 | Phase 1: Desktop Shell & Encrypted Database | Complete |
-| AUTH-01 | Phase 2: Authentication & Access Control | Pending |
-| AUTH-02 | Phase 2: Authentication & Access Control | Pending |
-| AUTH-03 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-01 | Phase 2: Authentication & Access Control | Complete |
+| AUTH-02 | Phase 2: Authentication & Access Control | Complete |
+| AUTH-03 | Phase 2: Authentication & Access Control | Complete |
 | AUTH-04 | Phase 2: Authentication & Access Control | Pending |
 | AUTH-05 | Phase 2: Authentication & Access Control | Pending |
 | AUTH-06 | Phase 2: Authentication & Access Control | Pending |
