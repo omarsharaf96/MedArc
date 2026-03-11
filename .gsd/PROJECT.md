@@ -1,0 +1,89 @@
+# MedArc — AI-Powered Desktop EMR
+
+## What This Is
+
+An AI-native electronic medical records application built for solo practitioners and small clinics (1-5 providers), delivered as a self-contained macOS desktop application with local-first data storage and a clear cloud migration path. It eliminates the documentation burden plaguing small practices — where physicians spend twice as much time on EHR screens as with patients — through ambient AI documentation, intelligent coding, offline-first privacy, and zero monthly SaaS fees.
+
+## Core Value
+
+Physicians can document patient encounters through voice capture that automatically generates structured SOAP notes, reducing documentation time by 30-41% while keeping all PHI local and encrypted on their device.
+
+## Requirements
+
+### Validated
+
+(None yet — ship to validate)
+
+### Active
+
+- [ ] Tauri 2.x + React + TypeScript desktop shell with SQLCipher encrypted local database
+- [ ] Patient management: demographics CRUD, search, clinical identifiers, care team
+- [ ] Scheduling: multi-provider calendars, patient flow board, recurring appointments, reminders
+- [ ] Clinical documentation: SOAP notes, vitals tracking, templates, review of systems, physical exam forms
+- [ ] E-prescribing: drug search, Weno Exchange integration, EPCS, interaction checks, RxNorm/SNOMED coding
+- [ ] Lab integration: HL7 v2 message exchange, procedure ordering, results workflow, LOINC mapping
+- [ ] Billing: CPT/HCPCS/ICD-10/SNOMED coding, fee sheets, X12 837P claims, ERA 835 processing, AR tracking
+- [ ] Reporting: clinical reports, financial reports, CQM/eCQM measures
+- [ ] Document management: upload/scanning, categorization, SHA-1 integrity, up to 64 MB
+- [ ] RBAC: 5 roles (Admin, Provider, Nurse/MA, Billing, Front Desk) with field-level access control
+- [ ] HIPAA compliance: AES-256 encryption at rest, TLS 1.3 in transit, tamper-proof audit logs, 6-year retention
+- [ ] Authentication: unique user IDs, bcrypt/Argon2 hashing, MFA/TOTP, Touch ID, auto-logoff
+- [ ] AI clinical note generation: whisper.cpp voice-to-text, MedSpaCy/SciSpaCy NLP, LLaMA 3.1 8B SOAP generation
+- [ ] AI diagnostic support: differential diagnosis via RAG, RxNav-in-a-Box drug interactions
+- [ ] AI smart scheduling: no-show prediction (XGBoost/LightGBM), slot optimization
+- [ ] AI medical coding: LLM entity extraction + FAISS vector search for ICD-10/CPT suggestions
+- [ ] Cloud migration: AWS RDS PostgreSQL, PowerSync offline-first sync, dual-write strategy
+- [ ] macOS distribution: code-signed + notarized DMG, auto-updates via tauri-plugin-updater
+
+### Out of Scope
+
+- Patient portal (Phase 1) — deprioritized in favor of desktop clinical workflow
+- Mobile companion app — scoped for Phase 4+
+- ONC certification — technically voluntary, architecture supports future certification
+- AWS HealthLake — $197/mo base, not cost-effective for small clinics
+- Local pharmacy dispensary module — optional, not core workflow
+- Windows/Linux support — macOS-first, Tauri supports future expansion
+
+## Context
+
+- OpenEMR v8.0.0 (ONC-certified, Feb 2026) serves as feature baseline
+- 42% of medical groups already using ambient AI (up from near-zero 3 years ago)
+- CMS estimates healthcare workers waste 45 minutes daily on inefficient workflows
+- Competitors (Practice Fusion, DrChrono, Tebra) all cloud-only with $49-349/month per provider
+- Average healthcare data breach cost: $9.77 million (IBM 2024)
+- HIPAA breach notification safe harbor: encrypted PHI = "secured" = no notification required
+- Minimum hardware: Mac with 16 GB unified memory; optimal: 32-64 GB for full AI pipeline
+- Whisper exhibits ~1% hallucination rate — human-in-the-loop review mandatory
+- GPT-4 achieves only 33.9% exact match on ICD-10-CM — vector search approach required
+- LLaMA-3-8B-Instruct scored 64% on NEJM cases vs 30% for fine-tuned OpenBioLLM-8B — RAG > fine-tuning
+
+## Constraints
+
+- **Platform**: macOS-only (Apple Silicon M1+) — leverages CoreML, Secure Enclave, WKWebView
+- **Security**: HIPAA-compliant from day one — AES-256 encryption, audit logging, RBAC
+- **Privacy**: PHI never leaves device for routine AI operations — local models for 95% of tasks
+- **Tech Stack**: Tauri 2.x (Rust) + React 18+ (TypeScript) + FastAPI (Python sidecar) + SQLCipher
+- **AI Runtime**: Ollama for local LLM, whisper.cpp/CoreML for transcription, FAISS for vector search
+- **Cloud AI**: AWS Bedrock (Claude) with BAA for complex cases only — de-identified data
+- **Database**: SQLCipher (SQLite + AES-256) Phase 1, PostgreSQL via SQLAlchemy abstraction for Phase 4
+- **Data Model**: FHIR R4 resources as JSON columns from day one
+- **Budget**: ~$500K-750K for 18-month build with 3-4 person team
+- **Cloud Cost**: ~$65-110/month per clinic post-migration
+
+## Key Decisions
+
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| Tauri 2.x over Electron | 30-50 MB idle vs 150-300 MB; Rust security model; 3-10 MB bundle; critical when running 6-35 GB AI models | -- Pending |
+| SQLCipher over PostgreSQL for Phase 1 | Zero-config, serverless, AES-256 with only 5-15% overhead; SQLAlchemy abstracts migration | -- Pending |
+| Local LLM (Ollama/LLaMA 3.1 8B) over cloud-first AI | No BAA needed, PHI stays local, free inference, 15-28 tok/sec on M1-M4 | -- Pending |
+| RAG over fine-tuning for clinical accuracy | LLaMA-3-8B + RAG: 64% NEJM vs fine-tuned 30%; 94% accuracy with 4% hallucination in published pipelines | -- Pending |
+| FHIR-first data model | Standards-compliant from day one; eliminates interoperability retrofitting; enables future ONC cert | -- Pending |
+| Repository Pattern + Unit of Work | SQLAlchemy dialect swap from sqlite to postgresql requires zero code changes | -- Pending |
+| RxNav-in-a-Box for drug interactions | Docker-based, NLM-provided, complete RxNorm API stack locally, no BAA required | -- Pending |
+| AWS Bedrock for cloud AI | Hosts Claude + LLaMA with standard BAA, near-instant approval, zero data retention | -- Pending |
+| PowerSync for offline-first sync | Production-proven PostgreSQL <-> SQLite sync, bucket-based partial sync, causal consistency | -- Pending |
+| 4-phase 18-month implementation | Phase 1: MVP (no AI), Phase 2: feature parity, Phase 3: AI enhancement, Phase 4: cloud migration | -- Pending |
+
+---
+*Last updated: 2026-03-10 after initialization*
