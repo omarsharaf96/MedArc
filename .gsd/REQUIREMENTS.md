@@ -2,50 +2,14 @@
 
 ## Active
 
-### AUDT-01 — Every ePHI access is logged with timestamp (UTC), user ID, action type, patient/record identifier, device identifier, and success/failure
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-Every ePHI access is logged with timestamp (UTC), user ID, action type, patient/record identifier, device identifier, and success/failure
-
-### AUDT-02 — Audit logs use tamper-proof storage with cryptographic hash chains (each entry includes hash of previous entry)
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-Audit logs use tamper-proof storage with cryptographic hash chains (each entry includes hash of previous entry)
-
 ### AUDT-03 — Audit logs are retained for minimum 6 years
 
 - Status: active
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S03
 
 Audit logs are retained for minimum 6 years
-
-### AUDT-04 — Provider can view their own audit log entries
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-Provider can view their own audit log entries
-
-### AUDT-05 — System Admin can view all audit log entries
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-System Admin can view all audit log entries
 
 ### PTNT-01 — User can create a patient record with demographics (name, DOB, sex/gender, contact info, patient photo)
 
@@ -399,6 +363,42 @@ Application auto-updates via tauri-plugin-updater with Ed25519 signature verific
 Application uses Hardened Runtime with App Sandbox for macOS security
 
 ## Validated
+
+### AUDT-01 — Every ePHI access is logged with timestamp (UTC), user ID, action type, patient/record identifier, device identifier, and success/failure
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S03
+
+Every ePHI access is logged with timestamp (UTC), user ID, action type, patient/record identifier, device identifier, and success/failure. Proven by S03: all 9 ePHI-touching commands (5 FHIR + login + logout + break-glass activate/deactivate) write audit rows on every success and failure path; 102 passing unit tests confirm this including `audit_chain_across_fhir_operations` and `audit_auth_actions`.
+
+### AUDT-02 — Audit logs use tamper-proof storage with cryptographic hash chains (each entry includes hash of previous entry)
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S03
+
+Audit logs use tamper-proof storage with cryptographic hash chains (each entry includes hash of previous entry). Proven by S03: SHA-256 hash chain enforced in the `audit_logs` table; BEFORE UPDATE/DELETE triggers prevent any modification; `verify_audit_chain()` walks all rows and catches any tampered entry; tests `entry_hash_equals_computed_hash`, `hash_chain_links_consecutive_rows`, `update_is_rejected_by_trigger`, `delete_is_rejected_by_trigger` all pass.
+
+### AUDT-04 — Provider can view their own audit log entries
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S03
+
+Provider can view their own audit log entries. Proven by S03: `get_audit_log` Tauri command enforces `effective_query.user_id = caller_id` for Provider role; no cross-user visibility is possible; AuditLog React component renders the scoped table.
+
+### AUDT-05 — System Admin can view all audit log entries
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S03
+
+System Admin can view all audit log entries. Proven by S03: `get_audit_log` passes query through unmodified for SystemAdmin role; `verify_audit_chain_cmd` is SystemAdmin-only and returns `ChainVerificationResult`; AuditLog component shows "User ID" column and "Verify Chain" button for SystemAdmin only.
 
 ### FOUN-01 — Application launches as a macOS desktop app via Tauri 2.x shell with WKWebView rendering React frontend
 

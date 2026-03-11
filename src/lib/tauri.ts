@@ -26,6 +26,12 @@ import type {
   BreakGlassResponse,
 } from "../types/auth";
 
+import type {
+  AuditLogPage,
+  AuditQuery,
+  ChainVerificationResult,
+} from "../types/audit";
+
 export const commands = {
   /** Check database encryption health status. */
   checkDb: () => invoke<DbStatus>("check_db"),
@@ -141,4 +147,23 @@ export const commands = {
 
   /** Deactivate break-glass and restore original role. */
   deactivateBreakGlass: () => invoke<void>("deactivate_break_glass"),
+
+  // ─── Audit log commands ──────────────────────────────────────────
+
+  /**
+   * Retrieve a paginated, role-scoped page of audit log entries.
+   *
+   * Provider: only their own entries are returned (user_id enforced backend-side).
+   * SystemAdmin: all entries, with optional filters.
+   * Other roles: Unauthorized error.
+   */
+  getAuditLog: (query?: AuditQuery) =>
+    invoke<AuditLogPage>("get_audit_log", { query: query ?? null }),
+
+  /**
+   * Verify the cryptographic hash chain integrity of the full audit log.
+   * SystemAdmin only. Returns { valid, rowsChecked, error }.
+   */
+  verifyAuditChain: () =>
+    invoke<ChainVerificationResult>("verify_audit_chain_cmd"),
 };

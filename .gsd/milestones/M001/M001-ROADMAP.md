@@ -15,7 +15,7 @@
   > After this: Scaffold the Tauri 2.
 - [x] **S02: Auth Access Control** `risk:medium` `depends:[S01]`
   > After this: Build the authentication foundation: user account creation with Argon2id password hashing, login/logout flow, and a session state machine with configurable inactivity timeout.
-- [ ] **S03: Audit Logging** `risk:medium` `depends:[S02]`
+- [x] **S03: Audit Logging** `risk:medium` `depends:[S02]`
   > After this: Create the audit logging data layer: Migration 8 (audit_logs table + immutability triggers) and the audit Rust module (entry.
 - [ ] **S04: Patient Demographics & Care Teams** `risk:medium` `depends:[S03]`
   > After this: unit tests prove Patient Demographics & Care Teams works

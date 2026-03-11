@@ -1,9 +1,11 @@
 use serde::Serialize;
 use tauri::State;
 
+use crate::audit::{write_audit_entry, AuditEntryInput};
 use crate::auth::password;
 use crate::auth::session::SessionManager;
 use crate::db::connection::Database;
+use crate::device_id::DeviceId;
 use crate::error::AppError;
 
 /// Response from break-glass activation.
@@ -23,10 +25,12 @@ pub struct BreakGlassResponse {
 /// - Full audit logging
 ///
 /// Scoped to clinical_records:read only.
+/// Writes an audit row with action BREAK_GLASS_ACTIVATE on both success and failure paths.
 #[tauri::command]
 pub fn activate_break_glass(
     db: State<'_, Database>,
     session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
     reason: String,
     password: String,
     patient_id: Option<String>,
@@ -36,6 +40,24 @@ pub fn activate_break_glass(
 
     // 2. Validate reason is non-empty (HIPAA requires documented justification)
     if reason.trim().is_empty() {
+        // Write failure audit before acquiring the lock (we still need a conn).
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        let _ = write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id.clone(),
+                action: "break_glass.activate".to_string(),
+                resource_type: "break_glass".to_string(),
+                resource_id: None,
+                patient_id: patient_id.clone(),
+                device_id: device_id.get().to_string(),
+                success: false,
+                details: Some("Break-glass reason is required (HIPAA mandate)".to_string()),
+            },
+        );
         return Err(AppError::Validation(
             "Break-glass reason is required (HIPAA mandate)".to_string(),
         ));
@@ -55,7 +77,22 @@ pub fn activate_break_glass(
         )
         .map_err(|_| AppError::Authentication("User not found".to_string()))?;
 
-    password::verify(&password, &password_hash)?;
+    if let Err(e) = password::verify(&password, &password_hash) {
+        let _ = write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id.clone(),
+                action: "break_glass.activate".to_string(),
+                resource_type: "break_glass".to_string(),
+                resource_id: None,
+                patient_id: patient_id.clone(),
+                device_id: device_id.get().to_string(),
+                success: false,
+                details: Some("Password verification failed".to_string()),
+            },
+        );
+        return Err(e);
+    }
 
     // 4. Create 30-minute expiry
     let expires_at = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -69,15 +106,30 @@ pub fn activate_break_glass(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
             log_id,
-            user_id,
+            user_id.clone(),
             reason.trim(),
-            patient_id,
+            patient_id.clone(),
             now,
             expires_at.to_rfc3339()
         ],
     )?;
 
-    // 6. Elevate session permissions -- scoped to clinical read-only
+    // 6. Audit the activation (success)
+    let _ = write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: user_id.clone(),
+            action: "break_glass.activate".to_string(),
+            resource_type: "break_glass".to_string(),
+            resource_id: Some(log_id.clone()),
+            patient_id: patient_id.clone(),
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some(format!("reason: {}", reason.trim())),
+        },
+    );
+
+    // 7. Elevate session permissions -- scoped to clinical read-only
     session.activate_break_glass(
         user_id,
         role,
@@ -94,10 +146,12 @@ pub fn activate_break_glass(
 /// Deactivate break-glass access and restore original role.
 ///
 /// Updates the break_glass_log with deactivation timestamp.
+/// Writes an audit row with action BREAK_GLASS_DEACTIVATE.
 #[tauri::command]
 pub fn deactivate_break_glass(
     db: State<'_, Database>,
     session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
 ) -> Result<(), AppError> {
     // Get current user before deactivating to find the log entry
     let (user_id, _role) = session.get_current_user()?;
@@ -115,8 +169,22 @@ pub fn deactivate_break_glass(
     conn.execute(
         "UPDATE break_glass_log SET deactivated_at = ?1
          WHERE user_id = ?2 AND deactivated_at IS NULL",
-        rusqlite::params![now, user_id],
+        rusqlite::params![now, user_id.clone()],
     )?;
+
+    let _ = write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id,
+            action: "break_glass.deactivate".to_string(),
+            resource_type: "break_glass".to_string(),
+            resource_id: None,
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: None,
+        },
+    );
 
     Ok(())
 }

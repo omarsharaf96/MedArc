@@ -102,6 +102,48 @@ static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             INSERT OR IGNORE INTO app_settings (key, value) VALUES ('max_failed_logins', '5');
             INSERT OR IGNORE INTO app_settings (key, value) VALUES ('lockout_duration_minutes', '30');"
         ),
+        // Migration 8: Audit logs — HIPAA-required tamper-proof access log with hash chain
+        //
+        // HIPAA required fields (9): timestamp, user_id, action, resource_type, resource_id,
+        // patient_id, device_id, success, details.
+        // Additional chain fields: previous_hash, entry_hash.
+        //
+        // Immutability is enforced at the database level via triggers that abort
+        // any UPDATE or DELETE on this table. Even a SystemAdmin cannot alter past records.
+        M::up(
+            "CREATE TABLE IF NOT EXISTS audit_logs (
+                id          TEXT PRIMARY KEY NOT NULL,
+                timestamp   TEXT NOT NULL,
+                user_id     TEXT NOT NULL,
+                action      TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT,
+                patient_id  TEXT,
+                device_id   TEXT NOT NULL,
+                success     INTEGER NOT NULL CHECK (success IN (0, 1)),
+                details     TEXT,
+                previous_hash TEXT NOT NULL,
+                entry_hash  TEXT NOT NULL UNIQUE
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id   ON audit_logs(user_id);
+            CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_audit_logs_patient   ON audit_logs(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_audit_logs_action    ON audit_logs(action);
+
+            -- Prevent any UPDATE on audit_logs rows (tamper-proof).
+            CREATE TRIGGER IF NOT EXISTS audit_logs_no_update
+            BEFORE UPDATE ON audit_logs
+            BEGIN
+                SELECT RAISE(ABORT, 'audit_logs rows are immutable: UPDATE is not allowed');
+            END;
+
+            -- Prevent any DELETE on audit_logs rows (tamper-proof).
+            CREATE TRIGGER IF NOT EXISTS audit_logs_no_delete
+            BEFORE DELETE ON audit_logs
+            BEGIN
+                SELECT RAISE(ABORT, 'audit_logs rows are immutable: DELETE is not allowed');
+            END;"
+        ),
     ])
 });
 

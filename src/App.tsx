@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import DatabaseStatus from "./components/DatabaseStatus";
 import FhirExplorer from "./components/FhirExplorer";
+import AuditLog from "./components/AuditLog";
 import LoginForm from "./components/auth/LoginForm";
 import RegisterForm from "./components/auth/RegisterForm";
 import LockScreen from "./components/auth/LockScreen";
@@ -137,6 +138,15 @@ function App() {
           <div className="mb-6">
             <FhirExplorer />
           </div>
+
+          {/* Audit Log — visible to Provider (own entries) and SystemAdmin (all entries) */}
+          {auth.user &&
+            (auth.user.role === "Provider" ||
+              auth.user.role === "SystemAdmin") && (
+              <div className="mb-6">
+                <AuditLog role={auth.user.role} />
+              </div>
+            )}
         </div>
       </div>
     </>

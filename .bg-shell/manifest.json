@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "id": "49464d3f",
+    "label": "tauri-dev",
+    "command": "cd /Users/omarsharaf96/Documents/GitHub/MedArc && npm run tauri dev 2>&1",
+    "cwd": "/Users/omarsharaf96/Documents/GitHub/MedArc",
+    "startedAt": 1773239712900,
+    "processType": "server",
+    "group": "medarc",
+    "readyPattern": "App started",
+    "readyPort": null,
+    "pid": 70521
+  }
+]

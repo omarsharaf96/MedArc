@@ -1,10 +1,12 @@
 use tauri::State;
 
+use crate::audit::{write_audit_entry, AuditEntryInput};
 use crate::auth::password;
 use crate::auth::session::SessionManager;
 use crate::auth::totp;
 use crate::db::connection::Database;
 use crate::db::models::user::UserResponse;
+use crate::device_id::DeviceId;
 use crate::error::AppError;
 
 /// Login response combining user info and session info.
@@ -104,10 +106,12 @@ pub fn register_user(
 ///
 /// Returns user info and session info on success.
 /// Increments failed_login_attempts on failure; locks account after max attempts.
+/// Writes an audit row with action_type LOGIN on both success and failure paths.
 #[tauri::command]
 pub fn login(
     db: State<'_, Database>,
     session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
     username: String,
     password: String,
 ) -> Result<LoginResponse, AppError> {
@@ -135,6 +139,19 @@ pub fn login(
 
     // Check if account is active
     if !is_active {
+        let _ = write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id.clone(),
+                action: "auth.login".to_string(),
+                resource_type: "auth".to_string(),
+                resource_id: None,
+                patient_id: None,
+                device_id: device_id.get().to_string(),
+                success: false,
+                details: Some("Account is inactive".to_string()),
+            },
+        );
         return Err(AppError::Authentication("Invalid credentials".to_string()));
     }
 
@@ -143,6 +160,19 @@ pub fn login(
         if let Ok(lock_dt) = chrono::NaiveDateTime::parse_from_str(lock_time, "%Y-%m-%d %H:%M:%S") {
             let lock_utc = lock_dt.and_utc();
             if chrono::Utc::now() < lock_utc {
+                let _ = write_audit_entry(
+                    &conn,
+                    AuditEntryInput {
+                        user_id: user_id.clone(),
+                        action: "auth.login".to_string(),
+                        resource_type: "auth".to_string(),
+                        resource_id: None,
+                        patient_id: None,
+                        device_id: device_id.get().to_string(),
+                        success: false,
+                        details: Some("Account temporarily locked".to_string()),
+                    },
+                );
                 return Err(AppError::Authentication(
                     "Account is temporarily locked due to too many failed login attempts".to_string(),
                 ));
@@ -199,6 +229,19 @@ pub fn login(
             )?;
         }
 
+        let _ = write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id.clone(),
+                action: "auth.login".to_string(),
+                resource_type: "auth".to_string(),
+                resource_id: None,
+                patient_id: None,
+                device_id: device_id.get().to_string(),
+                success: false,
+                details: Some("Invalid password".to_string()),
+            },
+        );
         return Err(AppError::Authentication("Invalid credentials".to_string()));
     }
 
@@ -220,6 +263,21 @@ pub fn login(
     if totp_enabled {
         // MFA is required -- do NOT create a full session yet.
         // Return a partial response so the frontend can prompt for TOTP code.
+        // Record as a pending login (password succeeded but MFA still required).
+        let _ = write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id.clone(),
+                action: "auth.login".to_string(),
+                resource_type: "auth".to_string(),
+                resource_id: None,
+                patient_id: None,
+                device_id: device_id.get().to_string(),
+                success: false,
+                details: Some("MFA challenge required; session not yet established".to_string()),
+            },
+        );
+
         let placeholder_session = crate::auth::session::SessionInfo {
             session_id: None,
             user_id: Some(user_id.clone()),
@@ -250,6 +308,20 @@ pub fn login(
         rusqlite::params![session_id, user_id],
     )?;
 
+    let _ = write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: user_id.clone(),
+            action: "auth.login".to_string(),
+            resource_type: "auth".to_string(),
+            resource_id: None,
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: None,
+        },
+    );
+
     let session_info = session.get_state();
 
     Ok(LoginResponse {
@@ -266,23 +338,39 @@ pub fn login(
 }
 
 /// Log out the current user, ending their session.
+/// Writes an audit row with action_type LOGOUT.
 #[tauri::command]
 pub fn logout(
     db: State<'_, Database>,
     session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
 ) -> Result<(), AppError> {
-    // Get session info before logout to update DB
+    // Capture user_id and session_id before the state transition.
     let session_info = session.get_state();
+    let user_id_for_audit = session_info.user_id.clone().unwrap_or_else(|| "UNAUTHENTICATED".to_string());
 
     session.logout()?;
 
-    // Update session row in database
+    // Update session row in database and write audit entry.
     if let Some(session_id) = session_info.session_id {
         let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
         conn.execute(
             "UPDATE sessions SET state = 'expired' WHERE id = ?1",
             rusqlite::params![session_id],
         )?;
+        let _ = write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id_for_audit,
+                action: "auth.logout".to_string(),
+                resource_type: "auth".to_string(),
+                resource_id: None,
+                patient_id: None,
+                device_id: device_id.get().to_string(),
+                success: true,
+                details: None,
+            },
+        );
     }
 
     Ok(())
@@ -293,10 +381,12 @@ pub fn logout(
 /// Called when the initial login returned mfa_required=true. The frontend
 /// must provide the user_id from the pending login and a valid TOTP code.
 /// Only after TOTP verification does this command create a full session.
+/// Writes an audit row with action_type LOGIN on both success and failure paths.
 #[tauri::command]
 pub fn complete_login(
     db: State<'_, Database>,
     session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
     user_id: String,
     totp_code: String,
 ) -> Result<LoginResponse, AppError> {
@@ -326,6 +416,19 @@ pub fn complete_login(
         .map_err(|_| AppError::Authentication("Invalid credentials".to_string()))?;
 
     if !totp_enabled {
+        let _ = write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id.clone(),
+                action: "auth.login".to_string(),
+                resource_type: "auth".to_string(),
+                resource_id: None,
+                patient_id: None,
+                device_id: device_id.get().to_string(),
+                success: false,
+                details: Some("MFA not enabled for user".to_string()),
+            },
+        );
         return Err(AppError::Authentication(
             "MFA is not enabled for this user".to_string(),
         ));
@@ -338,6 +441,19 @@ pub fn complete_login(
     // Verify the TOTP code
     let valid = totp::verify_totp(&secret, &totp_code)?;
     if !valid {
+        let _ = write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id.clone(),
+                action: "auth.login".to_string(),
+                resource_type: "auth".to_string(),
+                resource_id: None,
+                patient_id: None,
+                device_id: device_id.get().to_string(),
+                success: false,
+                details: Some("Invalid MFA code".to_string()),
+            },
+        );
         return Err(AppError::Authentication("Invalid verification code".to_string()));
     }
 
@@ -348,6 +464,20 @@ pub fn complete_login(
         "INSERT INTO sessions (id, user_id, state, last_activity) VALUES (?1, ?2, 'active', datetime('now'))",
         rusqlite::params![session_id, user_id],
     )?;
+
+    let _ = write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: user_id.clone(),
+            action: "auth.login".to_string(),
+            resource_type: "auth".to_string(),
+            resource_id: None,
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some("MFA verified".to_string()),
+        },
+    );
 
     let session_info = session.get_state();
 

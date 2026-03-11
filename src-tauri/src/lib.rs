@@ -1,12 +1,15 @@
+mod audit;
 mod auth;
 mod commands;
 mod db;
+mod device_id;
 mod error;
 mod keychain;
 mod rbac;
 
 use auth::session::SessionManager;
 use db::connection::Database;
+use device_id::DeviceId;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -43,6 +46,8 @@ pub fn run() {
 
             let session_manager = SessionManager::new(timeout);
             app.manage(session_manager);
+            // Hardware-derived machine UID — stable across reboots, logged at startup.
+            app.manage(DeviceId::from_machine_uid());
             app.manage(database);
 
             Ok(())
@@ -74,6 +79,8 @@ pub fn run() {
             commands::mfa::check_biometric,
             commands::mfa::enable_touch_id,
             commands::mfa::disable_touch_id,
+            commands::audit::get_audit_log,
+            commands::audit::verify_audit_chain_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

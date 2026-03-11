@@ -15,6 +15,7 @@ Physicians can document patient encounters through voice capture that automatica
 - [x] Tauri 2.x + React + TypeScript desktop shell with SQLCipher encrypted local database (S01)
 - [x] RBAC: 5 roles (Admin, Provider, Nurse/MA, Billing, Front Desk) with field-level access control (S02)
 - [x] Authentication: unique user IDs, Argon2id hashing, TOTP MFA, Touch ID stub, auto-logoff, break-glass (S02)
+- [x] HIPAA audit logging: SHA-256 hash chains, trigger-enforced immutability, 9 ePHI commands instrumented, real machine-uid device fingerprinting, role-scoped AuditLog UI (S03)
 
 ### Active
 
