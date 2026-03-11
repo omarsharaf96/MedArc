@@ -9,11 +9,11 @@ Requirements for initial release (Phase 1 MVP). Core EMR functionality without A
 
 ### Foundation & Security
 
-- [ ] **FOUN-01**: Application launches as a macOS desktop app via Tauri 2.x shell with WKWebView rendering React frontend
-- [ ] **FOUN-02**: All data stored in SQLCipher-encrypted SQLite database with AES-256-CBC and per-page HMAC tamper detection
-- [ ] **FOUN-03**: Database encryption key stored exclusively in macOS Keychain (Secure Enclave-backed on Apple Silicon)
+- [x] **FOUN-01**: Application launches as a macOS desktop app via Tauri 2.x shell with WKWebView rendering React frontend
+- [x] **FOUN-02**: All data stored in SQLCipher-encrypted SQLite database with AES-256-CBC and per-page HMAC tamper detection
+- [x] **FOUN-03**: Database encryption key stored exclusively in macOS Keychain (Secure Enclave-backed on Apple Silicon)
 - [ ] **FOUN-04**: Data modeled as FHIR R4 resources stored as JSON columns with indexed lookup tables for frequently queried fields
-- [ ] **FOUN-05**: Alembic schema migrations with render_as_batch=True for SQLite compatibility
+- [x] **FOUN-05**: Alembic schema migrations with render_as_batch=True for SQLite compatibility
 - [ ] **FOUN-06**: Rust-native Tauri commands handle all database CRUD and file system operations (no Python dependency for core EMR)
 
 ### Authentication & Access Control

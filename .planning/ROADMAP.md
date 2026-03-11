@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Scaffold Tauri 2.x app with SQLCipher database and macOS Keychain key management
+- [x] 01-01-PLAN.md -- Scaffold Tauri 2.x app with SQLCipher database and macOS Keychain key management
 - [ ] 01-02-PLAN.md -- FHIR R4 resource schema, Rust CRUD commands, and frontend integration
 - [ ] 01-03-PLAN.md -- Frontend component polish and end-to-end requirement verification
 
@@ -175,7 +175,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Desktop Shell & Encrypted Database | 0/3 | Not started | - |
+| 1. Desktop Shell & Encrypted Database | 1/3 | In progress | - |
 | 2. Authentication & Access Control | 0/3 | Not started | - |
 | 3. Audit Logging | 0/2 | Not started | - |
 | 4. Patient Demographics & Care Teams | 0/3 | Not started | - |
