@@ -65,6 +65,13 @@ pub fn run() {
             commands::session::get_session_timeout,
             commands::break_glass::activate_break_glass,
             commands::break_glass::deactivate_break_glass,
+            commands::mfa::setup_totp,
+            commands::mfa::verify_totp_setup,
+            commands::mfa::disable_totp,
+            commands::mfa::check_totp,
+            commands::mfa::check_biometric,
+            commands::mfa::enable_touch_id,
+            commands::mfa::disable_touch_id,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
