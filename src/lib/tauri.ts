@@ -15,6 +15,17 @@ import type {
   UpdateFhirResource,
 } from "../types/fhir";
 
+import type {
+  UserResponse,
+  LoginInput,
+  LoginResponse,
+  RegisterInput,
+  SessionInfo,
+  TotpSetup,
+  BiometricStatus,
+  BreakGlassResponse,
+} from "../types/auth";
+
 export const commands = {
   /** Check database encryption health status. */
   checkDb: () => invoke<DbStatus>("check_db"),
@@ -41,4 +52,82 @@ export const commands = {
 
   /** Delete a FHIR resource by ID. */
   deleteResource: (id: string) => invoke<void>("delete_resource", { id }),
+
+  // ─── Auth commands ───────────────────────────────────────────────
+
+  /** Register a new user account. */
+  registerUser: (input: RegisterInput) =>
+    invoke<UserResponse>("register_user", {
+      username: input.username,
+      password: input.password,
+      display_name: input.displayName,
+      role: input.role,
+    }),
+
+  /** Log in with username and password. */
+  login: (input: LoginInput) =>
+    invoke<LoginResponse>("login", {
+      username: input.username,
+      password: input.password,
+    }),
+
+  /** Log out the current user. */
+  logout: () => invoke<void>("logout"),
+
+  // ─── Session commands ────────────────────────────────────────────
+
+  /** Lock the current active session. */
+  lockSession: () => invoke<void>("lock_session"),
+
+  /** Unlock a locked session by re-entering password. */
+  unlockSession: (password: string) =>
+    invoke<void>("unlock_session", { password }),
+
+  /** Refresh the session activity timestamp. */
+  refreshSession: () => invoke<void>("refresh_session"),
+
+  /** Get the current session state for the frontend. */
+  getSessionState: () => invoke<SessionInfo>("get_session_state"),
+
+  /** Get the session timeout value in minutes. */
+  getSessionTimeout: () => invoke<number>("get_session_timeout"),
+
+  // ─── MFA commands ────────────────────────────────────────────────
+
+  /** Begin TOTP setup -- returns QR code and secret. */
+  setupTotp: () => invoke<TotpSetup>("setup_totp"),
+
+  /** Verify a TOTP code during setup to finalize enrollment. */
+  verifyTotpSetup: (secretBase32: string, code: string) =>
+    invoke<string>("verify_totp_setup", { secret_base32: secretBase32, code }),
+
+  /** Disable TOTP (requires password confirmation). */
+  disableTotp: (password: string) =>
+    invoke<void>("disable_totp", { password }),
+
+  /** Check a TOTP code during login. */
+  checkTotp: (code: string) => invoke<boolean>("check_totp", { code }),
+
+  /** Check biometric (Touch ID) availability and enablement. */
+  checkBiometric: () => invoke<BiometricStatus>("check_biometric"),
+
+  /** Enable Touch ID (requires password confirmation). */
+  enableTouchId: (password: string) =>
+    invoke<void>("enable_touch_id", { password }),
+
+  /** Disable Touch ID. */
+  disableTouchId: () => invoke<void>("disable_touch_id"),
+
+  // ─── Break-glass commands ────────────────────────────────────────
+
+  /** Activate emergency break-glass access. */
+  activateBreakGlass: (reason: string, password: string, patientId?: string) =>
+    invoke<BreakGlassResponse>("activate_break_glass", {
+      reason,
+      password,
+      patient_id: patientId ?? null,
+    }),
+
+  /** Deactivate break-glass and restore original role. */
+  deactivateBreakGlass: () => invoke<void>("deactivate_break_glass"),
 };
