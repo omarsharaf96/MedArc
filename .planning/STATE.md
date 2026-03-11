@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-11T12:24:18Z"
-last_activity: 2026-03-11 -- Completed 02-01-PLAN.md (Auth foundation - Argon2id password hashing, session state machine, Tauri commands)
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-03-11T12:30:33Z"
+last_activity: 2026-03-11 -- Completed 02-02-PLAN.md (RBAC engine with 5-role permission matrix, field filtering, break-glass access)
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 5
-  completed_plans: 1
-  percent: 20
+  completed_plans: 2
+  percent: 40
 ---
 
 # Project State
@@ -26,29 +26,29 @@ See: .planning/PROJECT.md (updated 2026-03-10)
 ## Current Position
 
 Phase: 2 of 9 (Authentication & Access Control)
-Plan: 1 of 5 in current phase
+Plan: 2 of 5 in current phase
 Status: In Progress
-Last activity: 2026-03-11 -- Completed 02-01-PLAN.md (Auth foundation - Argon2id password hashing, session state machine, Tauri commands)
+Last activity: 2026-03-11 -- Completed 02-02-PLAN.md (RBAC engine with 5-role permission matrix, field filtering, break-glass access)
 
-Progress: [██--------] 20%
+Progress: [████------] 40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 6.5 min
-- Total execution time: 0.43 hours
+- Total plans completed: 5
+- Average duration: 7 min
+- Total execution time: 0.62 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 - Desktop Shell & Encrypted Database | 3 | 21 min | 7 min |
-| 2 - Authentication & Access Control | 1 | 5 min | 5 min |
+| 2 - Authentication & Access Control | 2 | 16 min | 8 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (8 min), 01-02 (5 min), 01-03 (8 min), 02-01 (5 min)
-- Trend: stable/improving
+- Last 5 plans: 01-02 (5 min), 01-03 (8 min), 02-01 (5 min), 02-02 (11 min)
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -77,6 +77,9 @@ Recent decisions affecting current work:
 - [02-01]: First user registration uses bootstrap pattern (no auth when 0 users exist)
 - [02-01]: Account lockout reads configurable values from app_settings table
 - [02-01]: Added Validation error variant for input validation distinct from auth failures
+- [02-02]: Used match-based static dispatch for RBAC matrix (zero runtime overhead, exhaustive pattern matching)
+- [02-02]: Break-glass scoped to clinicalrecords:read permission key format for middleware consistency
+- [02-02]: Field filtering uses Vec<&'static str> with "*" wildcard for full-access roles
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-11T12:24:18Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-03-11T12:30:33Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None

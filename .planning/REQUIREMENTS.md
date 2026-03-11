@@ -23,9 +23,9 @@ Requirements for initial release (Phase 1 MVP). Core EMR functionality without A
 - [x] **AUTH-03**: User session auto-locks after 10-15 minutes of inactivity (configurable)
 - [ ] **AUTH-04**: User can authenticate via Touch ID on supported hardware
 - [ ] **AUTH-05**: User can enable TOTP-based MFA for their account
-- [ ] **AUTH-06**: System enforces RBAC with 5 roles: System Admin, Provider, Nurse/MA, Billing Staff, Front Desk
-- [ ] **AUTH-07**: Each role has field-level access control per RBAC matrix (e.g., Nurse can update vitals but not prescriptions)
-- [ ] **AUTH-08**: Emergency "break-glass" access is time-limited, tightly scoped, and fully logged
+- [x] **AUTH-06**: System enforces RBAC with 5 roles: System Admin, Provider, Nurse/MA, Billing Staff, Front Desk
+- [x] **AUTH-07**: Each role has field-level access control per RBAC matrix (e.g., Nurse can update vitals but not prescriptions)
+- [x] **AUTH-08**: Emergency "break-glass" access is time-limited, tightly scoped, and fully logged
 
 ### Audit Logging
 
@@ -183,9 +183,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUTH-03 | Phase 2: Authentication & Access Control | Complete |
 | AUTH-04 | Phase 2: Authentication & Access Control | Pending |
 | AUTH-05 | Phase 2: Authentication & Access Control | Pending |
-| AUTH-06 | Phase 2: Authentication & Access Control | Pending |
-| AUTH-07 | Phase 2: Authentication & Access Control | Pending |
-| AUTH-08 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-06 | Phase 2: Authentication & Access Control | Complete |
+| AUTH-07 | Phase 2: Authentication & Access Control | Complete |
+| AUTH-08 | Phase 2: Authentication & Access Control | Complete |
 | AUDT-01 | Phase 3: Audit Logging | Pending |
 | AUDT-02 | Phase 3: Audit Logging | Pending |
 | AUDT-03 | Phase 3: Audit Logging | Pending |

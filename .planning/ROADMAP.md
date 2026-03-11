@@ -54,8 +54,8 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Auth core backend: user accounts, Argon2id password hashing, session state machine
-- [ ] 02-02-PLAN.md -- RBAC engine: 5-role permission matrix, field-level filtering, break-glass access
+- [x] 02-01-PLAN.md -- Auth core backend: user accounts, Argon2id password hashing, session state machine
+- [x] 02-02-PLAN.md -- RBAC engine: 5-role permission matrix, field-level filtering, break-glass access
 - [ ] 02-03-PLAN.md -- MFA and biometrics: TOTP enrollment/verification, Touch ID integration
 - [ ] 02-04-PLAN.md -- Frontend auth UI: login, registration, lock screen, MFA components, idle timer
 - [ ] 02-05-PLAN.md -- Integration wiring and end-to-end AUTH requirement verification
@@ -178,7 +178,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Desktop Shell & Encrypted Database | 3/3 | Complete   | 2026-03-11 |
-| 2. Authentication & Access Control | 0/5 | Not started | - |
+| 2. Authentication & Access Control | 2/5 | In progress | - |
 | 3. Audit Logging | 0/2 | Not started | - |
 | 4. Patient Demographics & Care Teams | 0/3 | Not started | - |
 | 5. Clinical Patient Data | 0/2 | Not started | - |
