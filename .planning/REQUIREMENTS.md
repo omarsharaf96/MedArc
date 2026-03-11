@@ -172,11 +172,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUN-01 | Phase 1: Desktop Shell & Encrypted Database | Pending |
-| FOUN-02 | Phase 1: Desktop Shell & Encrypted Database | Pending |
-| FOUN-03 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-01 | Phase 1: Desktop Shell & Encrypted Database | Complete |
+| FOUN-02 | Phase 1: Desktop Shell & Encrypted Database | Complete |
+| FOUN-03 | Phase 1: Desktop Shell & Encrypted Database | Complete |
 | FOUN-04 | Phase 1: Desktop Shell & Encrypted Database | Complete |
-| FOUN-05 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-05 | Phase 1: Desktop Shell & Encrypted Database | Complete |
 | FOUN-06 | Phase 1: Desktop Shell & Encrypted Database | Complete |
 | AUTH-01 | Phase 2: Authentication & Access Control | Pending |
 | AUTH-02 | Phase 2: Authentication & Access Control | Pending |
