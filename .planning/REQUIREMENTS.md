@@ -172,70 +172,70 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUN-01 | Phase 1 | Pending |
-| FOUN-02 | Phase 1 | Pending |
-| FOUN-03 | Phase 1 | Pending |
-| FOUN-04 | Phase 1 | Pending |
-| FOUN-05 | Phase 1 | Pending |
-| FOUN-06 | Phase 1 | Pending |
-| AUTH-01 | Phase 1 | Pending |
-| AUTH-02 | Phase 1 | Pending |
-| AUTH-03 | Phase 1 | Pending |
-| AUTH-04 | Phase 1 | Pending |
-| AUTH-05 | Phase 1 | Pending |
-| AUTH-06 | Phase 1 | Pending |
-| AUTH-07 | Phase 1 | Pending |
-| AUTH-08 | Phase 1 | Pending |
-| AUDT-01 | Phase 1 | Pending |
-| AUDT-02 | Phase 1 | Pending |
-| AUDT-03 | Phase 1 | Pending |
-| AUDT-04 | Phase 1 | Pending |
-| AUDT-05 | Phase 1 | Pending |
-| PTNT-01 | Phase 1 | Pending |
-| PTNT-02 | Phase 1 | Pending |
-| PTNT-03 | Phase 1 | Pending |
-| PTNT-04 | Phase 1 | Pending |
-| PTNT-05 | Phase 1 | Pending |
-| PTNT-06 | Phase 1 | Pending |
-| PTNT-07 | Phase 1 | Pending |
-| PTNT-08 | Phase 1 | Pending |
-| PTNT-09 | Phase 1 | Pending |
-| PTNT-10 | Phase 1 | Pending |
-| PTNT-11 | Phase 1 | Pending |
-| SCHD-01 | Phase 1 | Pending |
-| SCHD-02 | Phase 1 | Pending |
-| SCHD-03 | Phase 1 | Pending |
-| SCHD-04 | Phase 1 | Pending |
-| SCHD-05 | Phase 1 | Pending |
-| SCHD-06 | Phase 1 | Pending |
-| SCHD-07 | Phase 1 | Pending |
-| CLIN-01 | Phase 1 | Pending |
-| CLIN-02 | Phase 1 | Pending |
-| CLIN-03 | Phase 1 | Pending |
-| CLIN-04 | Phase 1 | Pending |
-| CLIN-05 | Phase 1 | Pending |
-| CLIN-06 | Phase 1 | Pending |
-| CLIN-07 | Phase 1 | Pending |
-| CLIN-08 | Phase 1 | Pending |
-| LABS-01 | Phase 1 | Pending |
-| LABS-02 | Phase 1 | Pending |
-| LABS-03 | Phase 1 | Pending |
-| LABS-04 | Phase 1 | Pending |
-| DOCS-01 | Phase 1 | Pending |
-| DOCS-02 | Phase 1 | Pending |
-| DOCS-03 | Phase 1 | Pending |
-| BKUP-01 | Phase 1 | Pending |
-| BKUP-02 | Phase 1 | Pending |
-| BKUP-03 | Phase 1 | Pending |
-| DIST-01 | Phase 1 | Pending |
-| DIST-02 | Phase 1 | Pending |
-| DIST-03 | Phase 1 | Pending |
+| FOUN-01 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-02 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-03 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-04 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-05 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-06 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| AUTH-01 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-02 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-03 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-04 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-05 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-06 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-07 | Phase 2: Authentication & Access Control | Pending |
+| AUTH-08 | Phase 2: Authentication & Access Control | Pending |
+| AUDT-01 | Phase 3: Audit Logging | Pending |
+| AUDT-02 | Phase 3: Audit Logging | Pending |
+| AUDT-03 | Phase 3: Audit Logging | Pending |
+| AUDT-04 | Phase 3: Audit Logging | Pending |
+| AUDT-05 | Phase 3: Audit Logging | Pending |
+| PTNT-01 | Phase 4: Patient Demographics & Care Teams | Pending |
+| PTNT-02 | Phase 4: Patient Demographics & Care Teams | Pending |
+| PTNT-03 | Phase 4: Patient Demographics & Care Teams | Pending |
+| PTNT-04 | Phase 4: Patient Demographics & Care Teams | Pending |
+| PTNT-05 | Phase 4: Patient Demographics & Care Teams | Pending |
+| PTNT-06 | Phase 4: Patient Demographics & Care Teams | Pending |
+| PTNT-07 | Phase 4: Patient Demographics & Care Teams | Pending |
+| PTNT-08 | Phase 5: Clinical Patient Data | Pending |
+| PTNT-09 | Phase 5: Clinical Patient Data | Pending |
+| PTNT-10 | Phase 5: Clinical Patient Data | Pending |
+| PTNT-11 | Phase 5: Clinical Patient Data | Pending |
+| SCHD-01 | Phase 6: Scheduling | Pending |
+| SCHD-02 | Phase 6: Scheduling | Pending |
+| SCHD-03 | Phase 6: Scheduling | Pending |
+| SCHD-04 | Phase 6: Scheduling | Pending |
+| SCHD-05 | Phase 6: Scheduling | Pending |
+| SCHD-06 | Phase 6: Scheduling | Pending |
+| SCHD-07 | Phase 6: Scheduling | Pending |
+| CLIN-01 | Phase 7: Clinical Documentation | Pending |
+| CLIN-02 | Phase 7: Clinical Documentation | Pending |
+| CLIN-03 | Phase 7: Clinical Documentation | Pending |
+| CLIN-04 | Phase 7: Clinical Documentation | Pending |
+| CLIN-05 | Phase 7: Clinical Documentation | Pending |
+| CLIN-06 | Phase 7: Clinical Documentation | Pending |
+| CLIN-07 | Phase 7: Clinical Documentation | Pending |
+| CLIN-08 | Phase 7: Clinical Documentation | Pending |
+| LABS-01 | Phase 8: Lab Results & Document Management | Pending |
+| LABS-02 | Phase 8: Lab Results & Document Management | Pending |
+| LABS-03 | Phase 8: Lab Results & Document Management | Pending |
+| LABS-04 | Phase 8: Lab Results & Document Management | Pending |
+| DOCS-01 | Phase 8: Lab Results & Document Management | Pending |
+| DOCS-02 | Phase 8: Lab Results & Document Management | Pending |
+| DOCS-03 | Phase 8: Lab Results & Document Management | Pending |
+| BKUP-01 | Phase 9: Backup, Distribution & Release | Pending |
+| BKUP-02 | Phase 9: Backup, Distribution & Release | Pending |
+| BKUP-03 | Phase 9: Backup, Distribution & Release | Pending |
+| DIST-01 | Phase 9: Backup, Distribution & Release | Pending |
+| DIST-02 | Phase 9: Backup, Distribution & Release | Pending |
+| DIST-03 | Phase 9: Backup, Distribution & Release | Pending |
 
 **Coverage:**
-- v1 requirements: 55 total
-- Mapped to phases: 55
-- Unmapped: 0 ✓
+- v1 requirements: 58 total
+- Mapped to phases: 58
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-10*
-*Last updated: 2026-03-10 after initial definition*
+*Last updated: 2026-03-10 after roadmap creation (phase assignments updated)*
