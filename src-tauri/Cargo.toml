@@ -27,3 +27,4 @@ getrandom = "0.2"
 hex = "0.4"
 password-auth = { version = "1", features = ["argon2"] }
 rand = "0.8"
+totp-rs = { version = "5", features = ["qr", "otpauth", "gen_secret", "serde_support"] }
