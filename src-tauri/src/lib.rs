@@ -101,6 +101,20 @@ pub fn run() {
             commands::clinical::update_medication,
             commands::clinical::add_immunization,
             commands::clinical::list_immunizations,
+            // S06 — Scheduling
+            commands::scheduling::create_appointment,
+            commands::scheduling::list_appointments,
+            commands::scheduling::update_appointment,
+            commands::scheduling::cancel_appointment,
+            commands::scheduling::search_open_slots,
+            commands::scheduling::update_flow_status,
+            commands::scheduling::get_flow_board,
+            commands::scheduling::add_to_waitlist,
+            commands::scheduling::list_waitlist,
+            commands::scheduling::discharge_waitlist,
+            commands::scheduling::create_recall,
+            commands::scheduling::list_recalls,
+            commands::scheduling::complete_recall,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

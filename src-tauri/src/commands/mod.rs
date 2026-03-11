@@ -6,4 +6,5 @@ pub mod fhir;
 pub mod health;
 pub mod mfa;
 pub mod patient;
+pub mod scheduling;
 pub mod session;

@@ -52,6 +52,8 @@ pub enum Resource {
     CareTeam,
     /// Clinical data lists: allergies, problems, medications, immunizations (S05)
     ClinicalData,
+    /// Scheduling: appointments, waitlist, recall board, patient flow board (S06)
+    AppointmentScheduling,
 }
 
 /// Actions that can be performed on resources.
@@ -158,6 +160,21 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (BillingStaff, ClinicalData, _) => false,
         (FrontDesk, ClinicalData, Read) => true,
         (FrontDesk, ClinicalData, _) => false,
+
+        // ── AppointmentScheduling resource (S06) ─────────────────────────────
+        // Appointments, waitlist, recall board, patient flow board.
+        // SystemAdmin: covered by wildcard above.
+        // Provider: CRU (no delete — providers cancel, not delete, appointments).
+        // NurseMa: CRU (no delete — same policy as Provider).
+        // FrontDesk: full CRUD (owns the schedule desk).
+        // BillingStaff: Read-only (needs appointment data for billing).
+        (Provider, AppointmentScheduling, Create | Read | Update) => true,
+        (Provider, AppointmentScheduling, Delete) => false,
+        (NurseMa, AppointmentScheduling, Create | Read | Update) => true,
+        (NurseMa, AppointmentScheduling, Delete) => false,
+        (FrontDesk, AppointmentScheduling, _) => true,
+        (BillingStaff, AppointmentScheduling, Read) => true,
+        (BillingStaff, AppointmentScheduling, _) => false,
     }
 }
 

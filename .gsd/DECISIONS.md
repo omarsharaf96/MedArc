@@ -82,3 +82,16 @@ Architectural and implementation decisions extracted from completed work.
 - `list_problems` and `list_medications` accept `status_filter: Option<String>` — filtered queries use `problem_index.clinical_status` and `medication_index.status` indexed columns, not JSON extraction
 - `immunization_index` ordered by `administered_date DESC` — most recent dose always first without application-layer sort
 - `rustfmt` exit-0 is the verification gate (same precedent as S04) — `cargo test` stalls in this environment due to Tauri compilation time
+
+## S06 — Scheduling
+
+- `AppointmentScheduling` added as a new RBAC Resource variant (not reusing the legacy `Scheduling` resource) — `Scheduling` was defined in the day-0 matrix but never wired to commands; the new variant avoids ambiguity and allows the two to diverge independently in future slices
+- FrontDesk gets full CRUD on `AppointmentScheduling` (unlike Provider/NurseMa who get CRU) — front desk staff own the scheduling desk and must be able to hard-delete test/erroneous appointments
+- Recurring series generates individual Appointment FHIR resources per occurrence, linked by a `recurrence_group_id` extension — avoids a complex recurrence query engine; each occurrence is independently cancellable and auditable without cascading side effects
+- Calendar date arithmetic uses Julian Day Number (JDN) algorithm with no external time crate — handles all month/year boundary rollovers correctly for weekly/biweekly/monthly strides; avoids adding chrono-tz or time-rs dependencies to the crate graph
+- `flow_board_index` is a separate table from `appointment_index` — decouples the scheduling state machine (booked/cancelled/noshow) from the real-time clinic flow state machine (scheduled/checked_in/roomed/with_provider/checkout/completed); the two evolve on different cadences
+- `flow_board_index` cascades from `appointment_index` (not `fhir_resources` directly) — double-cascade ensures flow entries are removed when appointments are deleted, without requiring a separate trigger or application-layer cleanup
+- `AppointmentRequest` and `PatientRecall` are custom resource types stored in `fhir_resources` — not standard FHIR R4 (which uses AppointmentResponse/Flag/ServiceRequest); chosen for Phase 1 simplicity with an explicit upgrade path noted in follow-ups
+- Open-slot search uses fixed working hours 08:00–17:00 with no provider schedule configuration — sufficient for Phase 1 solo-practitioner MVP; provider schedule blocks deferred to a future slice
+- No overlap/double-booking detection in `create_appointment` — deferred; overlap detection requires a range-overlap query against `appointment_index` (e.g. `start_time < new_end AND start_time + duration > new_start`) which adds complexity without being a Phase 1 blocker
+- Brace-balance + command-count Python check is the verification gate — consistent with S04/S05 precedent; `cargo test` exceeds the session compilation timeout in this environment

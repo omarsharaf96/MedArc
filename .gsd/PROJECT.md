@@ -18,6 +18,7 @@ Physicians can document patient encounters through voice capture that automatica
 - [x] HIPAA audit logging: SHA-256 hash chains, trigger-enforced immutability, 9 ePHI commands instrumented, real machine-uid device fingerprinting, role-scoped AuditLog UI (S03)
 - [x] Patient demographics & care teams: create/get/update/delete/search patients, insurance×3, employer, SDOH, MRN, care team, related persons — PTNT-01–07 validated, 28 unit tests (S04)
 - [x] Clinical patient data: allergy CRUD, problem CRU, medication CRU, immunization CR — FHIR AllergyIntolerance/Condition/MedicationStatement/Immunization with RxNorm/ICD-10/CVX coding — PTNT-08–11 validated, 38 unit tests (S05)
+- [x] Scheduling: appointments (create/list/update/cancel), recurring series (weekly/biweekly/monthly), multi-provider calendar, open-slot search, Patient Flow Board, waitlist, recall board — SCHD-01–07 validated, 22 unit tests, Migration 11, AppointmentScheduling RBAC (S06)
 
 ### Active
 

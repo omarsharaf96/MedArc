@@ -226,6 +226,83 @@ static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             CREATE INDEX IF NOT EXISTS idx_immunization_cvx     ON immunization_index(cvx_code);
             CREATE INDEX IF NOT EXISTS idx_immunization_date    ON immunization_index(administered_date);"
         ),
+        // Migration 11: Scheduling index tables for S06
+        //
+        // Four index tables support the scheduling feature set:
+        //   - appointment_index:  maps Appointment resources by patient, provider, start_time, status
+        //   - waitlist_index:     maps AppointmentRequest resources by patient, provider, preferred_date
+        //   - recall_index:       maps PatientRecall resources by patient, provider, due_date, status
+        //   - flow_board_index:   maps real-time clinic flow status per appointment
+        //
+        // All appointment/waitlist/recall index rows reference fhir_resources via ON DELETE CASCADE.
+        // flow_board_index references appointment_index for cascade deletion.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS appointment_index (
+                appointment_id      TEXT PRIMARY KEY NOT NULL
+                                    REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id          TEXT NOT NULL,
+                provider_id         TEXT NOT NULL,
+                start_time          TEXT NOT NULL,
+                status              TEXT NOT NULL DEFAULT 'booked',
+                appt_type           TEXT NOT NULL,
+                color               TEXT,
+                recurrence_group_id TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_appt_patient   ON appointment_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_appt_provider  ON appointment_index(provider_id);
+            CREATE INDEX IF NOT EXISTS idx_appt_start     ON appointment_index(start_time);
+            CREATE INDEX IF NOT EXISTS idx_appt_status    ON appointment_index(status);
+            CREATE INDEX IF NOT EXISTS idx_appt_recurrence ON appointment_index(recurrence_group_id);
+
+            CREATE TABLE IF NOT EXISTS waitlist_index (
+                waitlist_id     TEXT PRIMARY KEY NOT NULL
+                                REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                provider_id     TEXT,
+                preferred_date  TEXT NOT NULL,
+                appt_type       TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'active',
+                priority        INTEGER NOT NULL DEFAULT 3
+            );
+            CREATE INDEX IF NOT EXISTS idx_waitlist_patient  ON waitlist_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_waitlist_provider ON waitlist_index(provider_id);
+            CREATE INDEX IF NOT EXISTS idx_waitlist_date     ON waitlist_index(preferred_date);
+            CREATE INDEX IF NOT EXISTS idx_waitlist_status   ON waitlist_index(status);
+            CREATE INDEX IF NOT EXISTS idx_waitlist_priority ON waitlist_index(priority);
+
+            CREATE TABLE IF NOT EXISTS recall_index (
+                recall_id   TEXT PRIMARY KEY NOT NULL
+                            REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id  TEXT NOT NULL,
+                provider_id TEXT,
+                due_date    TEXT NOT NULL,
+                recall_type TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'pending'
+            );
+            CREATE INDEX IF NOT EXISTS idx_recall_patient  ON recall_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_recall_provider ON recall_index(provider_id);
+            CREATE INDEX IF NOT EXISTS idx_recall_due_date ON recall_index(due_date);
+            CREATE INDEX IF NOT EXISTS idx_recall_status   ON recall_index(status);
+
+            CREATE TABLE IF NOT EXISTS flow_board_index (
+                appointment_id TEXT PRIMARY KEY NOT NULL
+                               REFERENCES appointment_index(appointment_id) ON DELETE CASCADE,
+                patient_id     TEXT NOT NULL,
+                provider_id    TEXT NOT NULL,
+                flow_status    TEXT NOT NULL DEFAULT 'scheduled',
+                start_time     TEXT NOT NULL,
+                appt_type      TEXT NOT NULL,
+                color          TEXT,
+                room           TEXT,
+                checked_in_at  TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_flow_patient    ON flow_board_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_flow_provider   ON flow_board_index(provider_id);
+            CREATE INDEX IF NOT EXISTS idx_flow_start_time ON flow_board_index(start_time);
+            CREATE INDEX IF NOT EXISTS idx_flow_status     ON flow_board_index(flow_status);"
+        ),
     ])
 });
 

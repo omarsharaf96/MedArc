@@ -51,66 +51,66 @@ User can record immunization history with CVX codes, lot numbers, administration
 
 ### SCHD-01 — User can view multi-provider calendar in day, week, and month views
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S06
 
-User can view multi-provider calendar in day, week, and month views
+User can view multi-provider calendar in day, week, and month views. Proven by S06: `list_appointments(start_date, end_date, provider_id?)` queries `appointment_index` with date-range and optional provider filter, returning appointments ordered by `start_time`. Day/week/month views are achieved by controlling the date range. Test `schd_04_empty_booked_list_returns_working_hour_slots` and FHIR structure tests confirm the data model.
 
 ### SCHD-02 — User can create appointments with color-coded categories and configurable durations (5-60 min)
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S06
 
-User can create appointments with color-coded categories and configurable durations (5-60 min)
+User can create appointments with color-coded categories and configurable durations (5-60 min). Proven by S06: `create_appointment` validates `duration_minutes` ∈ [5,60], stores color as a FHIR extension, and codes `appt_type` using a local CodeSystem. Tests `schd_02_appointment_fhir_has_correct_structure`, `schd_02_duration_minimum_boundary`, `schd_02_duration_maximum_boundary` assert all required fields and boundary conditions.
 
 ### SCHD-03 — User can schedule recurring appointments (weekly, biweekly, monthly)
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S06
 
-User can schedule recurring appointments (weekly, biweekly, monthly)
+User can schedule recurring appointments (weekly, biweekly, monthly). Proven by S06: `create_appointment` with `recurrence: "weekly"|"biweekly"|"monthly"` and `recurrence_end_date` generates a series of individual Appointment resources linked by `recurrence_group_id` extension. Tests `schd_03_weekly_recurrence_generates_correct_dates` (4 occurrences Apr 6–27), `schd_03_biweekly_recurrence` (3 occurrences), `schd_03_monthly_recurrence` (≥3 occurrences), `schd_03_no_recurrence_returns_single_occurrence` all pass.
 
 ### SCHD-04 — User can search for open appointment slots filtered by provider, type, and date range
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S06
 
-User can search for open appointment slots filtered by provider, type, and date range
+User can search for open appointment slots filtered by provider, type, and date range. Proven by S06: `search_open_slots(start_date, end_date, provider_id, appt_type?, duration_minutes?)` generates working-hour candidate slots and excludes booked starts from `appointment_index`. Tests `schd_04_open_slot_excludes_booked_times` and `schd_04_empty_booked_list_returns_working_hour_slots` (18 slots = 08:00–16:30) assert correct behavior.
 
 ### SCHD-05 — User can view Patient Flow Board showing real-time clinic status (checked in, roomed, with provider, checkout)
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S06
 
-User can view Patient Flow Board showing real-time clinic status (checked in, roomed, with provider, checkout)
+User can view Patient Flow Board showing real-time clinic status (checked in, roomed, with provider, checkout). Proven by S06: `update_flow_status` transitions patients through `scheduled → checked_in → roomed → with_provider → checkout → completed` with room tracking and `checked_in_at` timestamp. `get_flow_board(date, provider_id?)` returns the clinic-day snapshot ordered by start time. Tests `schd_05_valid_flow_statuses_pass` and `schd_05_invalid_flow_status_rejected` confirm the state machine boundaries.
 
 ### SCHD-06 — User can manage a waitlist for cancelled appointment slots
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S06
 
-User can manage a waitlist for cancelled appointment slots
+User can manage a waitlist for cancelled appointment slots. Proven by S06: `add_to_waitlist`, `list_waitlist` (priority-ordered, provider/type-filtered), `discharge_waitlist` commands manage `AppointmentRequest` FHIR resources with priority 1–5 (clamped). Tests `schd_06_waitlist_fhir_has_correct_structure` and `schd_06_waitlist_priority_clamped_to_1_to_5` assert all required fields and priority clamping.
 
 ### SCHD-07 — User can view Recall Board for overdue patient follow-ups
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S06
 
-User can view Recall Board for overdue patient follow-ups
+User can view Recall Board for overdue patient follow-ups. Proven by S06: `create_recall`, `list_recalls(overdue_only: true)` (filters by `due_date < today`), `complete_recall` commands manage `PatientRecall` FHIR resources with due_date, recall_type, and pending/completed status. Test `schd_07_recall_fhir_has_correct_structure` asserts all required fields.
 
 ### CLIN-01 — User can create structured SOAP notes (Subjective, Objective, Assessment, Plan) per encounter
 
@@ -529,5 +529,23 @@ Each role has field-level access control per RBAC matrix (e.g., Nurse can update
 Emergency "break-glass" access is time-limited, tightly scoped, and fully logged
 
 ## Deferred
+
+### SCHD-08 — User can view a provider's daily schedule summary (appointment count by status, first/last slot)
+
+- Status: active
+- Class: core-capability
+- Source: S06 execution
+- Primary Slice: none yet
+
+Surfaced during S06: a daily summary view (total booked, cancelled, no-show counts; first and last appointment times) would be useful for clinic managers and front desk staff. Not implemented in S06 — deferred to a future slice or combined with a reporting feature.
+
+### SCHD-09 — System can auto-match waitlist entries to newly-cancelled appointment slots
+
+- Status: active
+- Class: core-capability
+- Source: S06 execution
+- Primary Slice: none yet
+
+Surfaced during S06: when an appointment is cancelled (`cancel_appointment`), the system could automatically query `waitlist_index` for entries matching the same `provider_id` and `appt_type` with `preferred_date ≤ cancelled_slot_date` and notify or auto-schedule the highest-priority match. Not implemented in S06 — discharged manually via `discharge_waitlist`.
 
 ## Out of Scope
