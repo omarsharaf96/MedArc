@@ -4,6 +4,7 @@ mod db;
 mod error;
 mod keychain;
 
+use auth::session::SessionManager;
 use db::connection::Database;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -31,7 +32,26 @@ pub fn run() {
             // 5. Run schema migrations
             db::migrations::run(&database)?;
 
-            // 6. Register database as managed state
+            // 6. Read session timeout from app_settings (default 15 minutes)
+            let timeout: u32 = {
+                let conn = database.conn.lock().map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                })?;
+                conn.query_row(
+                    "SELECT value FROM app_settings WHERE key = 'session_timeout_minutes'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_else(|_| "15".to_string())
+                .parse()
+                .unwrap_or(15)
+            };
+
+            // 7. Create SessionManager and register as managed state
+            let session_manager = SessionManager::new(timeout);
+            app.manage(session_manager);
+
+            // 8. Register database as managed state
             app.manage(database);
 
             Ok(())
@@ -44,6 +64,14 @@ pub fn run() {
             commands::fhir::list_resources,
             commands::fhir::update_resource,
             commands::fhir::delete_resource,
+            commands::auth::register_user,
+            commands::auth::login,
+            commands::auth::logout,
+            commands::session::lock_session,
+            commands::session::unlock_session,
+            commands::session::refresh_session,
+            commands::session::get_session_state,
+            commands::session::get_session_timeout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
