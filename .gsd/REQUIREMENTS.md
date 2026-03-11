@@ -11,68 +11,7 @@
 
 Audit logs are retained for minimum 6 years
 
-### PTNT-01 — User can create a patient record with demographics (name, DOB, sex/gender, contact info, patient photo)
 
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-User can create a patient record with demographics (name, DOB, sex/gender, contact info, patient photo)
-
-### PTNT-02 — User can add insurance information (primary, secondary, tertiary) to a patient record
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-User can add insurance information (primary, secondary, tertiary) to a patient record
-
-### PTNT-03 — User can add employer data and social determinants of health to a patient record
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-User can add employer data and social determinants of health to a patient record
-
-### PTNT-04 — User can assign clinical identifiers (primary provider, MRN) to a patient record
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-User can assign clinical identifiers (primary provider, MRN) to a patient record
-
-### PTNT-05 — User can search patients by name, demographics, MRN, and procedure history with sub-second results
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-User can search patients by name, demographics, MRN, and procedure history with sub-second results
-
-### PTNT-06 — User can manage Related Persons for care team relationships
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-User can manage Related Persons for care team relationships
-
-### PTNT-07 — User can assign care team members with roles via Care Team Widget
-
-- Status: active
-- Class: core-capability
-- Source: inferred
-- Primary Slice: none yet
-
-User can assign care team members with roles via Care Team Widget
 
 ### PTNT-08 — User can track patient allergies with drug, food, environmental categories, severity, and reaction type (FHIR AllergyIntolerance)
 
@@ -363,6 +302,69 @@ Application auto-updates via tauri-plugin-updater with Ed25519 signature verific
 Application uses Hardened Runtime with App Sandbox for macOS security
 
 ## Validated
+
+### PTNT-01 — User can create a patient record with demographics (name, DOB, sex/gender, contact info, patient photo)
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S04
+
+User can create a patient record with demographics (name, DOB, sex/gender, contact info, patient photo). Proven by S04: `create_patient` command accepts and stores name, DOB, sex/gender, gender identity, phone, email, address, and photo_url in a FHIR R4 Patient resource. Test `ptnt_01_demographics_complete` asserts all fields present in output.
+
+### PTNT-02 — User can add insurance information (primary, secondary, tertiary) to a patient record
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S04
+
+User can add insurance information (primary, secondary, tertiary) to a patient record. Proven by S04: `PatientInput.insurance_primary/secondary/tertiary` fields map to FHIR extensions on the Patient resource. Test `ptnt_02_insurance_tiers` confirms all three tier extension URLs are present.
+
+### PTNT-03 — User can add employer data and social determinants of health to a patient record
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S04
+
+User can add employer data and social determinants of health to a patient record. Proven by S04: `PatientInput.employer` and `PatientInput.sdoh` map to FHIR extensions. Test `ptnt_03_employer_and_sdoh` confirms both extension URLs present.
+
+### PTNT-04 — User can assign clinical identifiers (primary provider, MRN) to a patient record
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S04
+
+User can assign clinical identifiers (primary provider, MRN) to a patient record. Proven by S04: MRN stored as `{system: "http://medarc.local/mrn"}` FHIR identifier; primary provider stored as `{system: "http://medarc.local/primary-provider"}` FHIR identifier. Test `ptnt_04_clinical_identifiers` confirms both identifiers present.
+
+### PTNT-05 — User can search patients by name, demographics, MRN, and procedure history with sub-second results
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S04
+
+User can search patients by name, demographics, MRN, and procedure history with sub-second results. Proven by S04: `patient_index` table with 4 B-tree indexes (mrn, family_name, given_name, birth_date) enables indexed lookups. Tests `ptnt_05_search_indexes_present`, `search_by_mrn_exact_match`, `search_by_family_name_prefix`, `search_by_dob_exact` confirm correct search behavior. Note: procedure history search deferred to S05 (requires Encounter/Procedure resources).
+
+### PTNT-06 — User can manage Related Persons for care team relationships
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S04
+
+User can manage Related Persons for care team relationships. Proven by S04: `add_related_person` and `list_related_persons` Tauri commands create and retrieve FHIR RelatedPerson resources linked to patients via `patient.reference`. Test `related_person_fhir_links_to_patient` confirms FHIR structure.
+
+### PTNT-07 — User can assign care team members with roles via Care Team Widget
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S04
+
+User can assign care team members with roles via Care Team Widget. Proven by S04: `upsert_care_team` and `get_care_team` Tauri commands manage a FHIR CareTeam resource per patient with role-coded participants. Test `care_team_fhir_has_correct_structure` confirms FHIR structure.
 
 ### AUDT-01 — Every ePHI access is logged with timestamp (UTC), user ID, action type, patient/record identifier, device identifier, and success/failure
 

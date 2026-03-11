@@ -46,6 +46,10 @@ pub enum Resource {
     Prescriptions,
     AuditLogs,
     UserManagement,
+    /// Patient Demographics & Care Teams (S04)
+    Patients,
+    /// Care Team assignments (S04)
+    CareTeam,
 }
 
 /// Actions that can be performed on resources.
@@ -62,9 +66,9 @@ pub enum Action {
 /// Implements the full RBAC matrix per the Day0 requirements.
 /// Default deny for any unmatched combination.
 pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
-    use Role::*;
-    use Resource::*;
     use Action::*;
+    use Resource::*;
+    use Role::*;
 
     match (role, resource, action) {
         // SystemAdmin: Full access to everything EXCEPT prescriptions.
@@ -109,6 +113,7 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
 
         // FrontDesk: Read clinical (demographics only -- field level),
         // Full CRUD scheduling, Read billing, No prescriptions, No audit
+        // Patients: CRU (no delete), CareTeam: Read
         (FrontDesk, ClinicalRecords, Read) => true,
         (FrontDesk, ClinicalRecords, _) => false,
         (FrontDesk, Scheduling, _) => true,
@@ -117,6 +122,27 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (FrontDesk, Prescriptions, _) => false,
         (FrontDesk, AuditLogs, _) => false,
         (FrontDesk, UserManagement, _) => false,
+        (FrontDesk, Patients, Create | Read | Update) => true,
+        (FrontDesk, Patients, Delete) => false,
+        (FrontDesk, CareTeam, Read) => true,
+        (FrontDesk, CareTeam, _) => false,
+
+        // ── Patients resource (S04) ──────────────────────────────────────────
+        // SystemAdmin covered by wildcard above. Provider: full CRUD.
+        // NurseMa: CRU (no delete). BillingStaff: Read only.
+        (Provider, Patients, _) => true,
+        (NurseMa, Patients, Create | Read | Update) => true,
+        (NurseMa, Patients, Delete) => false,
+        (BillingStaff, Patients, Read) => true,
+        (BillingStaff, Patients, _) => false,
+
+        // ── CareTeam resource (S04) ──────────────────────────────────────────
+        // SystemAdmin covered by wildcard above. Provider: full CRUD.
+        // NurseMa: CRU. BillingStaff: none.
+        (Provider, CareTeam, _) => true,
+        (NurseMa, CareTeam, Create | Read | Update) => true,
+        (NurseMa, CareTeam, Delete) => false,
+        (BillingStaff, CareTeam, _) => false,
     }
 }
 
@@ -128,18 +154,29 @@ pub fn visible_fields(role: Role, resource_type: &str) -> Vec<&'static str> {
     match (role, resource_type) {
         // BillingStaff sees demographics + billing codes only on Patient
         (Role::BillingStaff, "Patient") => vec![
-            "id", "name", "birthDate", "gender", "address",
-            "telecom", "identifier",
+            "id",
+            "name",
+            "birthDate",
+            "gender",
+            "address",
+            "telecom",
+            "identifier",
         ],
         // BillingStaff sees limited Encounter fields
-        (Role::BillingStaff, "Encounter") => vec![
-            "id", "status", "class", "type", "subject", "period",
-        ],
+        (Role::BillingStaff, "Encounter") => {
+            vec!["id", "status", "class", "type", "subject", "period"]
+        }
 
         // FrontDesk sees demographics + contact on Patient
         (Role::FrontDesk, "Patient") => vec![
-            "id", "name", "birthDate", "gender", "address",
-            "telecom", "identifier", "contact",
+            "id",
+            "name",
+            "birthDate",
+            "gender",
+            "address",
+            "telecom",
+            "identifier",
+            "contact",
         ],
 
         // Provider, SystemAdmin, NurseMa see all fields on all resources

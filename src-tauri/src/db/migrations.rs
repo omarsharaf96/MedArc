@@ -144,13 +144,38 @@ static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
                 SELECT RAISE(ABORT, 'audit_logs rows are immutable: DELETE is not allowed');
             END;"
         ),
+        // Migration 9: Patient index — denormalised lookup table for sub-second patient search
+        //
+        // Stores extracted demographic fields (MRN, family_name, given_name, birth_date, gender)
+        // from the FHIR Patient JSON into indexed columns so searches avoid JSON extraction.
+        //
+        // CASCADE DELETE ensures that deleting a Patient from fhir_resources automatically
+        // removes the corresponding patient_index row.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS patient_index (
+                patient_id          TEXT PRIMARY KEY NOT NULL
+                                    REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                mrn                 TEXT NOT NULL UNIQUE,
+                family_name         TEXT NOT NULL,
+                given_name          TEXT,
+                birth_date          TEXT,
+                gender              TEXT,
+                primary_provider_id TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_patient_index_mrn    ON patient_index(mrn);
+            CREATE INDEX IF NOT EXISTS idx_patient_index_family  ON patient_index(family_name);
+            CREATE INDEX IF NOT EXISTS idx_patient_index_given   ON patient_index(given_name);
+            CREATE INDEX IF NOT EXISTS idx_patient_index_dob     ON patient_index(birth_date);"
+        ),
     ])
 });
 
 pub fn run(db: &Database) -> Result<(), AppError> {
-    let mut conn = db.conn.lock().map_err(|e| {
-        AppError::Database(e.to_string())
-    })?;
+    let mut conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
     MIGRATIONS.to_latest(&mut conn)?;
     Ok(())
 }

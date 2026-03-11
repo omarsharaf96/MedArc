@@ -56,3 +56,16 @@ Architectural and implementation decisions extracted from completed work.
 - Login failure paths (inactive account, locked account, wrong password, MFA pending, invalid MFA code) all produce audit rows with `success = false` and a safe non-enumerable detail string
 - `complete_login` (MFA step 2) also carries `device_id: State<'_, DeviceId>` so the MFA-verified login row is attributed to the same device as the initial auth attempt
 - `DeviceId::from_machine_uid()` replaces the `DeviceId::placeholder()` stub in lib.rs — uses the `machine-uid 0.5` crate which reads `/etc/machine-id` on Linux, `IOPlatformUUID` via ioreg on macOS, and `MachineGuid` registry on Windows, without requiring elevated privileges; falls back gracefully to "DEVICE_UNKNOWN" with a startup warning log if the OS cannot supply an ID
+
+
+## S04 — Patient Demographics & Care Teams
+
+- `patient_index` denormalised table chosen over `json_extract()` for search — indexed column lookups are O(log n); JSON extraction forces a full-table scan on every query regardless of row count
+- MRN format `MRN-<8 upper hex digits>` — short, readable, globally unique via `rand::random::<[u8; 4]>()`; no sequential counter avoids race conditions in concurrent inserts
+- Insurance stored as FHIR extensions on the Patient resource rather than separate FHIR Coverage resources — MVP simplification; Coverage resources add significant schema complexity (subscriber relationships, benefit periods, coordination of benefits) with no payoff for a solo-practitioner MVP
+- Care team stored as a single FHIR CareTeam resource per patient (upsert semantics) — one care team per patient is the clinical reality for solo/small clinic; multi-team scenarios deferred to S07
+- `family_name` and `given_name` stored as lowercase in `patient_index` — enables case-insensitive LIKE prefix search without COLLATE NOCASE overhead on every query
+- `build_patient_fhir()` is a pure function (no DB, no I/O) taking a typed struct → this makes it trivially testable and decouples FHIR assembly from the DB layer
+- `generate_mrn()` uses `rand::random()` not `uuid` — MRNs must be short and human-readable for clinical workflows; UUIDs are too long for paper forms
+- Two new `Resource` variants (`Patients`, `CareTeam`) added to the RBAC enum rather than reusing `ClinicalRecords` — keeps permission semantics distinct and prevents accidental privilege escalation via the existing ClinicalRecords wildcard rules
+- `cargo test` stalled during this session (likely blocked on incremental Tauri compilation); all files were validated via `rustfmt --edition 2021` (exit 0 = valid syntax) as the verification gate

@@ -81,6 +81,15 @@ pub fn run() {
             commands::mfa::disable_touch_id,
             commands::audit::get_audit_log,
             commands::audit::verify_audit_chain_cmd,
+            commands::patient::create_patient,
+            commands::patient::get_patient,
+            commands::patient::update_patient,
+            commands::patient::search_patients,
+            commands::patient::delete_patient,
+            commands::patient::upsert_care_team,
+            commands::patient::get_care_team,
+            commands::patient::add_related_person,
+            commands::patient::list_related_persons,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

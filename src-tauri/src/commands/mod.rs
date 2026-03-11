@@ -4,4 +4,5 @@ pub mod break_glass;
 pub mod fhir;
 pub mod health;
 pub mod mfa;
+pub mod patient;
 pub mod session;

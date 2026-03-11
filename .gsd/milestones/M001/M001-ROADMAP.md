@@ -17,7 +17,7 @@
   > After this: Build the authentication foundation: user account creation with Argon2id password hashing, login/logout flow, and a session state machine with configurable inactivity timeout.
 - [x] **S03: Audit Logging** `risk:medium` `depends:[S02]`
   > After this: Create the audit logging data layer: Migration 8 (audit_logs table + immutability triggers) and the audit Rust module (entry.
-- [ ] **S04: Patient Demographics & Care Teams** `risk:medium` `depends:[S03]`
+- [x] **S04: Patient Demographics & Care Teams** `risk:medium` `depends:[S03]`
   > After this: unit tests prove Patient Demographics & Care Teams works
 - [ ] **S05: Clinical Patient Data** `risk:medium` `depends:[S04]`
   > After this: unit tests prove Clinical Patient Data works
