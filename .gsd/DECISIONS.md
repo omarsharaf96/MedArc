@@ -121,3 +121,16 @@ Architectural and implementation decisions extracted from completed work.
 - Lab order status auto-transitions to `completed` when a result is entered with a linked `order_id` — removes the burden of manual order close-out; mirrors clinical workflow where results receipt implicitly closes the order
 - `sign_lab_result` restricted to Provider/SystemAdmin at the application layer (beyond RBAC Update permission) — signing a lab result is a clinical attestation act that NurseMa is not licensed to perform even though NurseMa has Update permission on LabResults; two-layer guard: RBAC Update + role-specific check
 - `cargo test --lib` remains the verification gate (252 tests, 0 failures in <1s)
+
+## S09 — Backup, Distribution & Release
+
+- AES-256-GCM implemented inline (pure Rust, no external crate) — `aes-gcm` crate conflicts with the `rusqlite 0.32` / `getrandom 0.2` dependency graph locked in S01; an inline implementation avoids a mid-milestone dependency bump while delivering correct, tested AES-256-GCM
+- Backup format: `nonce (12 B) || AES-256-GCM ciphertext || tag (16 B)` — self-contained single-file format; nonce prepended so decryption only needs the file and the key; no separate metadata file to lose
+- Backup encryption key = Keychain DB key — reuses the existing `get_or_create_db_key()` infrastructure; the same key that protects the live database protects its backup; no second key management problem introduced
+- `restore_backup` restricted to SystemAdmin only (beyond RBAC Backup::Create) — restore replaces the live database; two-layer guard consistent with `sign_lab_result` (S08) precedent for destructive/attestation operations
+- SHA-256 used for backup integrity digest — consistent with DOCS-02 (S08) precedent; SHA-256 produces a 64-char hex digest stored in `backup_log.sha256_digest` for optional pre-restore verification
+- `backup_log` table (Migration 14) chosen over embedding backup history in `audit_logs` — backup events need `file_path`, `file_size_bytes`, and `sha256_digest` fields that don't fit the audit_logs schema; separate table keeps audit_logs schema stable and backup history queryable independently
+- `list_backups` uses `let rows: Vec<_> = conn.prepare(...).query_map(...).collect()` pattern — same E0597 borrow-checker solution established in S06/S08; named `stmt` binding causes lifetime error when the block result is the collected vec
+- `tauri-plugin-updater` registered with placeholder Ed25519 pubkey — real key pair generated at release time via `tauri signer generate`; placeholder documents the slot without requiring CI credentials during development
+- `entitlements.plist` sets only minimum required sandbox entitlements — network client (auto-updater), user-selected file read/write (backup destination picker), Keychain group (DB key); no camera, microphone, location, or downloads entitlements to minimise attack surface
+- `cargo test --lib` remains the verification gate (265 tests, 0 failures in 0.61s)

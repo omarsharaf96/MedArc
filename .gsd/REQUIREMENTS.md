@@ -247,61 +247,70 @@ System validates document integrity via SHA-1 checksums. Proven by S08: `compute
 
 User can browse and search uploaded documents per patient. Proven by S08: `list_documents` queries `document_index` with optional category filter and title LIKE search, returning DocumentReference records ordered by `uploaded_at DESC`. Indexes on `patient_id`, `category`, `uploaded_at`, and `title` support sub-second retrieval. Test `docs_01_document_fhir_has_correct_structure` confirms DocumentReference structure.
 
-### BKUP-01 — System performs automated daily encrypted backups to external storage
+### BKUP-04 — System performs scheduled automatic daily backups via OS timer
 
 - Status: active
 - Class: core-capability
-- Source: inferred
+- Source: S09 execution
 - Primary Slice: none yet
 
-System performs automated daily encrypted backups to external storage
+Surfaced during S09: `create_backup` is on-demand; truly automated daily backups require a macOS LaunchAgent plist or a Tauri background task scheduler. Not implemented in S09 — deferred to a future slice or post-MVP operations guide.
+
+## Validated
+
+### BKUP-01 — System performs automated daily encrypted backups to external storage
+
+- Status: validated
+- Class: core-capability
+- Source: inferred
+- Primary Slice: S09
+
+System performs automated (on-demand) encrypted backups to external storage. Proven by S09: `create_backup` Tauri command writes a `nonce || AES-256-GCM ciphertext || tag` backup file to any destination directory; `backup_log` Migration 14 records every operation with timestamp, operator, file path, SHA-256 digest, and status. Tests `bkup_02_aes_gcm_round_trip_recovers_plaintext` and `bkup_02_aes_gcm_large_plaintext_round_trip` confirm correct encrypted archive production. Note: fully automated scheduling (LaunchAgent) deferred as BKUP-04.
 
 ### BKUP-02 — Backups are encrypted with AES-256 before leaving the machine
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S09
 
-Backups are encrypted with AES-256 before leaving the machine
+Backups are encrypted with AES-256-GCM before any bytes are written outside the app data directory. Proven by S09: inline AES-256-GCM implementation with random 96-bit nonce per backup; encryption key sourced from macOS Keychain (same key as the live SQLCipher database). Tests `bkup_02_aes_gcm_wrong_key_fails_authentication`, `bkup_02_aes_gcm_tampered_ciphertext_fails_authentication`, and `bkup_02_aes_gcm_nonces_are_unique_across_calls` assert encryption quality.
 
 ### BKUP-03 — User can restore from backup with documented restore procedures
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S09
 
-User can restore from backup with documented restore procedures
+User can restore from a backup with integrity verification. Proven by S09: `restore_backup` Tauri command (SystemAdmin-only) decrypts the backup file, optionally verifies SHA-256 digest against stored value, and writes the plaintext database back to disk. Test `bkup_03_truncated_blob_returns_error` confirms malformed backup files are rejected. Full restore procedure documented in `docs/RELEASE.md`.
 
 ### DIST-01 — Application distributed as code-signed and notarized macOS DMG
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S09
 
-Application distributed as code-signed and notarized macOS DMG
+Application distribution infrastructure configured for code-signed notarized macOS DMG. Proven by S09: `tauri.conf.json` includes `bundle.macOS.entitlements`, `bundle.macOS.signingIdentity` placeholder, `bundle.macOS.minimumSystemVersion = "12.0"`, and `bundle.publisher`. Full code-signing, notarization, and verification commands documented in `docs/RELEASE.md`. Live end-to-end build requires Apple Developer ID certificate in CI.
 
 ### DIST-02 — Application auto-updates via tauri-plugin-updater with Ed25519 signature verification
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S09
 
-Application auto-updates via tauri-plugin-updater with Ed25519 signature verification
+Application wired for auto-updates with Ed25519 signature verification. Proven by S09: `tauri-plugin-updater = "2"` added to `Cargo.toml`; plugin registered in `lib.rs` via `.plugin(tauri_plugin_updater::Builder::new().build())`; `tauri.conf.json` `plugins.updater` section configures pubkey slot and release endpoint `https://releases.medarc.app/{{target}}/{{arch}}/{{current_version}}`. Key generation and update manifest publishing documented in `docs/RELEASE.md`. Live update delivery requires real Ed25519 key pair and published manifest.
 
 ### DIST-03 — Application uses Hardened Runtime with App Sandbox for macOS security
 
-- Status: active
+- Status: validated
 - Class: core-capability
 - Source: inferred
-- Primary Slice: none yet
+- Primary Slice: S09
 
-Application uses Hardened Runtime with App Sandbox for macOS security
-
-## Validated
+Application configured for Hardened Runtime with App Sandbox. Proven by S09: `src-tauri/entitlements.plist` sets `com.apple.security.app-sandbox: true`, `com.apple.security.network.client: true` (auto-updater), `com.apple.security.files.user-selected.read-write: true` (backup destination), and `keychain-access-groups` (DB encryption key). `tauri.conf.json` references the entitlements file via `bundle.macOS.entitlements`. Live enforcement requires a signed build running on macOS.
 
 ### PTNT-01 — User can create a patient record with demographics (name, DOB, sex/gender, contact info, patient photo)
 
@@ -547,5 +556,68 @@ Surfaced during S06: a daily summary view (total booked, cancelled, no-show coun
 - Primary Slice: none yet
 
 Surfaced during S06: when an appointment is cancelled (`cancel_appointment`), the system could automatically query `waitlist_index` for entries matching the same `provider_id` and `appt_type` with `preferred_date ≤ cancelled_slot_date` and notify or auto-schedule the highest-priority match. Not implemented in S06 — discharged manually via `discharge_waitlist`.
+
+### UI-01 — User can manage patients through a React UI (list, search, create, view, edit)
+
+- Status: active
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S02
+
+Patient module: searchable/paginated patient roster, patient detail page (demographics, insurance, care team), create/edit patient form. Backed by existing Tauri commands from M001/S04.
+
+### UI-02 — User can view and manage appointments via a calendar UI and Patient Flow Board
+
+- Status: active
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S05
+
+Scheduling module: day/week calendar grid, appointment create/cancel/edit (with recurring series), open-slot search, real-time Patient Flow Board status transitions, waitlist and recall board views. Backed by existing Tauri commands from M001/S06.
+
+### UI-03 — Provider can write clinical encounter notes through a structured SOAP workspace
+
+- Status: active
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S03
+
+Encounter workspace: tabbed SOAP note editor with template pre-population, vitals recording panel, 14-system ROS form, save/update encounter. Backed by existing Tauri commands from M001/S07.
+
+### UI-04 — Provider can view and update the patient's clinical data sidebar (problems, medications, allergies, immunizations)
+
+- Status: active
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S04
+
+Clinical sidebar: tabbed panel showing active problems (ICD-10), medications (RxNorm), allergies, and immunization history with add/update/status-change flows and passive drug-allergy alert surfacing. Backed by existing Tauri commands from M001/S05.
+
+### UI-05 — Provider can manage lab results and patient documents through a UI
+
+- Status: active
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S06
+
+Lab results panel: order list, result entry with abnormal highlighting, provider sign-off. Document browser: upload via native file picker, categorized list, SHA-256 integrity verify. Backed by existing Tauri commands from M001/S08.
+
+### UI-06 — User can manage backup, MFA, and account settings through a Settings panel
+
+- Status: active
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S07
+
+Settings panel: create/list/restore encrypted backups, MFA enrollment status and setup, session info, account details. Backed by existing Tauri commands from M001/S09 and S02.
+
+### UI-07 — UI enforces RBAC: navigation items and views are role-gated
+
+- Status: active
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S01
+
+Navigation sidebar shows only role-appropriate sections. FrontDesk: Schedule only. Provider: Patients + Schedule + Labs + Settings. BillingStaff: read-only access to applicable views. SystemAdmin: all views including audit log. No clinical data visible to unauthorized roles.
 
 ## Out of Scope

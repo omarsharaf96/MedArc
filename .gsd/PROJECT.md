@@ -21,27 +21,32 @@ Physicians can document patient encounters through voice capture that automatica
 - [x] Scheduling: appointments (create/list/update/cancel), recurring series (weekly/biweekly/monthly), multi-provider calendar, open-slot search, Patient Flow Board, waitlist, recall board — SCHD-01–07 validated, 22 unit tests, Migration 11, AppointmentScheduling RBAC (S06)
 - [x] Clinical documentation: SOAP notes, vitals (LOINC-coded + BMI auto-calc), 14-system ROS, 13-system physical exam, 12 specialty templates, co-sign workflow, passive drug-allergy CDS — CLIN-01–07 validated, 24 unit tests, Migration 12, ClinicalDocumentation RBAC (S07)
 - [x] Lab results & document management: lab catalogue (LOINC), lab orders (ServiceRequest + provider signature), lab results (DiagnosticReport + abnormal flagging + sign-off), document upload/browse/verify (SHA-256 integrity, 64 MB limit) — LABS-01–04 + DOCS-01–03 validated, 33 unit tests, Migration 13, LabResults + PatientDocuments RBAC (S08)
+- [x] Backup, distribution & release: AES-256-GCM encrypted backup/restore, backup_log audit trail, Backup RBAC, tauri-plugin-updater Ed25519 auto-update wiring, macOS App Sandbox + Hardened Runtime entitlements, code-signing/notarization config, docs/RELEASE.md runbook — BKUP-01–03 + DIST-01–03 validated, 13 unit tests (265 total), Migration 14 (S09) — **M001 COMPLETE**
 
-### Active
+### Active (Phase 2 — M001 Complete, M002 Not Yet Started)
 
-- [ ] Tauri 2.x + React + TypeScript desktop shell with SQLCipher encrypted local database
-- [ ] Patient management: demographics CRUD, search, clinical identifiers, care team
-- [ ] Scheduling: multi-provider calendars, patient flow board, recurring appointments, reminders
-- [ ] Clinical documentation: SOAP notes, vitals tracking, templates, review of systems, physical exam forms
-- [ ] E-prescribing: drug search, Weno Exchange integration, EPCS, interaction checks, RxNorm/SNOMED coding
-- [ ] Lab integration: HL7 v2 message exchange, procedure ordering, results workflow, LOINC mapping
-- [ ] Billing: CPT/HCPCS/ICD-10/SNOMED coding, fee sheets, X12 837P claims, ERA 835 processing, AR tracking
-- [ ] Reporting: clinical reports, financial reports, CQM/eCQM measures
-- [ ] Document management: upload/scanning, categorization, SHA-1 integrity, up to 64 MB
-- [ ] RBAC: 5 roles (Admin, Provider, Nurse/MA, Billing, Front Desk) with field-level access control
-- [ ] HIPAA compliance: AES-256 encryption at rest, TLS 1.3 in transit, tamper-proof audit logs, 6-year retention
-- [ ] Authentication: unique user IDs, bcrypt/Argon2 hashing, MFA/TOTP, Touch ID, auto-logoff
-- [ ] AI clinical note generation: whisper.cpp voice-to-text, MedSpaCy/SciSpaCy NLP, LLaMA 3.1 8B SOAP generation
-- [ ] AI diagnostic support: differential diagnosis via RAG, RxNav-in-a-Box drug interactions
-- [ ] AI smart scheduling: no-show prediction (XGBoost/LightGBM), slot optimization
-- [ ] AI medical coding: LLM entity extraction + FAISS vector search for ICD-10/CPT suggestions
-- [ ] Cloud migration: AWS RDS PostgreSQL, PowerSync offline-first sync, dual-write strategy
-- [ ] macOS distribution: code-signed + notarized DMG, auto-updates via tauri-plugin-updater
+**M001 is fully complete (2026-03-11).** The Phase 1 MVP backend is built and proven with 265 unit tests. The following capabilities are implemented in Rust/Tauri but have no React frontend UI yet — Phase 2 should prioritize the UI layer before adding new backend features:
+
+- [ ] **Frontend UI** — PatientList, PatientForm, PatientDetail, ScheduleCalendar, FlowBoard, ClinicalNote, VitalsFlowsheet, LabResults, DocumentBrowser, BackupSettings (all Tauri APIs exist; UI components are missing)
+- [ ] **Touch ID** — biometric.rs stub always returns unavailable; requires tauri-plugin-biometry integration
+- [ ] **Pediatric growth charts** (CLIN-08) — vitals data captured; CDC/WHO percentile tables not included
+- [ ] **Scheduled automatic backups** (BKUP-04) — on-demand only; LaunchAgent or Tauri background scheduler required
+- [ ] **E-prescribing** — drug search, Weno Exchange integration, EPCS, interaction checks, RxNorm/SNOMED coding
+- [ ] **Lab integration** — HL7 v2 message exchange, procedure ordering, results workflow, LOINC mapping
+- [ ] **Billing** — CPT/HCPCS/ICD-10/SNOMED coding, fee sheets, X12 837P claims, ERA 835 processing, AR tracking
+- [ ] **Reporting** — clinical reports, financial reports, CQM/eCQM measures
+- [ ] **AI clinical note generation** — whisper.cpp voice-to-text, MedSpaCy/SciSpaCy NLP, LLaMA 3.1 8B SOAP generation
+- [ ] **AI diagnostic support** — differential diagnosis via RAG, RxNav-in-a-Box drug interactions
+- [ ] **AI smart scheduling** — no-show prediction (XGBoost/LightGBM), slot optimization
+- [ ] **AI medical coding** — LLM entity extraction + FAISS vector search for ICD-10/CPT suggestions
+- [ ] **Cloud migration** — AWS RDS PostgreSQL, PowerSync offline-first sync, dual-write strategy
+
+### Known Technical Debt (from M001)
+
+- `src-tauri/src/commands/` contains `* 2.rs` duplicate files (`audit 2.rs`, `clinical 2.rs`, `documentation 2.rs`, `labs 2.rs`, `patient 2.rs`, `scheduling 2.rs`) — must be audited and removed before Phase 2 development
+- `tauri.conf.json` contains `PLACEHOLDER_ED25519_PUBKEY` — must be replaced with real Ed25519 key before auto-updater functions
+- `restore_backup` requires app restart after restore (SQLite connection pool holds stale state)
+- All datetimes should be normalized to no-timezone-suffix format — `scheduling.rs` datetime parsing will produce wrong results for suffixed timestamps
 
 ### Out of Scope
 
@@ -94,4 +99,4 @@ Physicians can document patient encounters through voice capture that automatica
 | 4-phase 18-month implementation | Phase 1: MVP (no AI), Phase 2: feature parity, Phase 3: AI enhancement, Phase 4: cloud migration | -- Pending |
 
 ---
-*Last updated: 2026-03-10 after initialization*
+*Last updated: 2026-03-11 — M001 MedArc Phase 1 MVP complete (265 unit tests, all 43 requirements validated)*

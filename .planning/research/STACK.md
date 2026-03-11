@@ -1,159 +1,134 @@
 # Stack Research
 
-**Domain:** AI-powered desktop EMR (macOS, local-first, HIPAA-compliant)
-**Researched:** 2026-03-10
-**Confidence:** MEDIUM (web verification tools unavailable; versions based on training data through May 2025 and must be validated against current releases)
+**Domain:** AI-powered desktop EMR — M002 additions (patient-centric UI, AI voice pipeline, billing, e-prescribing)
+**Researched:** 2026-03-11
+**Confidence:** MEDIUM-HIGH (versions verified via WebSearch against npm/crates.io where possible)
 
-> **NOTE:** WebSearch, WebFetch, and Brave API were all unavailable during this research session. All version numbers and release claims are based on training data with a May 2025 cutoff. Every version marked with [VERIFY] should be confirmed against official release pages before locking the stack.
-
----
-
-## PRD Stack Verdict
-
-The PRD's stack choices are **well-considered and defensible**. No major changes recommended. Refinements below address version specifics, alternative considerations, and risk areas.
-
-| PRD Choice | Verdict | Notes |
-|------------|---------|-------|
-| Tauri 2.x | **STRONG AGREE** | Correct over Electron for memory-constrained AI workloads |
-| React 18+ TypeScript | **AGREE** | Consider React 19 if stable by project start |
-| FastAPI sidecar | **AGREE with caveat** | PyInstaller bundling is the hard part; consider Nuitka as fallback |
-| SQLCipher | **STRONG AGREE** | Perfect for local-first HIPAA; SQLAlchemy abstraction is key |
-| Ollama | **AGREE** | Consider also MLX for Apple Silicon native; Ollama wraps llama.cpp |
-| whisper.cpp | **AGREE** | WhisperKit (Swift/CoreML) is a stronger alternative on macOS |
-| MedSpaCy | **AGREE with caution** | Verify Python 3.11+ compatibility; last major release was 2023 |
-| FAISS | **STRONG AGREE** | Standard for local vector search at this scale |
+> **Scope:** This document covers ONLY stack additions needed for M002. The existing Tauri 2.x + React 18 + TypeScript + Vite 5 + TailwindCSS 3 + SQLCipher stack is validated and unchanged. Every entry below is something new that does not yet exist in `package.json` or `Cargo.toml`.
 
 ---
 
 ## Recommended Stack
 
-### Desktop Shell
+### Core Technologies (New for M002)
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| Tauri | 2.x (latest stable) [VERIFY] | Desktop application shell | 30-50 MB idle RAM vs Electron's 150-300 MB. When running 6-35 GB AI models simultaneously, this headroom is not optional. Rust backend enforces explicit API surface (HIPAA minimum-necessary). Built-in sidecar support for PyInstaller binaries. WKWebView on macOS is fine for controlled-deployment medical software. Ed25519-signed auto-updates via tauri-plugin-updater. |
-| Rust | 1.77+ [VERIFY] | Tauri backend, DB CRUD, file I/O | Tauri commands handle all non-AI operations in Rust for zero sidecar overhead on routine tasks. Memory safety without GC aligns with medical-grade reliability requirements. |
+| react-router | 7.13.1 | Client-side navigation (patient chart tabs, route-per-view) | v7 is the current stable release (last published March 2026). In SPA mode (`ssr: false`), generates a single `index.html` — correct for a Tauri WKWebView context with no server. Import everything from `"react-router"` (react-router-dom is no longer a separate package in v7). Familiar, widely-supported, smaller bundle (~20KB) than TanStack Router (~45KB). |
+| zustand | 5.0.11 | Global client state (active patient, auth session, UI state) | v5 dropped React < 18 support and now uses native `useSyncExternalStore`, eliminating the `use-sync-external-store` shim. No boilerplate. Critical for sharing active patient context across the chart tab components without prop-drilling through a nested route tree. |
+| whisper-rs | 0.15.1 | Rust bindings for whisper.cpp — voice transcription | Latest stable (released 2025-09-10). Rust-native bindings that call whisper.cpp directly without a Python sidecar. Supports CoreML acceleration on Apple Silicon via the `coreml` feature flag — no separate compilation step vs calling whisper.cpp as a subprocess. Integrates as a Tauri command, keeping audio data in Rust and never crossing an IPC boundary until the transcript is ready. |
+| ollama (npm) | latest (~0.5.x) | TypeScript HTTP client for Ollama REST API (SOAP note generation) | Official Ollama JS library (updated February 2026). Supports structured JSON output via `format` parameter — critical for constraining LLaMA 3.1 8B to emit valid SOAP note JSON schemas. Handles streaming responses so the UI can render tokens as they arrive. Use from the React frontend to call `http://127.0.0.1:11434` — no Rust proxy needed since Ollama binds to localhost. |
 
-### Frontend
+### Supporting Libraries (New for M002)
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| React | 18.3+ [VERIFY] | UI framework | Largest medical UI component ecosystem. React 19 may be stable by project start -- evaluate but do not adopt pre-release. Server Components are irrelevant for desktop; stick with client-side React. |
-| TypeScript | 5.5+ [VERIFY] | Type safety | Non-negotiable for medical software. Catches data model errors at compile time. FHIR type definitions available via @types/fhir. |
-| Vite | 5.x or 6.x [VERIFY] | Build tooling | Tauri's default bundler. Fast HMR for development. Do not use Create React App (deprecated) or webpack (unnecessary complexity). |
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| shadcn/ui | latest (CLI-based) | Patient chart UI components (tabs, cards, badges, command palette) | All patient chart views. shadcn copies component source into the project — no runtime dependency, ~150KB vs MUI's ~300KB. Built on Radix UI primitives (WCAG 2.1 AA). Tauri-specific template exists (`agmmnn/tauri-ui`). Better bundle profile than MUI for dense desktop layouts. NOTE: TailwindCSS is already installed — shadcn slots in without additional CSS tooling. |
+| @radix-ui/react-tabs | latest (bundled via shadcn) | Chart tab navigation (Summary / Appointments / Notes / Labs / Rx) | Always via shadcn — do not install Radix UI tabs directly; shadcn manages the version. |
+| @tanstack/react-table | 8.21.3 | Sortable/filterable tables: lab results, billing line items, medication lists | All data-grid views within chart tabs. Headless — styling via Tailwind. Virtualization handles large result sets. Already recommended in prior stack research; install now for M002 use. |
+| @tanstack/react-query | 5.90.21 | Async state for Tauri IPC calls and Ollama streaming | Managing loading/error/caching for all Tauri command invocations and LLM streaming responses. Already recommended; install now. |
+| react-hook-form | 7.x (stable) | Form management for clinical forms (CPT/ICD-10 coding UI, prescription entry) | All multi-field clinical forms. Uncontrolled inputs avoid re-renders on dense forms. NOTE: Do NOT upgrade to v8 (currently beta); v8 breaks `useFieldArray`. |
+| @hookform/resolvers | 5.2.2 | Bridges react-hook-form + Zod validation | Required alongside react-hook-form. Supports Zod v4. |
+| zod | 4.3.6 | Schema validation for form inputs and LLM JSON output | Runtime validation of SOAP note JSON from Ollama, CPT/ICD-10 coding forms, prescription data. v4 is 14x faster than v3 for string parsing; 57% smaller bundle. |
+| cmdk | latest | Command palette for fast CPT/ICD-10/RxNorm code lookup | Provides a keyboard-driven fuzzy-search overlay. Physicians need sub-second code lookup; a full autocomplete list component is too slow for keyboard-first workflows. Used by shadcn for its own Command component — install via shadcn `npx shadcn@latest add command`. |
+| date-fns | 3.x | Date math for scheduling, encounter timestamps, billing dates | Already recommended in prior research; install now. Needed for M002 appointment tab date rendering. Do NOT use Moment.js. |
 
-### Frontend Libraries
+### Rust Crates (New for M002)
 
-| Library | Version | Purpose | Why Recommended |
-|---------|---------|---------|-----------------|
-| Material UI (MUI) | 6.x [VERIFY] | Component library | WCAG 2.1 AA out of the box. Dense medical UIs need data tables, form controls, and dialogs -- MUI covers all. Theming system supports clinical color schemes. |
-| React Hook Form | 7.x | Clinical form management | Uncontrolled form model avoids re-renders on large clinical forms (50+ fields in a SOAP note). Zod integration for runtime validation. |
-| Zod | 3.x | Schema validation | Runtime validation of FHIR resources. Shared schemas between frontend validation and API contracts. |
-| TanStack Table | 8.x | Data tables | Patient lists, lab results, medication lists, billing line items -- every EMR view is a table. Virtualization for large datasets. |
-| TanStack Query | 5.x | Server state | Cache management for Tauri IPC and FastAPI calls. Handles loading/error states. Offline mutation queue for future cloud sync. |
-| Zustand | 4.x or 5.x [VERIFY] | Client state | Lightweight global state for auth session, active patient, UI preferences. No boilerplate. |
-| @medplum/react | latest [VERIFY] | FHIR components | SmartText clinical concept detection, SNOMED/ICD coding widgets, FHIR resource forms. Evaluate maturity -- may need custom wrappers. |
-| fhir-react | latest [VERIFY] | FHIR rendering | FHIR resource display for DSTU2/STU3/R4. Useful for patient summary views. |
-| date-fns | 3.x | Date handling | Lightweight date manipulation. Medical scheduling requires extensive date math. Do NOT use Moment.js (deprecated, bloated). |
-| react-big-calendar | latest | Scheduling UI | Multi-provider calendar views. Needs customization for medical appointment types but saves months vs building from scratch. |
+| Crate | Version | Purpose | Why |
+|-------|---------|---------|-----|
+| whisper-rs | 0.15.1 | whisper.cpp bindings for in-process transcription | See Core Technologies above. Add `features = ["coreml"]` for Apple Neural Engine acceleration. |
+| cpal | 0.15.x | Low-level audio capture (microphone input → PCM buffer) | Pure-Rust cross-platform audio input. Used by `tauri-plugin-mic-recorder` internally; also usable directly for finer control over the audio stream. On macOS requires `CoreAudio` framework linkage (handled by cpal's build script). |
+| hound | 3.5.x | Write PCM audio to WAV format | whisper.cpp requires 16kHz mono 16-bit WAV input. hound writes that format from cpal's PCM output. Simple API, no dependencies. |
+| reqwest | 0.12.x | HTTP client for Ollama REST API (Rust-side) | Needed if any Tauri commands need to call Ollama directly (e.g., background summarization, batch coding). Feature: `json`. Already transitively present via tauri-plugin-http but declare explicitly for Tauri command usage. |
+| tokio | 1.x | Async runtime for reqwest + background whisper processing | Tauri 2.x uses tokio internally; no separate install needed, but ensure `features = ["full"]` if adding background tasks. |
 
-### Backend (Python Sidecar)
+### Billing: X12 837P Generation
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| Python | 3.11 or 3.12 [VERIFY] | Sidecar runtime | 3.11 for best library compatibility (MedSpaCy concern). 3.12 is faster but verify all medical NLP libraries support it. Do NOT use 3.13+ until ecosystem catches up. |
-| FastAPI | 0.115+ [VERIFY] | API framework | Async support for non-blocking AI inference. Pydantic models align with fhir.resources. Auto-generated OpenAPI docs for Tauri IPC contract documentation. |
-| Pydantic | 2.x | Data validation | V2 is 5-50x faster than V1. FHIR resource validation via fhir.resources (Pydantic-based). |
-| SQLAlchemy | 2.0+ | ORM / DB abstraction | Dialect swap from sqlite to postgresql with zero business logic changes. This is the keystone of the cloud migration strategy. |
-| Alembic | 1.13+ [VERIFY] | Schema migrations | `render_as_batch=True` for SQLite ALTER TABLE limitations. Same migration files work on both SQLite and PostgreSQL. |
-| PyInstaller | 6.x [VERIFY] | Binary packaging | Compiles Python + dependencies into single macOS executable for Tauri sidecar. Notarization-compatible with `--osx-bundle-identifier`. |
-| uvicorn | 0.30+ [VERIFY] | ASGI server | Runs FastAPI in the sidecar. Use `--host 127.0.0.1` to bind only to localhost (HIPAA: no external network exposure). |
+| Approach | Recommendation | Rationale |
+|----------|---------------|-----------|
+| Rust-side generation via string template + x12-types | **Use this** | x12-types crate provides ASC X12 type bindings. 837P is a highly structured, deterministic document — a well-tested Rust function that emits the fixed-format string is more auditable than a JS library that may have undocumented edge cases. The claim file is assembled from SQLCipher data already in Rust, so no IPC round-trip needed. |
+| node-x12 npm | Fallback only | JavaScript library for X12 parsing/generation. Functional but adds a JS dependency for work that is better done in Rust where the data already lives. Use if the Rust approach proves too time-consuming in a given sprint. |
 
-### Database
+Cargo.toml addition for billing:
+```toml
+x12-types = "0.x"   # verify latest on crates.io; provides X12 segment type definitions
+```
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| SQLite | 3.45+ (bundled) | Local database engine | Zero-config, serverless, single-file. Perfect for single-machine EMR. JSON1 extension for FHIR resource columns. |
-| SQLCipher | 4.6+ [VERIFY] | Encryption layer | AES-256-CBC with PBKDF2-HMAC-SHA512 (256K iterations). Per-page HMAC for tamper detection. 5-15% overhead. Encryption key in macOS Keychain (Secure Enclave on Apple Silicon). HIPAA breach safe harbor: encrypted = "secured" = no breach notification. |
-| sqlcipher3 (Python) | latest [VERIFY] | Python SQLCipher binding | SQLAlchemy dialect for SQLCipher. Verify compatibility with SQLAlchemy 2.0. Alternative: pysqlcipher3. |
+The 837P generation logic should live in a dedicated Rust module (`src-tauri/src/billing/`) with a Tauri command that returns the raw X12 string to the frontend for display/download.
 
-### AI / ML Pipeline
+### E-Prescribing: Weno Exchange Integration
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| Ollama | latest [VERIFY] | Local LLM runtime | Wraps llama.cpp with model management. Runs LLaMA 3.1 8B Q4_K_M (~6 GB) at 15-28 tok/sec on M1-M4. REST API on localhost. Simple model pulling and versioning. |
-| LLaMA 3.1 8B | Q4_K_M quantization | SOAP note generation, coding assist | Best accuracy-to-size ratio for medical text generation. RAG-augmented outperforms fine-tuned biomedical models (64% vs 30% on NEJM). 6 GB fits in 16 GB unified memory alongside other models. |
-| whisper.cpp | latest [VERIFY] | Voice transcription | CoreML acceleration on Apple Silicon for ~3x real-time. large-v3-turbo (1.5B params) for 95%+ accuracy. Critical: ~1% hallucination rate requires human review. |
-| WhisperKit | latest [VERIFY] | Alternative transcription | Swift-native CoreML implementation. Tighter macOS integration than whisper.cpp. Evaluate both; WhisperKit may have better Apple Silicon optimization. |
-| MedSpaCy | 1.x [VERIFY] | Clinical NLP | Section detection, negation/uncertainty via ConText algorithm. CRITICAL: verify Python 3.11/3.12 compatibility -- last major release was 2023. If incompatible, use spaCy directly with custom clinical rules. |
-| SciSpaCy | 0.5.x [VERIFY] | Medical entity extraction | en_core_med7_lg (drugs, dosages, durations, routes, forms, frequencies), en_ner_bc5cdr_md (diseases, chemicals). All local, no cloud dependency. |
-| spaCy | 3.7+ [VERIFY] | NLP framework | Foundation for MedSpaCy and SciSpaCy. Ensure version compatibility across all three. |
-| FAISS | 1.8+ [VERIFY] | Vector search | Local similarity search for ICD-10/CPT code matching against 70K+ codes. faiss-cpu is sufficient; faiss-gpu not needed on Apple Silicon. |
-| LangChain | 0.3+ [VERIFY] | AI orchestration | Pipeline orchestration for voice -> NLP -> LLM -> coding chain. LangGraph for conditional routing (local vs cloud). Evaluate whether lighter custom orchestration is sufficient -- LangChain adds significant dependency weight. |
-| fhir.resources | 7.x [VERIFY] | FHIR data models | Pydantic-based FHIR R4 resource models. Validates FHIR JSON. Integrates naturally with FastAPI request/response models. |
-| pyannote.audio | 3.x [VERIFY] | Speaker diarization | Separates physician vs patient speech in ambient recording. Requires HuggingFace token for model download. Runs locally after initial download. |
+| Integration Method | Recommendation | Rationale |
+|-------------------|---------------|-----------|
+| NONCE-based iframe embed | **Use this** | Weno Exchange's documented integration pattern for EHRs is an iframe that hosts Weno Online's DEA 1311.120-compliant prescribing screens. The EHR sends patient/provider context via JSON in the request, Weno generates a single-use NONCE key, and the EHR renders the Weno UI inside an iframe. No custom prescribing UI to build — Weno provides the certified EPCS workflow. OpenEMR v7.0.2+ uses this exact pattern. |
+| DIY Rx UI + Switch API | Avoid for M002 | The Switch API (direct network connection) requires custom Rx composition UI and full DEA EPCS certification. Months of additional work. The iframe approach gets to a working state in days. |
 
-### Drug Safety
+**Implementation notes for Tauri:**
+- Tauri's WKWebView can render iframes pointing to external HTTPS URLs if the CSP is configured to allow `frame-src https://*.wenoexchange.com`
+- The NONCE request is a server-side POST from Rust (via `reqwest`) to Weno's API — patient PII stays in Rust, never touches the React layer until it returns as a signed NONCE
+- Register at wenoexchange.com for a developer account and schedule a kick-off meeting before writing integration code (required by Weno)
+- No npm package needed; the integration is Rust HTTP + React iframe
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| RxNav-in-a-Box | latest [VERIFY] | Drug interaction checking | Docker composition from NLM. Complete RxNorm API stack locally. DrugBank-sourced drug-drug interactions with severity ratings. No BAA required -- fully offline. Most privacy-preserving approach. |
-| Docker Desktop | latest | Container runtime | Required for RxNav-in-a-Box. Evaluate Colima as lighter macOS alternative to Docker Desktop (avoids Docker Desktop licensing for commercial use). |
+### RxNorm Drug Search
 
-### Scheduling ML
+| Approach | Recommendation | Rationale |
+|----------|---------------|-----------|
+| NLM RxNav REST API (localhost via RxNav-in-a-Box) | **Use this** | RxNav-in-a-Box is the NLM-provided Docker composition that runs the complete RxNorm API stack locally. No cloud dependency, no BAA needed. Tauri command wraps `reqwest` call to `http://localhost:4000/REST/drugs.json?name=<query>`. Already in the prior stack research. |
+| react-icd10 or custom autocomplete component | For ICD-10/CPT | The `react-icd10` npm package queries the NLM ICD-10 API. For CPT codes, the AMA does not provide a free API — use a bundled SQLite lookup table (CPT codes can be licensed and stored locally in SQLCipher). The `cmdk` command component handles the typeahead UI for both. |
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| XGBoost | 2.x [VERIFY] | No-show prediction | Gradient-boosted model on appointment history. Published AUC 0.75-0.85. Lightweight, trains on local data only. |
-| scikit-learn | 1.4+ [VERIFY] | ML utilities | Feature engineering, model evaluation, preprocessing for scheduling ML. |
+---
 
-### Cloud AI (Fallback)
+## Installation
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| AWS Bedrock | N/A (managed) | Cloud LLM gateway | Hosts Claude and LLaMA with standard BAA. Near-instant approval. Zero data retention. Use for complex cases only (~5% of tasks). |
-| boto3 | 1.34+ [VERIFY] | AWS SDK | Bedrock API access. Also used for future S3 backup and RDS connectivity in Phase 4. |
+```bash
+# Client-side routing and state
+npm install react-router zustand
 
-### Testing
+# Patient chart UI (shadcn — interactive CLI, run for each component needed)
+npx shadcn@latest init
+npx shadcn@latest add tabs card badge command table
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| Vitest | 2.x [VERIFY] | Frontend unit tests | Vite-native, faster than Jest. Compatible with React Testing Library. |
-| React Testing Library | 16.x [VERIFY] | Component testing | Accessibility-first testing approach. Tests user behavior, not implementation. |
-| Playwright | 1.x [VERIFY] | E2E testing | Cross-browser E2E. Tauri has Playwright integration via WebDriver. Test clinical workflows end-to-end. |
-| pytest | 8.x [VERIFY] | Python testing | FastAPI test client, SQLAlchemy test fixtures, AI pipeline integration tests. |
-| pytest-asyncio | latest | Async test support | FastAPI routes are async; tests must be too. |
+# Data tables + async state
+npm install @tanstack/react-table @tanstack/react-query
 
-### Development Tools
+# Forms and validation
+npm install react-hook-form @hookform/resolvers zod
 
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| Biome | Linting + formatting (replaces ESLint + Prettier) | Faster, single tool. Tauri projects commonly use it. |
-| Ruff | Python linting + formatting | Replaces flake8 + black + isort. 10-100x faster. |
-| pre-commit | Git hook management | Enforce lint/format/type-check before commits. Critical for multi-developer consistency. |
-| cargo-tauri | Tauri CLI | Build, dev server, sidecar management. |
+# LLM client
+npm install ollama
+
+# Date utilities
+npm install date-fns
+
+# Dev — React Query devtools
+npm install -D @tanstack/react-query-devtools
+```
+
+```toml
+# src-tauri/Cargo.toml additions
+[dependencies]
+whisper-rs = { version = "0.15", features = ["coreml"] }
+cpal = "0.15"
+hound = "3.5"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+x12-types = "0.x"   # verify version on crates.io before locking
+```
 
 ---
 
 ## Alternatives Considered
 
-| Category | Recommended | Alternative | When to Use Alternative |
-|----------|-------------|-------------|-------------------------|
-| Desktop shell | Tauri 2.x | Electron | Only if you need Chromium-specific features (e.g., Chrome DevTools Protocol for advanced debugging). Not recommended for this project. |
-| Desktop shell | Tauri 2.x | Swift/AppKit native | If abandoning cross-platform entirely and going pure macOS. Better performance but 3-5x development cost and no web tech reuse. |
-| Frontend | React 18+ | SolidJS | If starting fresh with no medical component ecosystem needs. Smaller bundle, finer reactivity. But medical UI libraries (medplum, fhir-react) are React-only. |
-| State management | Zustand | Redux Toolkit | If team has strong Redux experience. But RTK adds boilerplate unnecessary for this app's state complexity. |
-| ORM | SQLAlchemy 2.0 | Prisma (via TypeScript) | If the sidecar were Node.js instead of Python. Not applicable here since Python is required for AI/NLP. |
-| Vector search | FAISS | ChromaDB | If you want a higher-level API with built-in persistence. FAISS is lower-level but faster and more battle-tested for medical code search at 70K+ vectors. |
-| Vector search | FAISS | Qdrant (local mode) | If you need filtering + vector search combined. FAISS handles this use case fine with metadata pre-filtering. |
-| LLM runtime | Ollama | MLX (Apple) | If targeting Apple Silicon exclusively and wanting tighter Metal integration. MLX is Python-native and potentially faster on M-series. Consider running both: Ollama for ease, MLX for performance-critical paths. |
-| LLM runtime | Ollama | llama.cpp directly | If Ollama's HTTP overhead is measurable. Ollama wraps llama.cpp; direct integration via Python bindings (llama-cpp-python) removes one layer. |
-| Transcription | whisper.cpp | WhisperKit (Swift) | For tighter CoreML/macOS integration. Evaluate both early. WhisperKit may have better Apple Silicon optimization but smaller community. |
-| Transcription | whisper.cpp | Deepgram/AssemblyAI | Cloud transcription with BAAs available. Only if local transcription quality is insufficient after medical vocabulary tuning. Adds latency and cloud dependency. |
-| AI orchestration | LangChain | Custom pipeline | If LangChain's dependency weight (~50+ transitive deps) is concerning. A custom orchestration layer with simple function chaining may be sufficient and more maintainable. Recommend: start with LangChain, extract to custom if it becomes a liability. |
-| Python packaging | PyInstaller | Nuitka | If PyInstaller produces overly large binaries or has notarization issues. Nuitka compiles Python to C and can produce smaller, faster binaries. More complex setup. |
-| Python packaging | PyInstaller | cx_Freeze | Fallback if PyInstaller fails. Less commonly used but viable. |
-| Docker runtime | Docker Desktop | Colima | If Docker Desktop licensing is a concern (commercial use >250 employees). Colima is free, lighter, CLI-only. Fine for RxNav-in-a-Box. |
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| react-router 7 (SPA mode) | TanStack Router | If maximum TypeScript type safety on route params and search strings is a priority. TanStack Router's file-based routing and automatic type generation are superior in DX, but react-router 7 is a faster migration from zero routing since the team already knows it. Revisit for M003 if route complexity grows. |
+| react-router 7 (SPA mode) | No routing (manual tab state in Zustand) | Only if the chart stays as a single page with tabs controlled by state. Acceptable for MVP but prevents deep-linking to a specific patient's lab tab, which is useful for cross-component navigation. |
+| whisper-rs (in-process) | whisper.cpp as Tauri sidecar subprocess | The sidecar approach (spawn a CLI binary, pipe audio, read stdout) is simpler to set up but slower due to process spawn overhead per recording. In-process via whisper-rs is faster and keeps audio data in Rust memory. Use sidecar only if whisper-rs compilation becomes a problem (e.g., CoreML linking issues). |
+| whisper-rs (in-process) | WhisperKit (Swift/CoreML) | WhisperKit is published under ICML 2025 and provides even better ANE utilization than whisper.cpp CoreML. But it requires a Swift bridge (Tauri does not have native Swift plugin support in v2 without custom code). Worth revisiting for M003 if transcription quality/speed is insufficient. |
+| ollama npm client | Vercel AI SDK (`ai` package) | The AI SDK provides a unified interface over multiple providers including Ollama, with structured output via Zod schemas (`Output.object()`). Add if you need streaming with automatic Zod parsing — otherwise the raw ollama client is lighter. |
+| shadcn/ui | Material UI (MUI) 6.x | If the team needs pre-built complex components (e.g., a full data grid with column pinning) out of the box. MUI's DataGrid is more feature-complete than TanStack Table + shadcn out of the box, at the cost of ~150KB extra bundle. |
+| Rust X12 generation | node-x12 npm | If the billing engineer prefers JavaScript and the X12 generation logic is simple enough to not need Rust's type safety. For claim generation involving financial data, Rust is preferable. |
+| NONCE iframe (Weno) | Weno Switch API (direct) | Only if the practice requires custom Rx composition UI (e.g., pre-filling the Rx form from a SOAP note automatically). The Switch API enables this but requires DEA EPCS certification. Evaluate for M003. |
 
 ---
 
@@ -161,144 +136,84 @@ The PRD's stack choices are **well-considered and defensible**. No major changes
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Electron | 150-300 MB idle RAM leaves insufficient headroom for 6-35 GB AI models. Node.js full API access requires extensive security hardening for HIPAA. 100-150 MB bundle. | Tauri 2.x |
-| Create React App | Deprecated, unmaintained. Slow builds. | Vite (Tauri default) |
-| Moment.js | Deprecated, 300KB+ bundle. Mutable API causes bugs. | date-fns |
-| Redux (classic) | Excessive boilerplate for this app's state complexity. | Zustand |
-| MongoDB | No encryption-at-rest equivalent to SQLCipher. No SQLAlchemy dialect for seamless cloud migration. Schema-less is wrong for regulated medical data. | SQLCipher (SQLite) -> PostgreSQL |
-| Firebase | Google Cloud without standard BAA path for small teams. No local-first mode. Vendor lock-in. | SQLCipher + PowerSync (Phase 4) |
-| OpenAI API (direct) | No BAA on consumer/API tiers without Azure deployment. Data retention policies unclear. | AWS Bedrock (standard BAA, zero retention) |
-| Fine-tuned biomedical LLMs | OpenBioLLM-8B scored 30% vs LLaMA-3-8B + RAG at 64% on NEJM cases. Fine-tuning is expensive and underperforms RAG for clinical tasks. | RAG pipeline with general-purpose LLM |
-| ESLint + Prettier (separate) | Two tools, complex config, slow. | Biome (single tool, faster) |
-| flake8 + black + isort (separate) | Three tools for what Ruff does alone, 100x slower. | Ruff |
-| Jest | Slower than Vitest, requires extra config with Vite projects. | Vitest |
+| react-router-dom (separate package) | In v7, `react-router-dom` is merged into `react-router`. Installing both creates duplicate router instances and confusing errors. | `react-router` only |
+| React Router v6 (old) | Already superseded; v7.13.1 is current. No reason to use v6 on a new feature. | react-router 7 |
+| react-hook-form v8 (beta) | Beta as of January 2026 with breaking changes to `useFieldArray` keyName API. Production forms should not be on a beta. | react-hook-form 7.x stable |
+| Zod v3 | v4.3.6 is current and 14x faster for string parsing. No reason to use v3 on new code. Check `@hookform/resolvers` >= 5.2.2 which supports Zod v4. | zod 4.x |
+| Python sidecar for audio/transcription | Adds PyInstaller packaging complexity and ~2 GB sidecar binary for what whisper-rs accomplishes in-process in Rust. The M001 stack already eliminated the Python sidecar for DB operations — keep that pattern for AI too. | whisper-rs in Rust |
+| Deepgram / AssemblyAI (cloud STT) | PHI leaves device; requires BAA; adds latency; adds cost. Use only as explicit fallback if local quality is insufficient after medical vocabulary prompting. | whisper-rs (local) |
+| OpenAI API (direct) | No BAA on standard API tier. PHI would leave device. | Ollama (local) + AWS Bedrock (cloud fallback with BAA) |
+| Custom e-prescribing workflow (DEA EPCS) | Requires DEA certification, audit logging of two-factor identity verification, 2-year tamper-proof log retention per DEA 1311. Months of regulatory compliance work. | Weno Exchange iframe (certified EPCS provided by Weno) |
+| Redux Toolkit | Excessive boilerplate for the state complexity in a chart view. Zustand handles active patient + session state without reducers. | Zustand 5 |
+| MUI DataGrid (Pro/Premium) | Paid license required for grouping/filtering. TanStack Table + shadcn Table achieves the same for billing and lab result views without licensing. | @tanstack/react-table + shadcn |
 
 ---
 
 ## Stack Patterns by Variant
 
-**If 16 GB Mac (minimum hardware):**
-- Use LLaMA 3.2 3B instead of 3.1 8B (~3 GB vs ~6 GB)
-- Use Whisper base or small instead of large-v3-turbo
-- Skip pyannote speaker diarization (memory-intensive)
-- Total AI footprint: ~4-5 GB, leaving headroom for app + OS
+**If whisper-rs CoreML compilation fails (M-series Mac build issue):**
+- Fall back to whisper.cpp as a Tauri sidecar binary (pre-compiled, embedded via `externalBin` in `tauri.conf.json`)
+- Use `tauri-plugin-shell` to spawn it: `shell().sidecar("whisper-cpp").args([...wav_path...]).output()`
+- Performance will be ~2-3x slower (no ANE) but functionally correct
+- The sidecar binary must be compiled with `WHISPER_COREML=1 make` and bundled per architecture (arm64/x86_64)
 
-**If 32-64 GB Mac (optimal hardware):**
-- Use full pipeline: LLaMA 3.1 8B + Whisper large-v3-turbo + MedSpaCy + pyannote
-- Total AI footprint: ~10-15 GB with room for FAISS indices
-- Consider MLX for faster Apple Silicon inference
+**If Ollama is not installed on the user's machine:**
+- React frontend should detect a failed `fetch("http://127.0.0.1:11434/api/tags")` and show a setup dialog
+- Provide a download link to `ollama.com` and a Tauri command to run `brew install ollama && ollama pull llama3.1:8b-instruct-q4_K_M`
+- All AI-dependent UI elements should gracefully degrade to manual entry when Ollama is unreachable
 
-**If MedSpaCy has Python compatibility issues:**
-- Use spaCy 3.7+ directly with custom clinical pipeline components
-- Implement ConText-like negation detection via spacy-negex or custom rules
-- Use SciSpaCy models (these are maintained more actively)
-- This fallback still covers 90% of MedSpaCy's value
+**If RxNav-in-a-Box Docker is not running:**
+- Fall back to a bundled SQLite table of RxNorm codes (snapshot from NLM, refreshed quarterly)
+- Stored in the existing SQLCipher database under a `rxnorm_drugs` table
+- This covers the search use case without requiring Docker to be running
 
-**If PyInstaller notarization fails:**
-- Switch to Nuitka for Python compilation
-- Alternative: embed Python via PyO3 (Rust-Python bridge) directly in Tauri, eliminating the sidecar entirely. Higher complexity but better integration.
-
----
-
-## Version Compatibility Matrix
-
-| Package A | Must Be Compatible With | Risk Level | Notes |
-|-----------|------------------------|------------|-------|
-| MedSpaCy | Python 3.11/3.12, spaCy 3.7+ | HIGH | Last major release ~2023. Most likely compatibility issue in the stack. Test early. |
-| SciSpaCy | spaCy 3.7+, MedSpaCy | MEDIUM | Usually tracks spaCy releases. Verify model compatibility. |
-| sqlcipher3/pysqlcipher3 | SQLAlchemy 2.0, Python 3.11+ | MEDIUM | SQLAlchemy 2.0 changed dialect API. Verify binding works. |
-| fhir.resources | Pydantic 2.x, FastAPI 0.100+ | LOW | Both Pydantic-based, should align. But verify FHIR R4 model generation. |
-| PyInstaller | All Python deps, macOS notarization | MEDIUM | Hidden imports from spaCy/torch/transformers commonly cause issues. Budget 2-3 days for packaging. |
-| Tauri sidecar | PyInstaller binary, localhost HTTP | LOW | Well-documented pattern. Tauri 2.x has explicit sidecar support. |
-| React 18/19 | @medplum/react, fhir-react | MEDIUM | If upgrading to React 19, verify medical component libraries support it. |
-| LangChain | Ollama, FAISS, Pydantic 2.x | MEDIUM | LangChain's rapid release cycle causes breaking changes. Pin versions carefully. |
+**If Weno Exchange integration is not yet set up (developer account pending):**
+- Build the e-prescribing UI with a placeholder iframe pointing to a local mock
+- Defer the NONCE API integration to a dedicated sprint once the developer kick-off meeting is complete
+- The `<iframe>` component in React can be feature-flagged via an env variable
 
 ---
 
-## Installation (Phase 1 Bootstrap)
+## Version Compatibility
 
-```bash
-# Prerequisites
-brew install rust node python@3.11
-
-# Tauri CLI
-cargo install tauri-cli
-
-# Frontend
-npm create tauri-app@latest medarc -- --template react-ts
-cd medarc
-npm install @mui/material @mui/icons-material @emotion/react @emotion/styled
-npm install react-hook-form @hookform/resolvers zod
-npm install @tanstack/react-table @tanstack/react-query
-npm install zustand date-fns react-big-calendar
-npm install @medplum/react fhir-react
-
-# Dev dependencies
-npm install -D vitest @testing-library/react @testing-library/jest-dom
-npm install -D @biomejs/biome
-npm install -D playwright @playwright/test
-
-# Python sidecar (use venv)
-python3.11 -m venv sidecar/.venv
-source sidecar/.venv/bin/activate
-pip install fastapi uvicorn[standard] pydantic
-pip install sqlalchemy alembic
-pip install pysqlcipher3  # or sqlcipher3 -- verify which is maintained
-pip install fhir.resources
-pip install spacy medspacy scispacy
-python -m spacy download en_core_web_sm
-pip install https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_med7_lg-0.5.4.tar.gz
-pip install faiss-cpu langchain langchain-community
-pip install ollama  # Python client for Ollama API
-pip install pyinstaller
-pip install pytest pytest-asyncio httpx  # httpx for FastAPI test client
-pip install ruff
-
-# Ollama (separate install)
-brew install ollama
-ollama pull llama3.1:8b-instruct-q4_K_M
-
-# whisper.cpp (build from source for CoreML)
-git clone https://github.com/ggerganov/whisper.cpp.git
-cd whisper.cpp && make clean && WHISPER_COREML=1 make -j
-
-# RxNav-in-a-Box (Phase 2)
-# docker pull ghcr.io/nicktobey/rxnav-in-a-box  # verify current image location
-```
-
----
-
-## Key Risk Areas
-
-1. **MedSpaCy compatibility (HIGH RISK):** Last major release was ~2023. If it does not support Python 3.11+/spaCy 3.7+, fall back to spaCy + SciSpaCy + custom clinical rules. Test this in week 1.
-
-2. **PyInstaller + AI dependencies (MEDIUM RISK):** Packaging spaCy models, torch, transformers, and FAISS into a single PyInstaller binary is non-trivial. Hidden imports, large binary size (potentially 2-5 GB), and macOS notarization issues are common. Budget 3-5 days for packaging spikes.
-
-3. **SQLCipher Python bindings (MEDIUM RISK):** pysqlcipher3 and sqlcipher3 have had maintenance gaps. Verify SQLAlchemy 2.0 dialect support. Alternative: use Rust-side SQLCipher via rusqlite with Tauri commands for all DB operations, removing Python DB dependency entirely.
-
-4. **LangChain version churn (MEDIUM RISK):** LangChain releases break APIs frequently. Pin exact versions. Consider extracting to custom orchestration if LangChain becomes a maintenance burden.
-
-5. **Whisper hallucination (INHERENT RISK):** ~1% hallucination rate is a known limitation. Human-in-the-loop review is mandatory, not optional. UI must make review frictionless.
+| Package A | Must Be Compatible With | Risk | Notes |
+|-----------|------------------------|------|-------|
+| react-router 7.13.1 | React 18.3.x | LOW | v7 officially supports React 18. |
+| zod 4.3.6 | @hookform/resolvers 5.2.2 | LOW | resolvers 5.2.2 explicitly adds Zod v4 support. Do NOT use resolvers < 5.x with zod 4. |
+| react-hook-form 7.x | zod 4.x | LOW | Supported via @hookform/resolvers 5.x. |
+| @tanstack/react-table 8.21.3 | React 18 | LOW | v8 supports React 18; v9 in development but not yet stable. |
+| @tanstack/react-query 5.90.21 | React 18 | LOW | v5 requires React 18. |
+| shadcn/ui (CLI-installed) | TailwindCSS 3.x, Radix UI | LOW | shadcn v3 (CLI) targets Tailwind 3. Do NOT upgrade Tailwind to v4 without migrating shadcn config — breaking CSS variable changes. |
+| whisper-rs 0.15.1 | Rust 1.77+ | LOW | Confirmed active development through September 2025. |
+| whisper-rs coreml feature | Xcode + CoreML frameworks | MEDIUM | Requires Xcode CommandLineTools on the build machine. CoreML model files (.mlmodelc) must be downloaded separately via `whisper.cpp/models/download-ggml-model.sh`. |
+| ollama npm | Node 18+ (Vite 5 environment) | LOW | The npm package is a fetch-based HTTP client, no Node-specific APIs. Works in both Node and browser-like environments. |
+| reqwest 0.12 | tokio 1.x | LOW | reqwest 0.12 requires tokio 1.x async runtime. Tauri 2.x already provides tokio 1.x. |
+| x12-types | serde 1.x | LOW | Standard serde serialization, already in Cargo.toml. |
 
 ---
 
 ## Sources
 
-All findings in this document are based on training data with a **May 2025 cutoff**. Web verification tools (WebSearch, WebFetch, Brave API) were unavailable during this research session.
-
-**Confidence breakdown:**
-- Tauri 2.x architecture and capabilities: MEDIUM (training data aligns with PRD claims; version specifics need verification)
-- React/TypeScript ecosystem: HIGH (stable, well-known ecosystem)
-- FastAPI/SQLAlchemy/Alembic: HIGH (mature Python stack, unlikely to have changed significantly)
-- SQLCipher: MEDIUM (stable project but verify latest version and Python binding status)
-- Ollama/whisper.cpp: MEDIUM (rapidly evolving; versions likely newer than training data)
-- MedSpaCy: LOW (maintenance status uncertain; highest risk item in stack)
-- FAISS: HIGH (stable Meta project, well-established)
-- LangChain: MEDIUM (frequent breaking changes; verify current API patterns)
-- Medical UI libraries (@medplum/react, fhir-react): LOW (niche libraries; verify maturity and maintenance)
-
-**Action required:** Before locking the stack, verify all [VERIFY] tagged versions against official GitHub releases and PyPI/npm. Prioritize MedSpaCy and SQLCipher Python binding verification as these are the highest-risk items.
+- [react-router npm](https://www.npmjs.com/package/react-router) — v7.13.1 confirmed current (March 2026)
+- [TanStack Router vs React Router — Medium/ekino-france](https://medium.com/ekino-france/tanstack-router-vs-react-router-v7-32dddc4fcd58) — comparison (January 2026)
+- [React Router SPA mode docs](https://reactrouter.com/how-to/spa) — `ssr: false` configuration confirmed
+- [whisper-rs crates.io](https://crates.io/crates/whisper-rs) — v0.15.1 (released 2025-09-10) MEDIUM confidence
+- [ollama-js GitHub](https://github.com/ollama/ollama-js) — active development confirmed (updated February 2026) MEDIUM confidence
+- [zustand npm](https://www.npmjs.com/package/zustand) — v5.0.11 current MEDIUM confidence
+- [zod v4 release](https://zod.dev/v4) — v4.3.6 current (July 2025 initial release), 14x faster string parsing
+- [@hookform/resolvers npm](https://www.npmjs.com/package/@hookform/resolvers) — v5.2.2 supports Zod v4
+- [@tanstack/react-query npm](https://www.npmjs.com/package/@tanstack/react-query) — v5.90.21 current
+- [@tanstack/react-table npm](https://www.npmjs.com/package/@tanstack/react-table) — v8.21.3 current
+- [shadcn vs MUI comparison (2025)](https://makersden.io/blog/react-ui-libs-2025-comparing-shadcn-radix-mantine-mui-chakra) — bundle size and Tauri integration notes
+- [tauri-ui template](https://www.shadcn.io/template/agmmnn-tauri-ui) — shadcn + Tauri integration confirmed
+- [Weno Exchange OpenEMR wiki](https://www.open-emr.org/wiki/index.php/OpenEMR_ePrescribe) — iframe + NONCE integration pattern confirmed
+- [Weno Switch API PDF (July 2025)](https://wenoexchange.com/wp-content/uploads/2025/07/Switch_API_Documentation_07-14-2025.pdf) — binary content, unreadable; defer to developer kick-off
+- [tauri-plugin-mic-recorder crates.io](https://crates.io/crates/tauri-plugin-mic-recorder) — v2.0.0 (March 2025) as reference for audio capture pattern
+- [WhisperKit ICML 2025](https://github.com/argmaxinc/WhisperKit) — Apple Neural Engine alternative to whisper.cpp, noted for M003 evaluation
+- [node-x12 npm](https://www.npmjs.com/package/node-x12) — JavaScript X12 fallback option
+- [x12-types crates.io](https://crates.io/crates/x12-types) — Rust X12 type bindings LOW confidence (verify version before use)
+- WebSearch results — all version claims above backed by at least one primary source
 
 ---
-*Stack research for: MedArc AI-Powered Desktop EMR*
-*Researched: 2026-03-10*
+*Stack research for: MedArc M002 — Patient UI, AI Voice Pipeline, Billing, E-Prescribing additions*
+*Researched: 2026-03-11*

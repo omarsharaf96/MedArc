@@ -1,358 +1,402 @@
 # Feature Research
 
-**Domain:** Small-practice EMR/EHR (1-5 providers), desktop-native, AI-powered
-**Researched:** 2026-03-10
+**Domain:** Solo-practice desktop EMR — M002 clinical UI, AI transcription, billing, e-prescribing
+**Researched:** 2026-03-11
 **Confidence:** MEDIUM-HIGH
-**Baseline:** OpenEMR v8.0.0 (ONC-certified, Feb 2026) + competitor analysis (Practice Fusion, DrChrono, Tebra)
+**Scope:** M002 adds clinical workflow UI on top of M001's complete Rust backend. M001 already built: auth, RBAC, audit logging, patient CRUD, scheduling, clinical docs, labs, documents. This file covers what M002 must deliver and how each feature category should work for a solo physician.
 
-## Feature Landscape
+---
 
-### Table Stakes (Users Expect These)
+## Feature Landscape by Category
 
-Features physicians and staff assume exist. Missing any of these means the product is not a viable EMR -- practices will not switch from their current system.
+### Category 1: Patient Chart View UI Shell
 
-#### Patient Management
+The clinical UI shell is the container that makes the M001 backend usable. Every other M002 feature lives inside it. Without it, the backend is invisible.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Patient demographics CRUD | Foundation of every EMR; regulatory requirement | MEDIUM | Name, DOB, sex/gender, contact, insurance (primary/secondary/tertiary), employer, clinical identifiers, patient photo. Must support FHIR Patient resource. |
-| Patient search (name, MRN, DOB, provider) | Staff search patients 50-100x/day; sub-second results required | LOW | Full-text + indexed field search. Must handle partial matches, phonetic similarity. |
-| Insurance management (primary/secondary/tertiary) | Billing cannot function without it; every encounter ties to a payer | MEDIUM | Eligibility verification is Phase 2; basic insurance capture is Phase 1. |
-| Related Persons / Care Team | Required for pediatrics, geriatrics, guardianship; OpenEMR baseline | LOW | Care Team Widget with role assignments (PCP, specialist, caregiver). |
-| Allergy tracking | Patient safety -- drug interaction checks depend on it; malpractice risk if missing | LOW | Drug, food, environmental allergies with severity and reaction type. FHIR AllergyIntolerance resource. |
-| Problem list / Active diagnoses | Core clinical record; required for coding, decision support, continuity of care | LOW | ICD-10 coded, date-stamped, active/inactive/resolved status. |
-| Medication list | Patient safety; e-prescribing depends on it; reconciliation at every visit | LOW | Active, discontinued, historical. Links to RxNorm codes. |
-| Immunization history | Regulatory reporting requirement; pediatric practices cannot function without it | LOW | CVX codes, lot numbers, administration dates, VIS documentation. |
-
-#### Scheduling
+#### Table Stakes
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Multi-provider calendar (day/week/month views) | Every practice has multiple providers; single-provider calendars are useless at 2+ providers | MEDIUM | Color-coded appointment categories, configurable slot durations (5-60 min). |
-| Patient Flow Board | Real-time clinic tracking (checked in, roomed, with provider, checkout); OpenEMR baseline | MEDIUM | This is how front desk and nursing staff coordinate. Without it, workflow breaks down. |
-| Recurring appointments | Chronic disease management requires follow-up scheduling; therapy/mental health require weekly slots | LOW | Weekly, biweekly, monthly recurrence patterns. |
-| Appointment reminders (SMS/email) | 20-30% no-show rates without reminders; every competitor offers this | MEDIUM | Requires integration with SMS gateway (Twilio) and email service. Template-based. |
-| Appointment search by open slots | Staff need to find next available appointment quickly when patient is on the phone | LOW | Filter by provider, appointment type, date range. |
-| Waitlist management | Practices need to fill cancelled slots; OpenEMR baseline feature | LOW | Auto-notify patients when preferred slot opens. |
-| Recall Board | Patient follow-up scheduling (annual physicals, chronic disease check-ins) | LOW | Overdue patient lists with outreach tracking. |
+| Patient banner / header bar | Every EMR pins patient identity at top of chart to prevent "wrong-patient" errors — a documented patient safety event category | LOW | Name, DOB, age, MRN, primary provider, active allergies badge (count + severity). Never scrolls away. |
+| Tab navigation (Summary, Encounters, Meds, Problems, Allergies, Labs, Documents) | Physicians trained on Epic/DrChrono expect tab-based chart organization; context-switching must be instant | MEDIUM | Tabs render content within the same patient context. Active tab highlighted. Unsaved changes warn before tab switch. |
+| Patient facesheet / summary view | The at-a-glance patient overview that opens when chart is accessed; physicians see this 30-50x per day | MEDIUM | Active problems, current medications, allergies, last vitals, upcoming appointments, recent encounters. All from M001 backend data. |
+| Encounter list with status | Providers need to see all encounters (open, signed, co-sign pending) for a patient and open prior notes | LOW | Date, encounter type, provider, status (draft, pending co-sign, signed). Click to open note. |
+| Keyboard navigation and shortcuts | Power users (physicians) document faster with keyboard; clicking through tabs is too slow for clinical pace | LOW | Ctrl/Cmd+[number] for tabs, Escape to dismiss modals, Enter to confirm. Standard desktop app behavior. |
+| "Back to patient list" breadcrumb | Users drill into a chart from a search; must be able to return without losing context | LOW | Breadcrumb trail: Patient List > [Patient Name] > [Section]. |
 
-#### Clinical Documentation
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| SOAP note entry (structured) | The universal clinical documentation format; every EMR has this | HIGH | Subjective, Objective, Assessment, Plan with structured sub-fields. Must support free-text AND structured data entry. This is the single most-used feature in any EMR. |
-| Vitals tracking with flowsheets | Nurses record vitals at every visit; trending over time is expected | MEDIUM | BP, HR, RR, Temp, SpO2, Weight, Height, BMI auto-calc, pain scale. Growth charts for pediatrics. |
-| Review of Systems (ROS) forms | Standard intake documentation; required for E/M coding levels | MEDIUM | 14 organ systems, positive/negative/not reviewed, template-driven. |
-| Physical exam templates | Structured PE documentation; required for E/M coding | MEDIUM | System-based templates (HEENT, CV, Pulm, etc.) with normal/abnormal findings. |
-| Template library (clinical forms) | OpenEMR ships 60+ form types; physicians expect specialty-specific templates | HIGH | Custom form builder is Phase 2. Ship with 10-15 common templates (general, cardio, peds, OB/GYN, psych) for Phase 1. |
-| Multi-provider encounter co-signing | Required for NP/PA supervision; legal documentation requirement | LOW | Supervising physician signs off on mid-level provider notes. |
-| Clinical Decision Rules | Drug-allergy alerts, duplicate therapy, care gap reminders | MEDIUM | Passive alerts (info) vs active alerts (blocks workflow). Alert fatigue is a real risk -- be judicious. |
-| Document management (upload/scan) | Practices receive faxes, outside records, consent forms; must store with patient | MEDIUM | PDF, image upload with categorization. SHA-1 integrity validation. Up to 64 MB per document. |
-
-#### E-Prescribing
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Medication search (drug database) | Providers must find medications by name, class, or indication | MEDIUM | Requires RxNorm drug database. Local-first for offline support. |
-| E-prescribing transmission | Mandatory in many states; practices will not adopt an EMR without it | HIGH | Weno Exchange integration ($300 activation). SureScripts network connectivity. This is a hard external dependency. |
-| EPCS (controlled substances) | DEA-required for Schedule II-V prescribing; growing state mandates | HIGH | Requires identity proofing, two-factor authentication, DEA-compliant audit trail. Weno supports this. |
-| Drug interaction checks | Patient safety; malpractice liability without it | MEDIUM | RxNav-in-a-Box provides this locally via Docker. Severity ratings essential. |
-| Formulary awareness | Reduces pharmacy callbacks; improves patient cost transparency | MEDIUM | Requires payer formulary data feeds -- complex to maintain. Phase 2 feature. |
-| Medication reconciliation workflow | Required at transitions of care; meaningful use requirement | LOW | Side-by-side comparison of reported vs documented medications. |
-
-#### Lab Integration
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Lab results viewing and management | Providers review labs daily; results must flow into patient chart | MEDIUM | Manual entry for Phase 1. Electronic results in Phase 2. |
-| Laboratory procedure ordering | Structured order entry with provider signature | MEDIUM | Order catalogue configuration, LOINC code mapping. |
-| HL7 v2 message exchange | Standard lab interface; Quest, LabCorp, hospital labs all use HL7 v2 | HIGH | ORU^R01 (results), ORM^O01 (orders). Requires message parsing, acknowledgment, error handling. Phase 2 feature. |
-| Results workflow (review, sign, notify) | Providers must review, acknowledge, and act on results; medicolegal requirement | MEDIUM | Abnormal flagging, provider notification, patient notification workflow. |
-
-#### Billing and Revenue Cycle
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| CPT/ICD-10 code entry per encounter | Every encounter must be coded for billing; this is how practices get paid | MEDIUM | Fee sheet interface with code search. Must support CPT, HCPCS, ICD-10, SNOMED. |
-| Fee schedule management | Practices have contracted rates per payer; need to track what they charge | LOW | Multiple fee schedules, modifier support (25, 59, etc.). |
-| Claim generation (X12 837P) | Electronic claims are how 95%+ of billing happens; paper claims are nearly dead | HIGH | ANSI X12 5010 standard. Must validate before submission. Clearinghouse integration (Office Ally, ZirMED, Availity). |
-| ERA/EOB processing (835) | Automated payment posting from insurance remittances | HIGH | Parsing 835 files, auto-matching to claims, posting payments, identifying denials. |
-| Accounts Receivable tracking | Practices must track outstanding claims, aging, and collections | MEDIUM | AR aging reports (30/60/90/120 days), denial management, patient balance tracking. |
-| Patient statements and collections | Patients owe increasing amounts due to high-deductible plans | LOW | Statement generation, payment plan tracking. |
-| Insurance eligibility verification | Front desk verifies coverage before appointments | MEDIUM | Real-time eligibility via X12 270/271. Clearinghouse-dependent. Phase 2 feature. |
-
-#### Reporting
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Clinical reports (patient lists, encounters, prescriptions) | Practice management requires population views; regulatory reporting | MEDIUM | Filterable, exportable. Common: patients by diagnosis, encounter volume, prescription history. |
-| Financial reports (collections, revenue, payer mix) | Practice owners need to understand financial health | MEDIUM | Daily/weekly/monthly revenue, collections rate, payer distribution, provider productivity. |
-| CQM/eCQM measures | Required for MIPS reporting; penalty for non-participation | HIGH | Clinical Quality Measures calculation, submission formatting. Can defer to Phase 2 but architecture must support. |
-
-#### Security and Compliance
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| RBAC (role-based access control) | HIPAA requires minimum-necessary access; every EMR has this | MEDIUM | 5 roles minimum: Admin, Provider, Nurse/MA, Billing, Front Desk. Field-level access control. |
-| Audit logging (tamper-proof) | HIPAA requirement; medicolegal necessity | MEDIUM | Every ePHI access logged: who, what, when, from where. Hash-chain integrity. 6-year retention. |
-| AES-256 encryption at rest | HIPAA technical safeguard; breach notification safe harbor | MEDIUM | SQLCipher handles this. Key management via macOS Keychain/Secure Enclave. |
-| TLS 1.3 in transit | HIPAA transmission security requirement | LOW | macOS ATS enforces by default. Certificate pinning for API endpoints. |
-| Unique user IDs + strong authentication | HIPAA requires no shared accounts; MFA increasingly expected | MEDIUM | Bcrypt/Argon2 hashing, TOTP MFA, Touch ID, auto-logoff (10-15 min). |
-| Encrypted backups | HIPAA contingency plan requirement; data loss = practice closure | MEDIUM | 3-2-1 backup rule. Automated daily encrypted backups. Restore testing. |
-
-### Differentiators (Competitive Advantage)
-
-Features that set MedArc apart from Practice Fusion, DrChrono, Tebra, and OpenEMR. These align with the project's core value proposition.
-
-#### AI-Powered Clinical Workflow (Primary Differentiator)
+#### Differentiators
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Ambient voice-to-SOAP note generation | Eliminates 30-41% of documentation time; the #1 physician complaint about EMRs. 42% of medical groups already using ambient AI -- this is rapidly becoming table stakes for new EMR adoption. | HIGH | whisper.cpp + MedSpaCy/SciSpaCy + LLaMA 3.1 8B pipeline. Human-in-the-loop mandatory (1% Whisper hallucination rate). This is the product's reason for existing. |
-| AI-assisted ICD-10/CPT coding | Reduces claim denial rates from 8-12% to below 3%; delivers 3-7% revenue increase per practice. Concrete, measurable financial ROI. | HIGH | LLM entity extraction + FAISS vector search. GPT-4 only gets 33.9% exact match alone -- vector search architecture is required. Always human-reviewed, never auto-submitted. |
-| AI diagnostic decision support | Differential diagnosis suggestions grounded in clinical evidence via RAG. Reduces cognitive load, catches missed diagnoses. | HIGH | LLaMA 3.1 8B + RAG (StatPearls, clinical guidelines) + FAISS. Local-first, no BAA needed. LLaMA-3-8B-Instruct: 64% on NEJM cases (vs 30% fine-tuned). |
-| AI pre-charting (pre-visit context assembly) | Automatically assembles relevant history, pending results, due screenings before patient arrives. Saves 3-5 min per encounter setup. | MEDIUM | Pulls from problem list, recent encounters, pending orders, care gaps. Generates briefing for provider. |
-| Smart scheduling (no-show prediction) | Reduces revenue loss from no-shows (average 18-20% of appointments); optimizes provider utilization. | MEDIUM | XGBoost/LightGBM on historical data. AUC 0.75-0.85 published. Overbooking suggestions, targeted reminder escalation. |
+| Collapsible sidebar with patient mini-summary | Keeps critical patient data visible while working in any section; reduces cognitive load, eliminates need to switch tabs to check allergies while writing a note | MEDIUM | Sticky panel: allergies, active meds, active problems. Collapsible to maximize note entry space. OpenEMR's "Dashboard" pattern but inline. |
+| Activity feed / timeline view | Solo physician sees the complete patient story (encounters, labs, prescriptions, documents) in chronological order — a mental model that matches how physicians think | MEDIUM | Reverse-chronological timeline across all event types. Filterable by type. Requires joining across M001 backend tables. |
+| "Quick access" pinned sections | Physician pins their most-used chart sections (e.g., vitals flowsheet, medication list) to top of facesheet | LOW | Draggable card layout on facesheet. Preference stored per-provider. |
 
-#### Local-First Architecture (Secondary Differentiator)
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Zero monthly SaaS fees | Competitors charge $49-349/mo per provider with annual increases (SimplePractice +63% in 2025). One-time license eliminates recurring cost; ROI within 12-18 months for 3-provider practice. | LOW (business model, not technical) | Cloud hosting optional at $65-110/mo per clinic when practice chooses to migrate. |
-| PHI never leaves device (routine operations) | Average healthcare breach costs $9.77M. Local encryption = HIPAA breach notification safe harbor. Eliminates trust dependency on third-party cloud providers. | MEDIUM | 95% of AI operations local. Cloud fallback only for complex cases with de-identified data. |
-| Offline-first operation | Works without internet; rural clinics, unreliable connections, internet outages don't halt patient care. Cloud-only competitors go completely down during outages. | MEDIUM | SQLCipher local storage. PowerSync for cloud sync when connected. |
-| macOS-native experience | Leverages CoreML, Secure Enclave, Touch ID, Keychain. Feels like a native app, not a web page. 30-50 MB idle (vs Electron 150-300 MB or browser tabs). | MEDIUM | Tauri 2.x + WKWebView. Apple Silicon optimization for AI models. |
-
-#### Workflow Intelligence (Tertiary Differentiator)
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| FHIR-first data model | Future-proofs for ONC certification, interoperability, health information exchange without retrofitting. Every data point is standards-compliant from day one. | MEDIUM | FHIR R4 resources as JSON columns. Enables C-CDA generation, USCDI compliance. |
-| Intelligent clinical alerts (low fatigue) | Alert fatigue causes providers to ignore 49-96% of alerts in typical EMRs. Tiered alert system with severity and suppression logic preserves attention for critical safety alerts. | MEDIUM | Passive (info bar) vs active (modal block) vs critical (requires override reason). Track override rates to tune. |
-| Track Anything (arbitrary clinical data graphing) | Patients with rare conditions, custom metrics, or research needs can track any numeric value over time. OpenEMR differentiator worth replicating. | LOW | Generic form: name, value, date, optional units. Line chart visualization. |
-| CAMOS (Computer-Aided Medical Ordering) | Structured clinical decision trees for common presentations. Reduces variation, improves consistency. | MEDIUM | Decision tree builder with branching logic. Phase 2 feature. |
-
-### Anti-Features (Commonly Requested, Often Problematic)
-
-Features that seem valuable but create problems disproportionate to their benefit. Deliberately avoid these.
+#### Anti-Features
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Patient portal (Phase 1) | Patients want online access to records, messaging, appointments | Massive surface area: authentication, authorization, web hosting, HIPAA for public-facing app, mobile responsiveness, patient identity verification. Doubles the security attack surface. Not what makes physicians switch EMRs. | Defer to Phase 2+. Physicians adopt based on clinical workflow, not patient portal. Secure messaging via existing channels (phone, email with consent) for Phase 1. |
-| Full ONC certification (Phase 1) | Needed for MIPS incentive payments; seems like a requirement | ONC certification process costs $50-100K+, takes 6-12 months, requires specific testing. Technically voluntary. Architecture should support it, but pursuing certification before product-market fit burns runway. | Build FHIR-first, USCDI-compliant data model from day one. Pursue certification when revenue supports it (Phase 3-4). |
-| Real-time multi-user collaboration (Google Docs-style) | Multiple providers editing same note simultaneously | Operational conflict resolution in clinical notes is a patient safety hazard. CRDTs for medical records are an unsolved problem. Small practices rarely have concurrent edits on same patient. | Encounter locking (one editor at a time) + co-signing workflow. Simpler, safer, sufficient for 1-5 provider practices. |
-| Custom form builder (Phase 1) | Every specialty wants custom forms; OpenEMR has this | Form builders are deceptively complex: validation logic, conditional fields, data extraction for reporting, FHIR mapping, migration. Ship with 10-15 pre-built templates, add builder in Phase 2. | Pre-built specialty templates (general, cardio, peds, OB/GYN, ortho, psych, derm). Community template sharing in Phase 3. |
-| Integrated fax server | Practices still receive faxes; seems necessary | Fax integration requires HIPAA-compliant fax service, phone line management, OCR for incoming, formatting for outgoing. Third-party fax services (eFax, SRFax) handle this better. | Integrate with cloud fax API (Phase 2). For Phase 1, manual document upload covers the need. |
-| Built-in telemedicine/video | Post-COVID expectation; competitors offer it | Video infrastructure is complex (WebRTC, TURN servers, recording, consent). HIPAA-compliant video solutions exist (Doxy.me, Zoom for Healthcare). Building your own is a distraction. | Integration with existing telehealth platform. Launch link from appointment, attach visit note to encounter. Phase 3. |
-| Mobile companion app (Phase 1) | Providers want to check schedules, review results on phone | Doubles the development surface. Tauri 2.x supports iOS/Android but mobile EMR UX is fundamentally different from desktop. Small practices manage fine with desktop-only initially. | Phase 4+ after core desktop is solid. Mobile web view as stopgap if demand is high. |
-| Automated claim submission (no human review) | Speeds up billing workflow | Medical billing errors have financial and legal consequences. AI coding has 33.9% exact match rate (GPT-4). Auto-submitting claims without review guarantees denials and potential fraud liability. | AI suggests codes; human reviews and approves. "One-click submit" after review, not "zero-click auto-submit." |
-| Windows/Linux support (Phase 1) | Larger addressable market | Triples testing surface, loses macOS-specific advantages (CoreML, Secure Enclave, Keychain, Touch ID). Tauri supports cross-platform but optimization is macOS-specific. | macOS-first. Tauri enables future cross-platform. Revisit after product-market fit. |
-| Natural language query of patient data | "Show me all diabetic patients with A1c > 9" | NL-to-SQL is unreliable for clinical data queries. Wrong results have patient safety implications. Requires extensive guardrails. | Structured report builder with predefined filters. Saved report templates. Consider NL query as Phase 3 AI feature with heavy validation. |
+| Infinite scroll within chart sections | Seems modern and fluid | Clinical data has natural section boundaries (encounters, labs, meds); infinite scroll destroys visual landmarks and makes it impossible to find the "current encounter" vs prior ones | Tab + paginated list with clear date headers |
+| Dashboard-first navigation (chart as drill-down from dashboard) | Analytics dashboards are fashionable | Solo physician workflow is patient-centric, not population-centric. Opening a dashboard first adds a click before every chart access. Desktop EMR should open to schedule or patient search, then directly into chart. | Schedule view or patient search as home; chart opens directly |
+| Floating/draggable panels | Seems productive and multi-monitor friendly | Draggable panels create state management complexity, lose position between sessions, and break keyboard navigation. Not worth the complexity for solo practice. | Collapsible fixed panels with persistent state |
+
+---
+
+### Category 2: SOAP Note Entry
+
+The SOAP note editor is the single highest-frequency feature in the EMR. A solo physician documents 15-25 encounters per day. If note entry is slow, the product fails.
+
+#### Table Stakes
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Structured SOAP sections (S/O/A/P as distinct fields) | SOAP is the universal clinical documentation standard; every EMR structures notes this way. Free-text blob is not acceptable for billing or medicolegal use. | HIGH | Subjective: CC + HPI + review of symptoms. Objective: vitals + ROS + PE + labs. Assessment: diagnosis list with ICD-10. Plan: orders, prescriptions, follow-up, instructions. |
+| Auto-populated patient context | Note editor must pre-populate patient demographics, prior diagnoses, current meds, allergies into the note context — typing this from scratch each time is why physicians hate EMRs | MEDIUM | Pull from M001 patient/clinical commands. Name, DOB, provider, date auto-fill. Problem list pre-populates Assessment section. |
+| Draft auto-save (local) | Physicians are interrupted constantly; losing a partially written note is a critical failure | MEDIUM | Auto-save to SQLCipher every 30 seconds. Unsaved draft indicator. Restore from draft on re-open. |
+| Note status workflow (draft → pending co-sign → signed) | Medicolegal requirement; NP/PA notes require physician co-signature; signed notes must be locked | LOW | Status machine with role-gated transitions. Provider signs their own notes; supervisor co-signs mid-level notes. Signed notes append-only (addendum pattern). |
+| Encounter templates (pre-built by specialty) | Physicians configure their preferred note structure once; every specialty has a different standard format | HIGH | 10-15 templates minimum: Annual Physical, Sick Visit, Follow-up, New Patient, Cardiology, Pediatric WCC, OB/GYN, Psychiatry, Orthopedic Eval, Dermatology. Loaded from template library, customizable per encounter. |
+| Chief complaint (CC) and HPI structured fields | The opening of every SOAP note; physicians expect a consistent location for CC and narrative HPI | LOW | CC: short text (1-2 lines). HPI: free text with prompts (OLDCARTS: Onset, Location, Duration, Characteristics, Aggravating, Relieving, Treatment, Severity). |
+| ICD-10 diagnosis linking in Assessment section | Cannot bill without ICD-10 codes; Assessment section must link coded diagnoses to the encounter | MEDIUM | Type-ahead search against ICD-10 CM database. Multiple diagnoses per encounter. Primary diagnosis flagged. Links to M001 problem list (adds to problem list or selects existing). |
+| Plan section structured sub-fields | The Plan section drives all downstream actions; must be structured to capture orders, prescriptions, referrals, follow-up | MEDIUM | Sub-fields: Medications/Rx (links to Rx module), Orders (labs, imaging), Referrals (free text for Phase 1), Follow-up (date/timeframe), Patient instructions (free text). |
+| Print / PDF export of note | Practices need paper records for referrals, patient copies, faxed records | LOW | Clean print layout suppressing UI chrome. PDF export of signed note. M001 document storage to save PDF with patient record. |
+
+#### Differentiators
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Encounter-level allergy and drug alert sidebar | During note writing, physician sees current allergy list and receives passive alerts if Plan section Rx conflicts — before signing, not after | MEDIUM | Read from M001 AllergyIntolerance and MedicationRequest data. Passive (info bar) for moderate interactions; active modal for severe. Avoids alert fatigue by only triggering on clinical relevance. |
+| Previous encounter quick-reference panel | Solo physician often needs to see what was done at the last visit while writing the current note — without opening a second window | LOW | Collapsible right-rail showing last encounter's Assessment + Plan. Single API call to M001 clinical commands. |
+| Free-text to structured data extraction hints | As physician types in HPI, system suggests matching ICD-10 codes in the Assessment field — reducing the mental context switch of "now I have to go code this" | HIGH | Requires local NLP (MedSpaCy or keyword heuristics for Phase 1). LLM-powered in Phase 2/3. Show as non-blocking suggestions, never auto-apply. |
+
+#### Anti-Features
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Rich text formatting (bold, tables, bullets) in note body | Seems to improve readability | Clinical notes with heavy formatting look polished but are harder to parse by downstream systems, break FHIR data extraction, and increase file size. Excessive formatting also encourages padding ("note bloat"). | Limited formatting: bold for emphasis, bulleted lists for plan items. No custom fonts, colors, or tables in SOAP body. |
+| Auto-sign on save | Saves a click | Signed notes have medicolegal finality. Physicians must consciously attest that a note is complete. Auto-signing on save would cause accidental finalization of draft notes. | Explicit "Sign Note" button that is visually distinct and requires confirmation. Draft state is the default. |
+| Copy-forward entire prior note | Seems to save time | "Note cloning" is one of the top cited causes of medical record errors and HIPAA audit findings. Copying a prior note without updating it creates false attestation. | Allow copy-forward of specific sections (problem list, medications) not the entire note. Flag copied sections visually. Show warning on first use. |
+| Mandatory structured fields for all note elements | Seems to improve data quality | Forcing every field to be structured increases documentation time by 40-60% (a primary driver of physician burnout). The goal is to capture key structured data while allowing free text for narrative. | Structured for: diagnoses (ICD-10), vitals, medications (RxNorm). Free text for: HPI, PE narrative, assessment narrative, plan details. |
+
+---
+
+### Category 3: Vitals, Review of Systems, Physical Exam Forms
+
+These three data types — vitals, ROS, and PE — are the Objective section of every SOAP note. They have distinct UI patterns and are used by different staff (nurse records vitals; physician completes ROS/PE).
+
+#### Table Stakes (Vitals)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Vitals entry form (BP, HR, RR, Temp, SpO2, Weight, Height, BMI) | Nurses record vitals at every visit; this is a non-negotiable core workflow | LOW | BP: systolic/diastolic with arm/position. Temp: value + route (oral/rectal/axillary/tympanic). SpO2: % + on-room-air flag. Weight: lbs or kg. BMI: auto-calculated from weight + height. Pain scale: 0-10. |
+| BMI auto-calculation | Nurses expect this; manual calculation is error-prone | LOW | BMI = weight(kg) / height(m)^2. Show calculated value immediately on entry, highlighted if outside normal range. |
+| Vitals flowsheet (trend view over time) | Physicians need to see BP trends, weight changes, SpO2 trends — not just the current value | MEDIUM | Date-ordered table of all vitals entries for the patient. Line graph for numeric values (BP, HR, Weight). Highlight abnormal values (BP >140/90, SpO2 <94%, etc.). |
+| Abnormal value flagging | Out-of-range vitals must be flagged immediately; patient safety issue | LOW | Color-coded: green (normal), yellow (borderline), red (abnormal). Reference ranges are age/sex adjusted. |
+| Pediatric growth charts | Pediatricians cannot use an EMR without growth charts; it is a core clinical tool for all well-child visits | MEDIUM | WHO/CDC growth charts for weight-for-age, height-for-age, BMI-for-age, head circumference. Plot current and historical vitals automatically. Percentile calculation. Birth to 20 years. |
+
+#### Table Stakes (Review of Systems)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| 14-system ROS form | The standard ROS covers 14 organ systems; E/M coding levels depend on number of systems reviewed | MEDIUM | Systems: Constitutional, Eyes, ENT, CV, Respiratory, GI, GU, MSK, Skin, Neuro, Psychiatric, Endocrine, Hematologic, Immunologic. Each system: positive / negative / not reviewed toggle. |
+| ROS free-text per system | Positive findings need elaboration; "positive for chest pain" requires specifics | LOW | Optional free-text note per system, shown only when system is marked positive. |
+| ROS carry-forward (from intake) | Nurses often complete ROS during rooming; physician should be able to review and attest, not re-enter | LOW | Mark entire ROS as "reviewed and attested by [provider]" with timestamp. Individual modifications allowed. |
+| E/M coding level indicator | Physicians need to know if their documentation supports the billing level they intend to code | MEDIUM | Count of ROS systems reviewed, PE systems examined, diagnoses, data complexity. Show E/M level calculation (99202-99215 range) in real time as documentation is completed. This is a significant workflow value-add that directly impacts revenue. |
+
+#### Table Stakes (Physical Exam)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| System-based PE templates | Physicians document PE by organ system (HEENT, Cardiovascular, Pulmonary, Abdomen, MSK, Neuro, Skin, etc.); each system has standard normal findings | MEDIUM | Toggle-based: Normal / Abnormal / Not Examined per system. Abnormal triggers free-text field. Pre-populated normal text for one-click documentation of unremarkable exam. |
+| "All systems normal" macro | The majority of follow-up visits have normal exams; single-click documentation is expected | LOW | One-click sets all examined systems to "within normal limits." Physician then modifies only abnormal findings. |
+| Specialty-specific PE templates | A cardiologist's PE focuses on cardiac/pulmonary; a dermatologist's focuses on skin/lesion description; templates must match specialty | HIGH | Load template based on provider specialty or note template type. 10-15 templates covering general, cardiology, pediatrics, OB/GYN, psychiatry, orthopedics, dermatology, ophthalmology. |
+
+#### Differentiators
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| E/M level real-time calculator | Shows the achievable billing level (99202-99215) based on documented ROS, PE, diagnoses, and medical decision complexity — catches under-documentation before the note is signed | MEDIUM | Rule-based calculation per CMS 2021 E/M guidelines. Display as "supports Level 4 (99214)" with indication of what is missing for Level 5. Solo physician without a billing team especially benefits from this. |
+| Vitals trend mini-sparklines on facesheet | Shows directional trend (BP trending up over 3 visits) at a glance without opening the flowsheet | LOW | SVG sparklines (last 5 data points) for BP, weight, A1c. Click to expand to full flowsheet. React-based, rendered from M001 clinical data. |
+
+#### Anti-Features
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Fully customizable ROS systems (per-provider system ordering) | "I always do it my way" | Custom ordering breaks the E/M coding calculator (which counts standard systems), makes data extraction for reporting unreliable, and creates support complexity. | Fixed 14-system ROS order per clinical standard. Providers can mark only relevant systems; unused systems show as "not reviewed." |
+| Wearable device auto-import (Apple Watch, Fitbit) | Patients wear these; seems convenient | Consumer wearable data is unvalidated for clinical use, requires user consent management, HIPAA business associate agreements with Apple/Fitbit, and creates clinician liability questions about ignoring imported values. | Manual vitals entry by clinical staff. Phase 3+ for validated medical device integration (FDA Class II, Bluetooth Medical Profile). |
+
+---
+
+### Category 4: AI-Assisted SOAP Generation (Whisper + Ollama Pipeline)
+
+This is MedArc's primary differentiator. The pipeline is: audio capture → whisper.cpp transcription → NLP structuring → LLaMA 3.1 8B SOAP generation → physician review and edit → sign.
+
+#### Table Stakes (for AI pipeline to be usable)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Audio recording with visual feedback | Physician must know the system is listening; visual indicator (waveform or pulsing dot) during capture is a patient safety requirement — prevents unintended recording | LOW | macOS AVFoundation for mic capture. Waveform visualization via Web Audio API. Start/Stop/Pause controls. Elapsed time counter. |
+| Transcription display (editable text) | Physician must see what was transcribed before it is processed into a note — catching Whisper errors (1% hallucination rate) is the human-in-the-loop checkpoint | LOW | Show verbatim transcript in scrollable panel. Physician can edit transcript before proceeding. Clear visual distinction from generated SOAP. |
+| Generated SOAP preview with diff from template | Show the AI-generated SOAP alongside what was in the template; physician reviews changes, accepts or rejects each section | MEDIUM | Section-by-section review: "AI generated this for Assessment: [text]." Accept / Modify / Discard per section. Never auto-apply to note without explicit physician acceptance. |
+| "Edit before accepting" interaction model | Physician must review, not rubber-stamp | LOW | Generated text loads into note fields as editable. No "auto-sign" path. Must explicitly review each section before signing. |
+| Processing status and failure handling | Transcription and LLM inference can take 30-120 seconds; physician must see progress and be able to abort | LOW | Progress steps: "Transcribing... Analyzing... Generating..." with elapsed time. Cancel button active throughout. Graceful failure with raw transcript preserved. |
+| Model availability check (Ollama health check) | If Ollama is not running or the model is not pulled, the feature must fail gracefully with a clear explanation | LOW | Check Ollama HTTP endpoint (localhost:11434) on app launch. If unavailable, AI features show "AI model not available — manual entry mode." Instructions to start Ollama. |
+
+#### Differentiators
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Ambient (continuous) capture mode vs manual record | True ambient capture captures the entire encounter from start to finish without physician managing recording; reduces workflow interruption from "remember to press record" | HIGH | Continuous audio buffer, patient consent prompt at session start, auto-segmentation by silence detection. Significantly more complex than push-to-record. Consider push-to-record for Phase 1 AI MVP, ambient for Phase 2. |
+| Patient context injection into LLM prompt | Feeding the LLM the patient's active problems, medications, and allergies before generating the SOAP produces dramatically better output than unconditioned generation | MEDIUM | System prompt includes: patient age/sex, active diagnoses, current medications, known allergies, chief complaint. Structured JSON context from M001 backend. Improves specificity and clinical relevance of generated note. |
+| Multi-language transcription support | Practices with Spanish-speaking patients can document encounters in Spanish; Whisper supports 99 languages | LOW | Whisper auto-detects language. Generated note still in English (LLaMA prompt in English). Transcript shown in source language. |
+| Confidence scoring / uncertainty flagging | Whisper-generated text with low confidence scores (unusual drug names, rare diagnoses, proper nouns) should be flagged for physician attention | MEDIUM | Whisper word-level confidence scores available via whisper.cpp C API. Highlight low-confidence tokens in transcript view. Critical for medications (dosing errors risk). |
+
+#### Anti-Features
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Auto-submit generated note without physician review | "It saves another click" | The generated note is an AI output. Signing without review is the physician attesting that they personally documented these findings. This creates malpractice liability and violates documentation integrity requirements. Clinical AI scribes that disable review are being actively scrutinized by CMS and malpractice insurers. | Mandatory review UI before "Sign Note" is enabled. Consider a checklist (key diagnoses confirmed, medications verified) before sign button is active. |
+| Real-time streaming note generation during encounter | Impressive demo feature | Streaming generation during the live encounter creates distraction (physician managing the note while talking to patient), premature note-writing (before history is complete), and requires constant rewriting as conversation evolves. | Post-encounter generation: record/transcribe during encounter, generate after patient leaves, physician reviews before next patient. 2-3 minute review window is acceptable. |
+| Storing raw audio recordings long-term | Patients may want the recording as documentation | Audio recordings of medical encounters are highly sensitive PHI, are much larger than notes (50-100 MB per encounter vs 5-10 KB), create additional storage and retention obligations, and introduce consent complexity (two-party consent in some states). | Process audio → transcript → delete audio within session. Store only the transcript (PHI but manageable). Explicit consent for any audio retention. |
+
+---
+
+### Category 5: Billing — CPT/ICD-10 Coding, AI Suggestions, X12 837P Claims
+
+Medical billing is how the practice gets paid. For a solo physician without a billing team, clarity and accuracy in the billing UI directly impacts revenue. Billing errors cause claim denials (industry average 8-12% denial rate); AI coding can reduce this to below 3%.
+
+#### Table Stakes
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Encounter-level fee sheet | After a note is signed, coder (or physician) selects CPT procedure codes and ICD-10 diagnosis codes for that encounter on a structured fee sheet | MEDIUM | CPT code search (by code or description). ICD-10 search (by code or description). Multiple CPT codes per encounter (E/M + procedures). Primary and secondary ICD-10 diagnoses. Modifiers (25, 59, -57, etc.). Units and charges. |
+| Fee schedule / charge master | Practice configures their standard charges per CPT code; fee sheet auto-populates charge based on CPT selected | LOW | Per-payer fee schedules (self-pay, Medicare, commercial). Allowed amounts per payer. Physician can override charge on encounter. |
+| Superbill generation | The internal document summarizing all charges for an encounter; the source of truth before claim generation | LOW | Print/PDF of encounter charges: patient demographics, date, provider, diagnoses, procedures, charges. |
+| X12 837P claim generation | The electronic claim format required by all insurers; paper claims (CMS-1500) are nearly dead for commercial payers | HIGH | ANSI X12 5010A1 format. Loops and segments per CMS implementation guide. Required fields: provider NPI, patient demographics, dates of service, place of service code, diagnosis codes (up to 12), procedure codes with modifiers and charges. Clearinghouse transmission via SFTP or API (Office Ally for Phase 1). |
+| Claim scrubbing / pre-submission validation | Claims submitted with errors are rejected, creating cash flow gaps; pre-validation catches common errors before transmission | MEDIUM | Check: NPI present and valid format, required fields populated, diagnosis-to-procedure linkage (diagnosis pointer), modifier compatibility, date of service within payer timely filing limits. Show error list with specific correction guidance. |
+| Claim status tracking | After submission, practice must track which claims were accepted, rejected, or pending by payer | MEDIUM | Status: Submitted / Accepted / Rejected / Paid / Denied / Appealed. Payer-returned rejection codes with plain-English explanation. Aging: 0-30, 31-60, 61-90, 91-120, 120+ days. |
+| ERA/835 payment posting | Insurers return Electronic Remittance Advice files that contain payment amounts, adjustments, and denial codes; these must be posted to outstanding claims | HIGH | Parse X12 835 EDI file. Auto-match payments to claims by claim number / date / patient. Post paid amount, contractual adjustment, patient responsibility. Flag denials with reason codes (CO-45, PR-1, etc.). |
+| Patient balance tracking | High-deductible plans have shifted significant cost to patients; practice must track patient-owed balances | MEDIUM | Patient ledger showing charges, insurance payments, adjustments, patient payments, balance. Statement generation for patient billing. |
+
+#### Differentiators
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| AI CPT/ICD-10 code suggestions from note content | Solo physician without a billing team manually codes every encounter; AI suggestions reduce coding time from 5-7 min to under 1 min per encounter, and reduce denial rate | HIGH | NLP entity extraction from signed SOAP note (diagnoses, procedures, symptoms). FAISS vector search against CPT/ICD-10 codebook. Show top 3-5 suggestions with confidence. Physician selects; AI never auto-selects. Critical constraint: GPT-4 alone achieves only 33.9% exact match on ICD-10 — pure LLM without vector search is insufficient. |
+| E/M level code suggestion | The most common CPT codes (99202-99215) are determined by documentation complexity; AI reading the note can calculate the appropriate E/M level and pre-populate it | MEDIUM | Rule-based E/M calculator per 2021 CMS guidelines (MDM or time-based). Cross-validate with note content. Show as suggestion with explanation ("Level 4 supported by 2 chronic problems with exacerbation and prescription drug management"). |
+| Denial pattern detection | When the same claim type is denied repeatedly, the system should alert: "Payer X consistently denies modifier 25 on same-day E/M + procedure — add documentation" | MEDIUM | Aggregate denial reasons by payer + CPT combination. Surface pattern after 3+ denials. Actionable guidance per denial reason code. Solo physician has no billing team to spot these patterns manually. |
+
+#### Anti-Features
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Automated claim submission without human review | Faster cash flow | AI coding achieves 33.9% exact match for ICD-10 without vector search; even with vector search, complex encounters require clinical judgment. Auto-submitting incorrect codes creates denial cascades, recoupment demands, and potential fraud exposure. | One-click submit after physician/biller review. Show full claim preview before transmission. AI suggestions are read-only recommendations. |
+| In-house clearinghouse (direct payer EDI connections) | Eliminate clearinghouse fees | Direct payer EDI connections require individual enrollment with every payer (100+), separate connection maintenance, payer-specific companion guide compliance, and 835 reconciliation per payer. Clearinghouse abstracts all of this. Office Ally is free for solo practices. | Use Office Ally (free) or Availity (low-cost) clearinghouse. Abstract clearinghouse behind a standard interface so it can be swapped. |
+| Real-time eligibility during claim generation | Seems useful | Eligibility (270/271) should happen at scheduling and check-in, not at claim generation. By the time a claim is being generated, the encounter already happened. Real-time eligibility at claim time adds latency and is too late to affect the service delivered. | Real-time eligibility at scheduling (Phase 2). At claim generation, show the last known eligibility status with date. |
+| Full RCM (Revenue Cycle Management) outsourcing integration | "Just outsource the billing" | RCM outsourcing is a business service, not an EMR feature. Building an API for an RCM company adds scope without core user value for the solo physician who wants to control their billing. | Export claims and payment data in standard formats (837P, 835, CSV). RCM companies can work from these exports without a special integration. Phase 3 if a specific RCM partner relationship develops. |
+
+---
+
+### Category 6: E-Prescribing via Weno Exchange
+
+E-prescribing is table stakes for EMR adoption. Many states now mandate it. EPCS (controlled substances) is federally mandated for Medicare Part D. Without e-prescribing, the EMR is not a viable tool for primary care.
+
+#### Table Stakes
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Drug search (RxNorm-coded) | Physicians must find medications by brand, generic, or drug class; searching a database of 100K+ entries must be instant | MEDIUM | RxNorm local database (NLM, free). Type-ahead search by name, NDC, or RxCUI. Show: brand name, generic name, dosage forms, strengths. Select specific strength + formulation to generate structured prescription. |
+| Prescription creation form | Standard prescription fields: drug, dose, route, frequency, quantity, days supply, refills, instructions (sig), pharmacy | LOW | Pre-populated sig phrases (e.g., "take 1 tablet by mouth twice daily"). Days supply auto-calculated from quantity + frequency. Refill limits enforced for Schedule II (0 refills). |
+| Pharmacy directory and routing | Physician selects patient's preferred pharmacy; prescription routes electronically to that pharmacy | MEDIUM | Weno Exchange provides pharmacy directory (40K+ pharmacies in SureScripts network). Patient-linked preferred pharmacy. One-click re-route to alternate pharmacy. |
+| Weno Exchange API integration | The transmission layer; all non-EPCS prescriptions route through Weno to the SureScripts network | HIGH | REST API or SFTP-based. Weno charges ~$300 activation + per-transaction fees. Integration requires enrollment, provider NPI verification, test environment validation before going live. NewRx, CancelRx, RenewResponse message types. Monthly drug database update (required per Weno terms). |
+| Prescription history per patient | Physicians need to see all prescriptions sent for a patient — what was prescribed, when, to which pharmacy | LOW | List from M001 MedicationRequest resources. Status: sent, dispensed, cancelled, expired. Links back to the encounter where prescribed. |
+| Drug interaction checking | Prescribing a drug that interacts with the patient's current medications is a patient safety and malpractice liability issue | MEDIUM | RxNav-in-a-Box (NLM Docker service, local, free with UMLS license). Checks new prescription against all current medications. Severity levels: contraindicated / major / moderate / minor. Show interaction before finalizing prescription. |
+| EPCS for Schedule II-V controlled substances | DEA and CMS mandate for Medicare Part D; growing state mandates (42 states have EPCS requirements as of 2025) | HIGH | DEA Part 1311 compliance: identity proofing of prescriber, two-factor authentication per prescription (TOTP + password or biometric), DEA-compliant audit trail for every controlled prescription. Weno supports EPCS with DEA 1311.120 compliance. Requires provider EPCS enrollment (distinct from standard e-Rx enrollment). |
+| Allergy-to-drug conflict alert | Prescribing a medication the patient is allergic to is an immediate patient safety event | LOW | Check new prescription drug class against M001 AllergyIntolerance resources. Hard stop for documented drug allergies; warn for drug-class cross-reactivity. |
+
+#### Differentiators
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Refill request inbox and one-click approval | Pharmacies send refill requests electronically; physician receives them in-app with patient context and current med list visible; approves with one click | MEDIUM | Weno RenewRequest message handling. Inbox view sorted by patient/urgency. Click to open patient chart alongside request. Send RenewResponse (approved/denied with reason). Reduces phone tag between pharmacy and office — high daily time savings for solo physician. |
+| Formulary indication on drug search | When physician selects a drug, show patient's insurance formulary tier (preferred/non-preferred/not covered) and estimated copay | HIGH | Requires formulary data feeds from PBM. Complex to maintain. Show as Phase 2 enhancement once basic e-Rx is working. |
+| Prior authorization detection | For drugs requiring prior authorization, alert physician before sending Rx and provide the PA form/requirements | MEDIUM | PBM-supplied prior authorization list. Alert: "This medication requires prior authorization for [payer]. Would you like to initiate PA?" Phase 2 — requires formulary data. |
+
+#### Anti-Features
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| SureScripts direct connection (bypassing Weno) | Lower transaction cost, direct integration | SureScripts requires its own enrollment, liability agreements, technical certification, and per-transaction commercial agreements that are not designed for small EMR vendors. Weno Exchange exists specifically as a certified SureScripts network aggregator for healthcare IT vendors. | Weno Exchange is the right integration point for a new EMR vendor. Revisit direct SureScripts only at Phase 4+ scale (thousands of providers). |
+| In-app prescription printing (bypass e-Rx) | Paper Rx as fallback | Paper prescriptions for controlled substances require state-specific tamper-resistant paper, are not trackable, and are increasingly not accepted by pharmacies. Paper Rx for non-controlled substances is a workflow regression that defeats the purpose of EMR integration. | E-Rx for all prescriptions. EPCS for controlled substances. Paper Rx as literal last-resort fallback (prescriber network outage), not a standard workflow option. |
+| Automated refills (schedule without physician action) | Convenience for chronic medications | Automating refills without physician review creates liability exposure and is not standard of care. Chronic medication management requires periodic physician assessment. | Auto-remind physician when refill request arrives (inbox notification). One-click approval with patient context visible — fast but requires human attestation. |
+
+---
 
 ## Feature Dependencies
 
 ```
-[Patient Demographics CRUD]
+[M001 Backend (complete)]
     |
-    +--requires--> [Allergy Tracking]
-    |                  |
-    |                  +--enables--> [Drug Interaction Checks]
-    |                                    |
-    |                                    +--enables--> [E-Prescribing]
-    |                                                      |
-    |                                                      +--requires--> [Weno Exchange Integration]
+    +--required-by--> [Patient Chart UI Shell]
+    |                      |
+    |                      +--required-by--> [SOAP Note Entry]
+    |                      |                     |
+    |                      |                     +--required-by--> [AI SOAP Generation]
+    |                      |                     |                     |
+    |                      |                     |                     +--requires--> [whisper.cpp sidecar]
+    |                      |                     |                     +--requires--> [Ollama (local, localhost:11434)]
+    |                      |                     |                     +--requires--> [LLaMA 3.1 8B model pulled]
+    |                      |                     |
+    |                      |                     +--required-by--> [Billing Fee Sheet]
+    |                      |                                           |
+    |                      |                                           +--required-by--> [837P Claim Generation]
+    |                      |                                           |                     |
+    |                      |                                           |                     +--required-by--> [ERA 835 Processing]
+    |                      |                                           |                     +--required-by--> [AR Tracking]
+    |                      |                                           |
+    |                      |                                           +--enhanced-by--> [AI CPT/ICD-10 Suggestions]
+    |                      |                                                                 |
+    |                      |                                                                 +--requires--> [FAISS vector index]
+    |                      |                                                                 +--requires--> [ICD-10/CPT codebook data]
+    |                      |
+    |                      +--required-by--> [Vitals / ROS / PE Forms]
+    |                      |                     |
+    |                      |                     +--feeds-into--> [SOAP Objective Section]
+    |                      |                     +--feeds-into--> [E/M Level Calculator]
+    |                      |
+    |                      +--required-by--> [E-Prescribing UI]
+    |                                           |
+    |                                           +--requires--> [Weno Exchange account + API credentials]
+    |                                           +--requires--> [RxNav-in-a-Box (Docker, localhost)]
+    |                                           +--requires--> [RxNorm local database]
+    |                                           +--requires--> [EPCS enrollment (DEA 1311) -- if EPCS in scope]
     |
-    +--requires--> [Problem List / Active Diagnoses]
-    |                  |
-    |                  +--enables--> [CPT/ICD-10 Coding]
-    |                  |                 |
-    |                  |                 +--enables--> [AI Coding Suggestions]
-    |                  |                 |
-    |                  |                 +--enables--> [Claim Generation (837P)]
-    |                  |                                   |
-    |                  |                                   +--enables--> [ERA Processing (835)]
-    |                  |                                   |
-    |                  |                                   +--enables--> [AR Tracking]
-    |                  |
-    |                  +--enables--> [AI Diagnostic Support]
+    +--feeds-data-into--> [Patient Chart Facesheet]
+    |                          (problems, meds, allergies, vitals, encounters from M001 commands)
     |
-    +--requires--> [Medication List]
-    |                  |
-    |                  +--enables--> [Medication Reconciliation]
-    |                  +--enables--> [E-Prescribing]
+    +--feeds-data-into--> [AI SOAP prompt context]
+    |                          (patient demographics, active diagnoses, current medications, allergies)
     |
-    +--requires--> [Insurance Management]
-                       |
-                       +--enables--> [Claim Generation]
-                       +--enables--> [Eligibility Verification]
+    +--feeds-data-into--> [Drug interaction check]
+                               (current MedicationRequest list + AllergyIntolerance list → RxNav-in-a-Box)
 
-[Scheduling / Calendar]
-    |
-    +--requires--> [Patient Demographics] (appointment must link to patient)
-    |
-    +--enables--> [Patient Flow Board]
-    |
-    +--enables--> [Recall Board]
-    |
-    +--enables--> [Appointment Reminders] --requires--> [SMS/Email Gateway]
-    |
-    +--enables--> [AI Smart Scheduling] --requires--> [Historical Appointment Data]
+[Ollama/LLaMA] ──independent-of──> [Weno Exchange]
+    (AI pipeline and e-prescribing are parallel tracks; neither blocks the other)
 
-[SOAP Note Entry]
-    |
-    +--requires--> [Patient Demographics] + [Encounter Context]
-    |
-    +--enables--> [Vitals Tracking] (recorded within encounter)
-    |
-    +--enables--> [AI Voice-to-SOAP] --requires--> [whisper.cpp] + [NLP Pipeline] + [Local LLM]
-    |
-    +--enables--> [Clinical Decision Rules] --requires--> [Allergy List] + [Medication List] + [Problem List]
-    |
-    +--enables--> [Multi-provider Co-signing]
-
-[RBAC + Authentication]
-    |
-    +--required-by--> [EVERYTHING] (no feature works without user identity and access control)
-
-[Audit Logging]
-    |
-    +--required-by--> [EVERYTHING that touches ePHI] (HIPAA mandate)
-
-[Encrypted Database (SQLCipher)]
-    |
-    +--required-by--> [All Data Storage] (HIPAA encryption requirement)
+[Vitals/ROS/PE] ──feeds-into──> [E/M Level Calculator] ──feeds-into──> [AI CPT Suggestion]
+    (documentation quality directly affects achievable billing level)
 ```
 
 ### Dependency Notes
 
-- **RBAC + Auth + Audit + Encryption are foundation layers:** These must exist before any clinical feature. They are not features users interact with directly, but without them, no feature is HIPAA-compliant.
-- **Patient Demographics is the data backbone:** Every clinical, billing, and scheduling feature links back to a patient record. Build this first and build it right.
-- **Allergy + Medication + Problem List form the "safety triad":** Drug interaction checks, clinical decision rules, and AI diagnostic support all depend on accurate, coded clinical data. These must be populated before AI features add value.
-- **Billing depends on clinical documentation:** You cannot code an encounter that has not been documented. SOAP notes must exist before CPT/ICD-10 coding, which must exist before claim generation.
-- **AI features are enhancement layers, not foundations:** Every AI feature enhances an underlying manual workflow. The manual workflow must work perfectly before AI is layered on top. This is why AI is Phase 3, not Phase 1.
-- **E-prescribing has hard external dependencies:** Weno Exchange integration requires activation ($300), SureScripts network enrollment, and identity proofing for EPCS. These have lead times measured in weeks. Start the process early even if the feature ships in Phase 2.
+- **Patient chart UI is the delivery vehicle for everything else:** All M002 features are tabs or panels within the chart view. The chart shell must exist before any other feature can be tested end-to-end.
+- **M001 backend commands are already complete:** All Rust commands (clinical, patient, scheduling, labs, documentation) are built. M002 is almost entirely a React frontend task, with new Python sidecars for AI and external integrations for Weno/RxNav.
+- **AI pipeline requires local infrastructure that the physician installs separately:** Ollama must be running and LLaMA 3.1 8B must be pulled before AI features work. This is a setup/onboarding requirement, not a build requirement.
+- **Weno Exchange has weeks-long enrollment lead time:** Enrollment (especially EPCS) requires DEA credential verification and identity proofing that takes 2-4 weeks. Start enrollment process before e-prescribing development begins.
+- **RxNav-in-a-Box requires a UMLS license and Docker:** The NLM requires a free UMLS license agreement to download RxNav-in-a-Box. Docker Desktop must be installed on the clinic Mac. These are operational prerequisites.
+- **Billing depends on signed notes:** Claim generation requires a complete, signed encounter note with ICD-10 codes in the Assessment section. SOAP note entry must be complete before billing can be built and tested.
+- **AI coding suggestions depend on signed note content:** The AI reads the signed SOAP note to suggest CPT/ICD-10 codes. This means AI coding is tested after the full note → sign → fee sheet workflow exists.
 
-## MVP Definition
+---
 
-### Launch With (v1 -- Phase 1, Months 1-6)
+## MVP Definition for M002
 
-The minimum viable EMR that a solo practitioner could use for daily patient care without AI features.
+### Launch With (M002 Core — Clinical UI + Forms)
 
-- [ ] **RBAC + Authentication + Audit Logging** -- HIPAA foundation; everything depends on this
-- [ ] **SQLCipher encrypted database with FHIR data model** -- Data layer must be right from day one; retrofitting FHIR later is a rewrite
-- [ ] **Patient demographics CRUD with search** -- Cannot do anything without patient records
-- [ ] **Allergy, medication, and problem list management** -- The clinical safety triad; required for any meaningful clinical documentation
-- [ ] **Appointment scheduling (multi-provider calendar, flow board)** -- How patients get seen; front desk cannot function without this
-- [ ] **SOAP note entry (structured, template-based)** -- The core clinical workflow; 10-15 pre-built specialty templates
-- [ ] **Vitals tracking with flowsheets** -- Nurses record at every visit; required for clinical documentation
-- [ ] **ROS and physical exam forms** -- Required for E/M coding compliance
-- [ ] **Lab results viewer (manual entry)** -- Providers must review and document lab results
-- [ ] **Document upload and management** -- Outside records, consent forms, faxed documents
-- [ ] **Encrypted backups** -- HIPAA contingency plan; cannot lose patient data
-- [ ] **macOS code-signed, notarized DMG with auto-updates** -- Distribution mechanism
+The clinical UI that makes M001's backend usable for daily patient care.
 
-### Add After Validation (v1.x -- Phase 2, Months 7-10)
+- [ ] **Patient chart UI shell** — Patient banner, tab navigation, facesheet with active problems/meds/allergies/vitals; without this, no other M002 feature is accessible
+- [ ] **SOAP note entry** — Structured S/O/A/P, ICD-10 linking in Assessment, draft auto-save, status workflow (draft → signed), 10-15 specialty templates; this is the core daily workflow
+- [ ] **Vitals entry + flowsheet** — BP/HR/RR/Temp/SpO2/Weight/Height/BMI with auto-calc, abnormal flagging, trend table; nurses record vitals before every encounter
+- [ ] **Review of Systems form** — 14-system toggle form with E/M indicator; required for correct E/M coding
+- [ ] **Physical exam templates** — System-based PE with "all normal" macro; specialty templates ship with note templates
+- [ ] **Billing fee sheet + CPT/ICD-10 coding** — Per-encounter charge capture with CPT search, ICD-10 search, modifiers; prerequisite for claim generation
+- [ ] **X12 837P claim generation + clearinghouse submission** — The billing module is only useful if it can actually submit claims; Office Ally SFTP integration
+- [ ] **E-prescribing via Weno Exchange (non-EPCS)** — Drug search, prescription form, Weno transmission, pharmacy routing; required for any prescribing workflow
 
-Features to add once core clinical workflow is validated with real users.
+### Add After Core Is Stable (M002.x)
 
-- [ ] **Billing module (fee sheets, 837P claims, 835 ERA processing, AR tracking)** -- Add when practices need to bill through MedArc instead of a separate billing system
-- [ ] **E-prescribing via Weno Exchange (including EPCS)** -- Add when practices want to prescribe from within the EMR; start Weno enrollment in Phase 1
-- [ ] **Drug interaction checking via RxNav-in-a-Box** -- Ships with e-prescribing; requires Docker runtime on clinic machine
-- [ ] **HL7 v2 lab interface** -- Add when practices want electronic lab ordering/results instead of manual entry
-- [ ] **Insurance eligibility verification (270/271)** -- Add when billing module is live and practices want real-time eligibility
-- [ ] **CQM/eCQM reporting** -- Add when practices need MIPS reporting; architecture must support from Phase 1
-- [ ] **Custom form builder** -- Add when 10-15 pre-built templates are insufficient for user needs
-- [ ] **Referral management** -- Add when practices need structured referral tracking beyond fax/phone
-- [ ] **Financial and clinical reports (full suite)** -- Basic reports in Phase 1; full report builder in Phase 2
+- [ ] **AI voice-to-SOAP pipeline** — whisper.cpp transcription + Ollama/LLaMA generation; add after manual SOAP workflow is validated with real users
+- [ ] **AI CPT/ICD-10 coding suggestions** — FAISS vector search from signed note; add after billing workflow is validated
+- [ ] **ERA/835 payment posting** — Required for accounts receivable, but billing workflow can start with manual payment posting
+- [ ] **EPCS (controlled substances)** — DEA 1311 compliance, identity proofing; add after standard e-Rx is working; start Weno EPCS enrollment in parallel
+- [ ] **Drug interaction checking (RxNav-in-a-Box)** — Add with or shortly after e-Rx goes live; Docker prerequisite
+- [ ] **E/M level real-time calculator** — High value but requires ROS + PE + MDM complexity calculation; add as enhancement once forms are stable
+- [ ] **Refill request inbox** — High daily value for solo physician; add as Weno inbox feature once base e-Rx is working
 
-### Future Consideration (v2+ -- Phase 3-4, Months 11-18)
+### Future Consideration
 
-Features to defer until product-market fit is established and core EMR is stable.
+- [ ] **Formulary tier display** — Requires PBM data feeds; complex to maintain; Phase 3
+- [ ] **Prior authorization detection** — Requires formulary data; Phase 3
+- [ ] **Denial pattern detection / analytics** — Requires 6+ months of claims data to surface patterns; Phase 3
+- [ ] **Pediatric growth charts** — Pediatric-specific; add when a pediatrics user is onboarded
+- [ ] **Ambient continuous capture mode** — More complex than push-to-record; Phase 3 AI enhancement
 
-- [ ] **AI voice-to-SOAP generation** -- Phase 3; the flagship differentiator, but the manual SOAP workflow must be solid first
-- [ ] **AI coding suggestions (ICD-10/CPT)** -- Phase 3; enhances billing workflow that must already work manually
-- [ ] **AI diagnostic decision support** -- Phase 3; RAG pipeline requires stable clinical data to query against
-- [ ] **AI smart scheduling** -- Phase 3; requires historical data that only exists after months of scheduling use
-- [ ] **AI pre-charting** -- Phase 3; requires encounter history and clinical data to assemble
-- [ ] **Cloud migration (PowerSync + AWS RDS)** -- Phase 4; only when practices need multi-device or multi-location
-- [ ] **Patient portal** -- Phase 4+; patient-facing features after clinical workflow is proven
-- [ ] **Mobile companion** -- Phase 4+; after desktop is feature-complete
-- [ ] **Telemedicine integration** -- Phase 3+; integrate with existing platforms, do not build video infrastructure
-- [ ] **ONC certification pursuit** -- Phase 4+; when revenue supports $50-100K+ certification cost
+---
 
 ## Feature Prioritization Matrix
 
-| Feature | User Value | Implementation Cost | Priority | Phase |
-|---------|------------|---------------------|----------|-------|
-| RBAC + Auth + Audit | HIGH (compliance gate) | MEDIUM | P1 | 1 |
-| SQLCipher + FHIR data model | HIGH (foundation) | MEDIUM | P1 | 1 |
-| Patient demographics CRUD | HIGH | LOW | P1 | 1 |
-| Patient search | HIGH | LOW | P1 | 1 |
-| Allergy/Medication/Problem lists | HIGH (safety) | LOW | P1 | 1 |
-| Appointment scheduling + calendar | HIGH | MEDIUM | P1 | 1 |
-| Patient Flow Board | HIGH | MEDIUM | P1 | 1 |
-| SOAP note entry (structured) | HIGH | HIGH | P1 | 1 |
-| Vitals tracking | HIGH | LOW | P1 | 1 |
-| ROS + Physical exam forms | MEDIUM | MEDIUM | P1 | 1 |
-| Lab results (manual entry) | MEDIUM | LOW | P1 | 1 |
-| Document management | MEDIUM | MEDIUM | P1 | 1 |
-| Encrypted backups | HIGH (compliance) | MEDIUM | P1 | 1 |
-| macOS distribution (DMG + updates) | HIGH (delivery) | MEDIUM | P1 | 1 |
-| Billing (fee sheets, 837P, 835) | HIGH | HIGH | P2 | 2 |
-| E-prescribing (Weno) | HIGH | HIGH | P2 | 2 |
-| Drug interaction checks | HIGH (safety) | MEDIUM | P2 | 2 |
-| HL7 v2 lab interface | MEDIUM | HIGH | P2 | 2 |
-| Insurance eligibility | MEDIUM | MEDIUM | P2 | 2 |
-| CQM/eCQM reporting | MEDIUM | HIGH | P2 | 2 |
-| Recurring appointments | MEDIUM | LOW | P2 | 1-2 |
-| Appointment reminders (SMS/email) | MEDIUM | MEDIUM | P2 | 2 |
-| Recall Board | LOW | LOW | P2 | 2 |
-| AI voice-to-SOAP | HIGH (differentiator) | HIGH | P2 | 3 |
-| AI coding suggestions | HIGH (financial ROI) | HIGH | P2 | 3 |
-| AI diagnostic support | MEDIUM | HIGH | P3 | 3 |
-| AI smart scheduling | LOW | MEDIUM | P3 | 3 |
-| AI pre-charting | MEDIUM | MEDIUM | P3 | 3 |
-| Cloud migration | MEDIUM | HIGH | P3 | 4 |
-| Patient portal | LOW (for physician adoption) | HIGH | P3 | 4+ |
-| Mobile companion | LOW | HIGH | P3 | 4+ |
+| Feature | User Value | Implementation Cost | Priority | Category |
+|---------|------------|---------------------|----------|----------|
+| Patient chart UI shell + facesheet | HIGH | MEDIUM | P1 | UI Shell |
+| SOAP note entry (structured + templates) | HIGH | HIGH | P1 | Clinical |
+| Vitals entry + flowsheet | HIGH | LOW | P1 | Clinical |
+| ROS 14-system form | MEDIUM | MEDIUM | P1 | Clinical |
+| PE specialty templates | MEDIUM | MEDIUM | P1 | Clinical |
+| Billing fee sheet (CPT/ICD-10) | HIGH | MEDIUM | P1 | Billing |
+| X12 837P claim + clearinghouse | HIGH | HIGH | P1 | Billing |
+| E-Rx via Weno (non-EPCS) | HIGH | HIGH | P1 | E-Rx |
+| Drug interaction check (RxNav) | HIGH (safety) | MEDIUM | P1 | E-Rx |
+| AI voice-to-SOAP (whisper + LLaMA) | HIGH (differentiator) | HIGH | P2 | AI |
+| AI CPT/ICD-10 suggestions (FAISS) | HIGH (financial ROI) | HIGH | P2 | AI/Billing |
+| ERA/835 payment posting | HIGH | HIGH | P2 | Billing |
+| EPCS for controlled substances | MEDIUM-HIGH | HIGH | P2 | E-Rx |
+| E/M level real-time calculator | MEDIUM | MEDIUM | P2 | Billing/Clinical |
+| Refill request inbox | MEDIUM | MEDIUM | P2 | E-Rx |
+| Patient chart activity timeline | MEDIUM | MEDIUM | P2 | UI Shell |
+| Denial pattern detection | MEDIUM | MEDIUM | P3 | Billing |
+| Ambient continuous capture | MEDIUM | HIGH | P3 | AI |
+| Formulary tier display | LOW | HIGH | P3 | E-Rx |
+| Pediatric growth charts | MEDIUM (specialty) | MEDIUM | P3 | Clinical |
 
 **Priority key:**
-- P1: Must have for launch (Phase 1 MVP)
-- P2: Should have, add when possible (Phase 2-3)
-- P3: Nice to have, future consideration (Phase 3-4+)
+- P1: Must have for M002 launch — practice cannot function without it
+- P2: Add in M002.x — high value, add once P1 is validated
+- P3: Phase 3+ — defer until product-market fit is established
+
+---
 
 ## Competitor Feature Analysis
 
-| Feature | OpenEMR v8 | Practice Fusion | DrChrono | Tebra | MedArc Approach |
-|---------|-----------|-----------------|----------|-------|-----------------|
-| Patient Management | Full CRUD, care team, photo, SDOH | Full CRUD, basic | Full CRUD, iPad-native | Full CRUD, integrated PM | Full CRUD + FHIR-native + care team |
-| Scheduling | Flow board, recall, multi-provider | Basic calendar | Calendar + check-in kiosk | Calendar + online booking | Multi-provider + flow board + AI smart scheduling (Phase 3) |
-| SOAP Notes | Structured + CAMOS + 60+ forms | Template-based | iPad dictation + templates | Template-based | Structured + AI voice-to-SOAP (Phase 3); 10-15 templates Phase 1 |
-| E-Prescribing | Weno Exchange, EPCS | SureScripts, EPCS | SureScripts, EPCS | SureScripts, EPCS | Weno Exchange, EPCS (Phase 2) |
-| Drug Interactions | Basic checking | Basic | Basic | Basic | RxNav-in-a-Box with severity ratings (Phase 2) |
-| Lab Integration | HL7 v2, manual entry | HL7, Quest/LabCorp | HL7, built-in lab ordering | HL7, limited | HL7 v2 (Phase 2), manual entry (Phase 1) |
-| Billing | 837P/835, fee sheets, AR | 837P, basic billing | 837P/835, RCM services | Full RCM suite | 837P/835, AR, AI-assisted coding (Phase 2-3) |
-| Reporting | CQM, clinical, financial | Basic, CQM | Basic, CQM | Full analytics | CQM + clinical + financial (Phase 2) |
-| AI Documentation | None (no AI) | None | Voice dictation (basic) | None | Ambient AI with SOAP generation -- primary differentiator |
-| AI Coding | None | None | None | None | FAISS vector search + LLM entity extraction -- unique |
-| AI Diagnostics | None | None | None | None | RAG-powered differential diagnosis -- unique |
-| Pricing | Free (open source) | Free (ad-supported) then $149+/mo | $199-399/mo per provider | $125-349/mo per provider | One-time license, zero monthly fees |
-| Deployment | Self-hosted (cloud/local) | Cloud-only | Cloud-only | Cloud-only | Local-first macOS desktop, optional cloud |
-| Data Privacy | Self-controlled | Practice Fusion controls data | DrChrono controls data | Tebra controls data | PHI never leaves device; patient owns data |
-| Offline Support | Yes (self-hosted) | No | No | No | Yes, full offline operation |
-| Support Quality | Community (variable) | Poor (95% cite issues) | Poor-moderate | Poor-moderate | Self-contained app reduces support dependency |
+| Feature | OpenEMR v8 | DrChrono | Practice Fusion | MedArc M002 Approach |
+|---------|-----------|----------|-----------------|----------------------|
+| Patient chart UI | Multi-tab portal, complex | iPad-native sidebar | Web-based facesheet | Desktop-native tabs + sticky patient banner |
+| SOAP note entry | CAMOS decision trees, 60+ form types | iPad-optimized templates | Template-based | Structured S/O/A/P with 10-15 specialty templates; AI generation in P2 |
+| Vitals flowsheet | Full flowsheet + growth charts | Flowsheet with sparklines | Basic flowsheet | Flowsheet + BMI auto-calc + abnormal flagging; growth charts in P3 |
+| ROS/PE forms | 14-system ROS + exam templates | iOS-native ROS | Basic templates | 14-system ROS + system-based PE with E/M indicator |
+| E-prescribing | Weno Exchange, EPCS | SureScripts, EPCS | SureScripts, EPCS | Weno Exchange (same as OpenEMR); EPCS P2 |
+| Drug interactions | Basic (RxNav) | Basic | Basic | RxNav-in-a-Box (local Docker, severity-rated) |
+| Billing/coding | Full 837P/835, CMS-1500 | 837P/835 | 837P, basic | 837P/835 + AI code suggestions (FAISS) — unique |
+| AI documentation | None | Basic voice dictation | None | Ambient AI: whisper.cpp + LLaMA 3.1 8B — primary differentiator |
+| AI billing coding | None | None | None | LLM entity extraction + FAISS vector search — unique in this market segment |
+| Offline capability | Yes (self-hosted) | No | No | Yes (SQLCipher local, offline-first) |
+
+---
 
 ## Sources
 
-- **Primary:** MedArc Day0.md requirements document (comprehensive PRD with cited statistics and competitor analysis) -- MEDIUM-HIGH confidence
-- **OpenEMR feature baseline:** Derived from Day0.md analysis of OpenEMR v8.0.0 features -- MEDIUM confidence (could not verify against OpenEMR wiki directly due to tool restrictions; features align with known OpenEMR capabilities from training data)
-- **Competitor pricing and features:** Day0.md cites Practice Fusion, DrChrono, Tebra specifics -- MEDIUM confidence (training data corroborates general competitive landscape; specific pricing may have changed)
-- **AI accuracy statistics:** Day0.md cites specific published research (Whisper hallucination rates, GPT-4 ICD-10 accuracy, LLaMA NEJM scores, RxNav-in-a-Box capabilities) -- MEDIUM confidence (statistics are plausible and internally consistent but not independently verified against original papers)
-- **HIPAA requirements:** Well-established regulatory framework; HIGH confidence from training data
-- **Alert fatigue statistic (49-96% override rate):** Widely cited in clinical informatics literature -- MEDIUM confidence
-- **No-show prediction AUC (0.75-0.85):** Consistent with published ML literature on appointment no-show prediction -- MEDIUM confidence
-- **SimplePractice 63% price increase:** Cited in Day0.md -- LOW confidence (single source, not independently verified)
+- **Solo practice EMR clinical workflow:** WebSearch synthesis of clinikehr.com, myzhealth.io, docvilla.com (2025-2026 content) — MEDIUM confidence
+- **AI scribe documentation workflow:** NEJM Catalyst, JMIR AI, AMA (2025), PMC clinical trials — HIGH confidence; published peer-reviewed sources
+- **AI medical coding accuracy (GPT-4 33.9% ICD-10):** NEJM AI published research, AWS Industries blog, Ventus AI (2025) — HIGH confidence; consistent across multiple sources
+- **X12 837P claim format:** CMS.gov official documentation, MediBill RCM — HIGH confidence; regulatory standard
+- **Weno Exchange API and EPCS:** wenoexchange.com official API documentation, OpenEMR wiki — HIGH confidence; official vendor documentation
+- **RxNav-in-a-Box:** NLM/LHNCBC official documentation (lhncbc.nlm.nih.gov), UMLS license requirement confirmed — HIGH confidence
+- **EPCS requirements (DEA 1311, CMS mandate):** DEA Diversion Control Division, CMS.gov, RXNT — HIGH confidence; regulatory sources
+- **Office Ally clearinghouse:** cms.officeally.com, Kalix EMR documentation — MEDIUM confidence; vendor documentation
+- **E/M coding 2021 CMS guidelines:** Established regulatory standard — HIGH confidence
+- **Patient chart UI patterns:** DrChrono support documentation, Tebra help center, Epic documentation — MEDIUM confidence
+- **Whisper hallucination rate (1%):** Cited in PROJECT.md from validated sources — MEDIUM confidence
+- **LLaMA 3.1 8B 64% NEJM performance:** Cited in PROJECT.md from published research — MEDIUM confidence
 
 ---
-*Feature research for: Small-practice EMR/EHR (1-5 providers)*
-*Researched: 2026-03-10*
+*Feature research for: Solo-practice desktop EMR — M002 clinical UI, AI transcription, billing, e-prescribing*
+*Researched: 2026-03-11*

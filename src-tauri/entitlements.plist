@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  MedArc macOS Entitlements (DIST-03)
+  ====================================
+  Configures Hardened Runtime + App Sandbox for macOS notarization compliance.
+
+  Security model:
+    - App Sandbox enabled: confines the process to its container directory.
+    - Hardened Runtime enabled: enforces code-signing, prevents library injection,
+      and blocks JIT unless explicitly needed.
+    - Keychain access group: allows reading/writing the database encryption key
+      from the macOS Keychain (FOUN-03).
+    - Network client: allows outbound HTTPS connections for the auto-updater and
+      future cloud sync (DIST-02). No network server entitlement — MedArc does not
+      accept inbound connections.
+    - User-selected files read/write: allows the user to choose a backup destination
+      directory via NSSavePanel (BKUP-01).
+    - No camera, microphone, or location access required for Phase 1.
+
+  Notarization requirements (Apple):
+    - com.apple.security.cs.allow-jit               NOT set (no JIT required)
+    - com.apple.security.cs.allow-unsigned-executable-memory  NOT set
+    - com.apple.security.cs.disable-library-validation       NOT set
+    All of the above strengthen the Hardened Runtime posture.
+-->
+<plist version="1.0">
+<dict>
+    <!-- ── App Sandbox ──────────────────────────────────────────── -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- ── Hardened Runtime ─────────────────────────────────────── -->
+    <!-- Prevents injection of dynamic libraries and code into the process -->
+    <key>com.apple.security.cs.prevent-library-load</key>
+    <false/>
+
+    <!-- ── Keychain access (FOUN-03) ────────────────────────────── -->
+    <!-- Required for get_or_create_db_key() to store/retrieve the AES-256 DB key -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.medarc.emr</string>
+    </array>
+
+    <!-- ── Network access (auto-updater, DIST-02) ───────────────── -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- ── File system access (BKUP-01: backup destination) ─────── -->
+    <!-- Allows reading and writing files the user explicitly selects -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- ── App data directory (SQLCipher DB, FOUN-02) ───────────── -->
+    <!-- Sandbox automatically grants read/write to the app container;
+         this entry is explicit for documentation clarity. -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <false/>
+
+    <!-- ── Touch ID / biometric (AUTH-04) ───────────────────────── -->
+    <key>com.apple.security.personal-information.location</key>
+    <false/>
+</dict>
+</plist>

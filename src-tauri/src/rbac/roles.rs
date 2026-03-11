@@ -62,6 +62,8 @@ pub enum Resource {
     LabResults,
     /// Document Management: patient document upload, browse, search with SHA-1 integrity (S08)
     PatientDocuments,
+    /// Backup & Restore: create encrypted backups, restore from backup (S09)
+    Backup,
 }
 
 /// Actions that can be performed on resources.
@@ -226,6 +228,15 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (BillingStaff, PatientDocuments, _) => false,
         (FrontDesk, PatientDocuments, Read) => true,
         (FrontDesk, PatientDocuments, _) => false,
+
+        // ── Backup resource (S09) ─────────────────────────────────────────────
+        // SystemAdmin: covered by wildcard above.
+        // Only Provider and SystemAdmin can initiate or restore backups.
+        (Provider, Backup, Create | Read) => true,
+        (Provider, Backup, _) => false,
+        (NurseMa, Backup, _) => false,
+        (BillingStaff, Backup, _) => false,
+        (FrontDesk, Backup, _) => false,
     }
 }
 

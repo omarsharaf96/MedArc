@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod auth;
+pub mod backup;
 pub mod break_glass;
 pub mod clinical;
 pub mod documentation;

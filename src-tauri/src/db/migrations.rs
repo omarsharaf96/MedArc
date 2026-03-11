@@ -428,6 +428,33 @@ static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             CREATE INDEX IF NOT EXISTS idx_document_uploaded   ON document_index(uploaded_at);
             CREATE INDEX IF NOT EXISTS idx_document_title      ON document_index(title);"
         ),
+        // Migration 14: Backup log for BKUP-01 / BKUP-02 / BKUP-03
+        //
+        // Tracks every backup and restore operation:
+        //   backup_log  — one row per backup or restore event with AES-256-GCM encrypted payload,
+        //                 SHA-256 content digest, and outcome metadata.
+        //
+        // The actual encrypted archive is written to the filesystem by the backup command.
+        // This table records the audit trail: when, who, what file, outcome, and the content
+        // digest so integrity can be verified before restore (BKUP-03).
+        M::up(
+            "
+            CREATE TABLE IF NOT EXISTS backup_log (
+                id              TEXT PRIMARY KEY NOT NULL,
+                operation       TEXT NOT NULL CHECK(operation IN ('backup','restore')),
+                initiated_by    TEXT NOT NULL,
+                started_at      TEXT NOT NULL,
+                completed_at    TEXT,
+                status          TEXT NOT NULL DEFAULT 'in_progress'
+                                CHECK(status IN ('in_progress','completed','failed')),
+                file_path       TEXT,
+                file_size_bytes INTEGER,
+                sha256_digest   TEXT,
+                error_message   TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_backup_log_started ON backup_log(started_at);
+            CREATE INDEX IF NOT EXISTS idx_backup_log_op      ON backup_log(operation);"
+        ),
     ])
 });
 

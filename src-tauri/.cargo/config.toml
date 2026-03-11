@@ -1,0 +1,8 @@
+[build]
+# Move target dir outside iCloud Drive (Documents folder is iCloud-synced)
+# iCloud syncing causes "Operation timed out (os error 60)" during Rust compilation
+target-dir = "/Users/omarsharaf96/Library/Caches/medarc-cargo-target"
+
+[env]
+# Pin deployment target — macOS SDK 26.2 causes ring crate build failures
+MACOSX_DEPLOYMENT_TARGET = "11.0"

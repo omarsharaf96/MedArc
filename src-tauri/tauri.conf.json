@@ -30,6 +30,28 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null,
+      "minimumSystemVersion": "12.0"
+    },
+    "publisher": "MedArc"
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "pubkey": "PLACEHOLDER_ED25519_PUBKEY",
+      "endpoints": [
+        "https://releases.medarc.app/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "dialog": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

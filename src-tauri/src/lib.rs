@@ -14,6 +14,7 @@ use device_id::DeviceId;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             use tauri::Manager;
 
@@ -143,6 +144,10 @@ pub fn run() {
             commands::labs::upload_document,
             commands::labs::list_documents,
             commands::labs::verify_document_integrity,
+            // S09 — Backup, Distribution & Release
+            commands::backup::create_backup,
+            commands::backup::restore_backup,
+            commands::backup::list_backups,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

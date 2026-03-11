@@ -1,235 +1,235 @@
 # Project Research Summary
 
-**Project:** MedArc
-**Domain:** AI-powered desktop EMR for small practices (1-5 providers), macOS local-first, HIPAA-compliant
-**Researched:** 2026-03-10
-**Confidence:** MEDIUM
+**Project:** MedArc — AI-Powered Desktop EMR (M002)
+**Domain:** Solo-practice desktop EMR — clinical UI, AI voice pipeline, billing, e-prescribing additions
+**Researched:** 2026-03-11
+**Confidence:** MEDIUM-HIGH
 
 ## Executive Summary
 
-MedArc is a local-first, AI-powered desktop EMR targeting small medical practices (1-5 providers) on macOS. The expert-recommended approach for this class of application is a three-layer desktop architecture: a Rust/Tauri shell that owns all database operations and security, a React frontend for clinical UI, and a Python sidecar exclusively for AI inference (voice transcription, NLP, LLM). This separation is not optional -- it enforces a HIPAA security boundary architecturally, keeps the core EMR functional when AI components fail, and manages memory pressure on 16 GB Macs that must simultaneously run 6+ GB AI models. The stack choices in the PRD are well-considered; no major changes are recommended. SQLCipher provides HIPAA breach safe harbor through AES-256 encryption, and the FHIR-first data model future-proofs for ONC certification without requiring it at launch.
+MedArc M002 is almost entirely a React frontend build on top of a complete, tested Rust backend. M001 delivered 50+ Tauri commands covering every clinical domain (patient CRUD, scheduling, clinical data, encounters, labs, documents, audit), but shipped zero clinical UI — App.tsx is an auth gate pointing to no views. The core work of M002 is wiring those commands to a tabbed clinical UI shell, which then hosts SOAP note entry, vitals/ROS/PE forms, billing, and e-prescribing. The AI voice pipeline (whisper-rs + Ollama/LLaMA 3.1 8B) is the primary product differentiator and belongs in a post-baseline phase, after the manual clinical workflow is validated with real users.
 
-The recommended build strategy is to ship a fully functional manual EMR first (Phase 1-2) before layering AI features (Phase 3). This is counterintuitive given that AI is the primary differentiator, but research strongly supports it: every AI feature enhances an underlying manual workflow that must work correctly first, AI accuracy rates (64% NEJM for LLM, 34% exact ICD-10 match, 1% Whisper hallucination) mandate human-in-the-loop review of a working manual process, and physicians adopt EMRs based on clinical workflow quality before evaluating AI features. The manual EMR also generates the clinical data (encounter history, medication lists, scheduling patterns) that AI features need to function effectively.
+The recommended approach is a strictly dependency-ordered build: IPC type bindings and Zustand/TanStack Query foundations first, then the router and app shell, then patient chart UI, then clinical data tabs and scheduling in parallel, then encounter documentation, then AI pipeline on top of a working encounter editor, then billing and e-prescribing as separate parallel tracks. This order mirrors the architecture dependency graph confirmed by all four research files. Weno Exchange enrollment must begin at M002 kickoff — it has a 2-4 week external lead time that blocks the e-prescribing phase if not initiated on day one.
 
-The primary risks are: (1) HIPAA compliance treated as a bolt-on instead of a foundational architecture -- audit logging, RBAC, and encryption must be built in Sprint 1, not Sprint Last; (2) MedSpaCy Python compatibility uncertainty (last major release was 2023) which could delay the NLP pipeline; (3) e-prescribing and claims processing complexity being severely underestimated -- these are regulated integrations requiring months of certification, not weeks of coding; and (4) SQLCipher performance degradation at clinical data volumes (50K+ records) if indexed projections are not designed upfront. All four risks have concrete mitigations detailed in the research.
+The top four risks are: (1) TypeScript types drifting silently from Rust structs if not generated from source, creating runtime serialization failures that are hard to diagnose; (2) macOS App Sandbox blocking Ollama and Weno API calls in notarized production builds even though dev mode works; (3) AI-generated SOAP notes and billing codes presented without mandatory human review, creating malpractice and CMS audit exposure; and (4) the x12-types crate for 837P generation being incomplete for real-world claim scenarios. Each has a clear mitigation, but all four must be addressed before the relevant phase starts — none can be retrofitted cleanly.
+
+---
 
 ## Key Findings
 
 ### Recommended Stack
 
-The PRD's stack is defensible and requires no major changes. Tauri 2.x over Electron is the correct call -- 30-50 MB idle RAM vs 150-300 MB is the difference between running AI models or not on 16 GB machines. Rust owns all CRUD and security; Python handles AI only. SQLAlchemy should NOT be used in Phase 1-3 (contrary to PRD suggestion) -- use rusqlite directly and introduce SQLAlchemy only in Phase 4 when PostgreSQL enters via cloud migration.
+The M001 stack (Tauri 2.x + React 18 + TypeScript + Vite 5 + TailwindCSS 3 + SQLCipher) is unchanged. M002 adds navigation, state management, UI components, and AI/billing infrastructure on top.
 
-**Core technologies:**
-- **Tauri 2.x + Rust:** Desktop shell, DB owner, security boundary -- 10x less memory than Electron, Rust's memory safety for medical-grade reliability
-- **React 18+ / TypeScript / MUI:** Frontend UI -- largest medical component ecosystem (@medplum/react, fhir-react), FHIR type definitions available
-- **FastAPI sidecar (PyInstaller):** AI inference only -- whisper.cpp, MedSpaCy/SciSpaCy, Ollama client, FAISS vector search
-- **SQLCipher:** Encrypted local database -- AES-256, HIPAA breach safe harbor, macOS Keychain key storage
-- **Ollama + LLaMA 3.1 8B:** Local LLM runtime -- RAG outperforms fine-tuned biomedical models (64% vs 30% on NEJM)
-- **whisper.cpp / WhisperKit:** Voice transcription -- CoreML acceleration, 3x real-time on Apple Silicon
+**Core technologies (new for M002):**
+- **react-router 7.13.1**: Client-side routing for patient chart tabs — use SPA mode (`ssr: false`), import from `react-router` only (react-router-dom is merged in v7)
+- **zustand 5.0.11**: Global client state for active patient ID, auth session, and AI job queue — stores IDs only, never FHIR resource data
+- **whisper-rs 0.15.1**: Rust-native whisper.cpp bindings with `coreml` feature for Apple Neural Engine acceleration — runs in-process via `spawn_blocking`, no Python sidecar
+- **ollama-rs 0.3.4**: Rust async Tokio client for Ollama REST API — SOAP generation calls originate from Rust so PHI never reaches the WebView layer
+- **shadcn/ui (CLI)**: Component system for chart tabs, cards, command palette — no runtime dependency, Radix UI primitives, Tauri-native template available
+- **@tanstack/react-query 5.90.21**: Async state for all Tauri IPC data fetching — set `staleTime: Infinity` and `retry: false` for local IPC
+- **@tanstack/react-table 8.21.3**: Headless table for lab results, billing line items, medication lists — add TanStack Virtual for large datasets
+- **react-hook-form 7.x + zod 4.3.6**: Form management and schema validation — do NOT use react-hook-form v8 (beta breaks useFieldArray); zod v4 is 14x faster than v3
+- **x12-types 0.9.x (LOW confidence)**: Rust X12 segment bindings for 837P claim generation — spike against CMS 837P companion guide before depending on it; custom serializer is the documented fallback (400-600 lines)
 
-**Critical version risks (verify before locking):**
-- MedSpaCy + Python 3.11/3.12 compatibility (HIGH risk -- last release 2023)
-- SQLCipher Python bindings + SQLAlchemy 2.0 dialect (MEDIUM risk)
-- PyInstaller + AI dependencies bundling (MEDIUM risk -- budget 3-5 days for packaging)
+**What NOT to use:** react-router-dom as a separate package, Python sidecar for audio (adds 2 GB binary), cloud STT/LLM (PHI leaves device), react-hook-form v8 beta, OpenAI direct API (no BAA), "Accept All" UI for AI code suggestions, Redux Toolkit (excessive boilerplate for this complexity).
+
+See `/STACK.md` for full rationale and alternatives.
 
 ### Expected Features
 
-**Must have (table stakes) -- Phase 1 MVP:**
-- RBAC + authentication + audit logging (HIPAA foundation; everything depends on this)
-- SQLCipher encrypted database with FHIR data model (foundation; retrofitting FHIR later is a rewrite)
-- Patient demographics CRUD with search (data backbone for all clinical features)
-- Allergy, medication, and problem list management (clinical safety triad)
-- Multi-provider scheduling with patient flow board (core operational workflow)
-- SOAP note entry with 10-15 specialty templates (single most-used EMR feature)
-- Vitals, ROS, physical exam forms (required for E/M coding)
-- Lab results viewer (manual entry), document management, encrypted backups
-- macOS code-signed, notarized DMG with auto-updates
+**Must have for M002 launch (P1 — clinical UI that makes the M001 backend usable for daily care):**
+- Patient banner + tab navigation (Summary, Encounters, Meds, Problems, Allergies, Labs, Documents) — prevents wrong-patient errors, matches Epic/DrChrono conventions physicians expect
+- Patient facesheet with active problems, medications, allergies, last vitals, upcoming appointments
+- Structured SOAP note entry with ICD-10 linking, draft auto-save every 30s, note status workflow (draft → signed), 10-15 specialty templates
+- Vitals entry (BP/HR/RR/Temp/SpO2/Weight/Height/BMI) with BMI auto-calc and abnormal value flagging
+- 14-system Review of Systems form with real-time E/M level indicator
+- System-based Physical Exam templates with "all normal" macro and specialty variants
+- Billing fee sheet with CPT/ICD-10 search, modifiers, charge capture, and superbill
+- X12 837P claim generation and Office Ally clearinghouse submission
+- E-prescribing via Weno Exchange (non-EPCS) with RxNorm drug search, pharmacy routing, allergy conflict alerts
 
-**Should have (competitive) -- Phase 2:**
-- Billing module: fee sheets, X12 837P claims, 835 ERA processing, AR tracking
-- E-prescribing via Weno Exchange (including EPCS for controlled substances)
-- Drug interaction checking via RxNav-in-a-Box
-- HL7 v2 lab interface for electronic results
-- CQM/eCQM reporting, insurance eligibility verification
+**Should have — M002.x (add once P1 workflow is validated with real users):**
+- AI voice-to-SOAP pipeline (whisper-rs transcription + Ollama/LLaMA 3.1 8B generation) — primary product differentiator
+- AI CPT/ICD-10 coding suggestions via FAISS vector search — unique in the solo-practice market segment
+- ERA/835 payment posting and accounts receivable tracking
+- EPCS for controlled substances via Weno ONLINE API — DEA enrollment is a parallel track
+- Drug interaction checking via RxNav-in-a-Box (Docker, local, free with UMLS license)
+- E/M level real-time calculator based on documented ROS + PE + MDM complexity
+- Refill request inbox with one-click approval (high daily time savings for solo physician)
 
-**Differentiators -- Phase 3 (the reason MedArc exists):**
-- Ambient voice-to-SOAP note generation (eliminates 30-41% of documentation time)
-- AI-assisted ICD-10/CPT coding (reduces claim denials from 8-12% to below 3%)
-- AI diagnostic decision support via RAG
-- Smart scheduling with no-show prediction (XGBoost, AUC 0.75-0.85)
+**Defer to Phase 3+ (future consideration):**
+- Formulary tier display (requires PBM data feeds)
+- Prior authorization detection (requires formulary data)
+- Denial pattern detection (requires 6+ months of claims data)
+- Pediatric growth charts (pediatric specialty, not general practice)
+- Ambient continuous capture mode (significantly more complex than push-to-record MVP)
 
-**Defer (v2+):**
-- Patient portal, mobile companion, telemedicine (all Phase 4+)
-- ONC certification (Phase 4+ when revenue supports $50-100K cost)
-- Windows/Linux support (triples testing surface, loses macOS advantages)
-- Real-time multi-user collaboration (CRDTs for medical records are unsolved)
+**Anti-features — do not build:**
+- "Accept All" for AI coding suggestions (CMS audit exposure; individual code review is a compliance requirement)
+- Auto-sign generated note without physician review (malpractice liability, CMS scrutiny of AI scribes)
+- Copy-forward entire prior note (documented cause of medical record errors and HIPAA audit findings)
+- Infinite scroll within chart sections (breaks clinical data landmarks)
+- Raw audio long-term storage (ePHI, consent complexity, 50-100 MB per encounter storage burden)
+- Direct SureScripts connection (not designed for small EMR vendors; Weno exists for this exact use case)
+
+See `/FEATURES.md` for full feature dependency graph and prioritization matrix.
 
 ### Architecture Approach
 
-The architecture is a desktop-native three-process system: Tauri/Rust core (DB, security, IPC), WKWebView/React frontend (UI), and a PyInstaller-compiled FastAPI sidecar (AI only). Rust is the sole database accessor -- the Python sidecar is stateless, holds no PHI, and receives all context per-request. This enforces HIPAA minimum-necessary principle architecturally. FHIR resources are stored as JSON columns with indexed projections for query performance (hybrid approach avoids both the 200-table normalization problem and the O(n) JSON scan problem).
+M002 extends the existing Tauri 2 + SQLCipher architecture by adding a React Router SPA with four Zustand stores (auth, activePatient, ui, aiJobs) and TanStack Query wrapping all Tauri IPC calls. The critical architectural boundary: Zustand holds IDs only — TanStack Query owns all FHIR resource data. All PHI assembly for AI prompts and Weno API calls happens in Rust, never in the WebView. The single `src/lib/tauri.ts` file remains the only surface where `invoke()` is called; TypeScript bindings must be generated from Rust structs (ts-rs or tauri-specta) before any component is written.
 
 **Major components:**
-1. **Tauri Rust Core** -- Process orchestrator, sole DB owner (rusqlite + SQLCipher), Keychain integration, audit logging, RBAC enforcement at data layer
-2. **React Frontend** -- Clinical UI with MUI, form management (React Hook Form + Zod), Zustand state, routes organized by clinical workflow (patients, scheduling, encounters, billing)
-3. **FastAPI Sidecar** -- AI inference only: whisper.cpp transcription, MedSpaCy/SciSpaCy NER, Ollama LLM calls, FAISS vector search. Lazy-loads models to manage memory
-4. **Ollama Server** -- Separate process for LLM model hosting. Sidecar is sole client
-5. **SQLCipher Database** -- FHIR JSON + indexed columns, hash-chained audit log, per-page HMAC tamper detection
-6. **RxNav-in-a-Box** -- Docker container for local drug interaction checking (Phase 2)
+1. **React Router + AppShell** — Route tree (`/patients/:id/:tab`, `/schedule`, `/billing`, `/admin`) with auth guard; Sidebar + TopNav layout
+2. **PatientChart (tabbed)** — Drives all clinical views; reads activePatientId from Zustand, fetches FHIR data via TanStack Query, renders tab-based clinical content
+3. **Encounter Editor + SOAP forms** — SOAPForm, VitalsForm, ROSForm, PEForm; draft auto-save every 30s; note status workflow; required before billing or AI can be tested end-to-end
+4. **AI Panel (additive, isolated)** — RecordButton, TranscriptReview, DraftSOAPPanel in `components/ai/`; designed to degrade gracefully when Ollama is unavailable; audit trail extended for all AI operations
+5. **Billing module** — ClaimForm + X12 837P generation in Rust `commands/billing.rs`; Office Ally clearinghouse submission via reqwest; ERA 835 parsing
+6. **E-prescribing module** — PrescriptionForm + WenoStatus; Rust `commands/eprescribe.rs` via reqwest with Weno credentials in macOS Keychain; NCPDP SCRIPT message lifecycle
+
+**Key architectural patterns to follow:**
+- Extend `lib/tauri.ts`, never bypass it with raw `invoke()` calls from components
+- Generate TypeScript bindings from Rust structs — never hand-write IPC types
+- Zustand for IDs only; TanStack Query for all server state with `staleTime: Infinity` and `retry: false` for local IPC
+- Whisper runs on `spawn_blocking` in Rust — not on the Tauri async runtime — to prevent UI freeze during 2-15s transcription
+- PHI assembly for LLM prompts and Weno calls stays in Rust; React receives only the typed result
+
+See `/ARCHITECTURE.md` for full component tree, project structure, data flow diagrams, and anti-patterns.
 
 ### Critical Pitfalls
 
-1. **HIPAA as architecture, not checkbox** -- Audit logging, RBAC, and encryption must exist before any PHI-touching code. RBAC enforcement at the repository/data-access layer, not just route middleware. Encryption key in Keychain from day one, never hardcoded. Field-level encryption for 42 CFR Part 2 data in the first migration. **Phase 1, Sprint 1.**
+1. **TypeScript types hand-written instead of generated from Rust structs** — serde snake_case vs TS camelCase drift, optional field mismatches, and enum shape differences cause silent runtime corruption. Use ts-rs or tauri-specta before the first UI component. Cannot be retrofitted after 20+ components exist. (Phase 1)
 
-2. **AI hallucination without safety rails** -- Whisper hallucinates ~1% of segments; LLM hallucinates 4-6%. At 20 encounters/day, providers will see multiple hallucinations daily. Mitigation: AI output always in "draft" state with visual distinction, mandatory provider review, confidence scoring with threshold flagging, cross-validation of entities against RxNorm/ICD-10. Design the provenance data model ("source: ai | human") in Phase 1 schema. **Phase 1 (schema) + Phase 3 (implementation).**
+2. **App Sandbox blocking Ollama and Weno API calls in production builds** — `entitlements.plist` must include `com.apple.security.network.client`; OLLAMA_ORIGINS must be set via LaunchAgent plist (not .zshrc); test every network call in a notarized build, not just `tauri dev`. Confirmed via Tauri GitHub issue #13878. (Phase 1 validation)
 
-3. **FHIR storage impedance mismatch** -- Neither pure JSON blobs nor full normalization works. Use the hybrid: FHIR JSON column as source of truth + indexed projection columns for the 15-20 query fields. Load test with 50K+ Synthea records; chart-open must be under 500ms. **Phase 1 -- getting the data model wrong means a rewrite.**
+3. **AI pipeline bypasses the HIPAA audit chain** — Raw audio transcription and LLM inference are ePHI operations. Every AI operation (transcription_started, transcription_completed, soap_generated, soap_accepted/rejected) must flow through the existing Rust audit system. Cannot be retrofitted after AI features are in use. (Phase 4)
 
-4. **E-prescribing and claims processing underestimation** -- E-prescribing requires NCPDP SCRIPT messages (not REST), Weno certification (4-8 weeks), and EPCS is a separate DEA-regulated certification. X12 837P claims have 900+ pages of situational rules and 30-40% rejection rates on naive implementations. Budget 3-4 months for e-prescribing and 6-8 weeks for claims. Start Weno enrollment at the beginning of Phase 2. **Phase 2.**
+4. **Weno Exchange certification not initiated early enough** — Prescriber identity proofing takes 2-4 weeks; EPCS DEA audit takes longer. The $300 activation and onboarding must happen at M002 kickoff, not when code is ready. NCPDP SCRIPT 2017071 is retired January 1, 2028 — build the message layer version-switchable from day one. (Start at M002 kickoff)
 
-5. **SQLCipher performance cliff at clinical volumes** -- 5-15% encryption overhead compounds with JSON queries across 50K+ records. Prevention: covering indexes on every common query, paginate everything, WAL mode, pre-computed patient summary table, automated performance regression tests with realistic data. Set a hard 200ms budget for user-facing queries. **Phase 1.**
+5. **X12 837P claim builder fails on real-world scenarios** — The 837P spec is 900+ pages; a simple office visit covers roughly 10% of real claims. Test against a 10-scenario set (modifiers -25/-59, secondary insurance, Medicare rendering provider, mental health taxonomy, telehealth -95, prior auth number, denial resubmission) via Office Ally sandbox before declaring billing complete. (Phase 5)
+
+6. **AI coding suggestions presented as authoritative** — RAG-enhanced LLM coding achieves ~69% exact match (Nature 2025). "Accept All" is never acceptable. Show confidence scores, run CCI edit validation before surfacing suggestions, require individual code confirmation. Log every accepted AI suggestion in the audit trail. (Phase 5)
+
+7. **PHI leaking into URL parameters, browser console, and TanStack Query cache** — Use numeric record IDs in URLs only (never patient names), call `queryClient.clear()` on session lock, disable React DevTools and Safari Web Inspector in production builds. Establish this as a code review gate in Phase 1. (Phase 1)
+
+See `/PITFALLS.md` for 10 critical pitfalls, technical debt patterns, integration gotchas, and performance traps.
+
+---
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+Based on combined research, the architecture dependency graph maps to a 5-phase roadmap with one parallel subtraction (billing + e-prescribing run in parallel in Phase 5). Weno enrollment is a day-one background task, not a phase.
 
-### Phase 1: HIPAA Foundation + Core Clinical EMR (Months 1-6)
+### Phase 1: IPC Foundation + App Shell
+**Rationale:** No UI component can be built or tested until TypeScript bindings match Rust structs and the router/layout shell exists. This is the enabling infrastructure for everything else. Doing this phase correctly prevents the most expensive pitfall (type drift). App Sandbox validation must also happen here — all subsequent phases assume networking works in production builds.
+**Delivers:** Generated TypeScript bindings for all 50+ Rust commands; Zustand stores (auth, activePatient, ui, aiJobs); TanStack Query with Tauri-optimized configuration; React Router SPA with auth guard; AppShell with Sidebar and TopNav; RBAC resource entries for all M002 resource types; App Sandbox networking validated in a notarized build
+**Addresses:** Foundation for all patient chart features; offline and PHI handling patterns established
+**Avoids:** Pitfalls 1 (type mismatch), 2 (App Sandbox), 7 (offline state model), 8 (PHI in cache/URLs), 10 (RBAC not extended)
+**Research flag:** Standard patterns — well-documented Tauri + React Router integration
 
-**Rationale:** Everything depends on the security foundation (RBAC, audit, encryption) and the data model (FHIR hybrid storage). These cannot be retrofitted. The manual clinical workflow (patients, scheduling, SOAP notes) must work before AI can enhance it. Research unanimously confirms: build the foundation right or face a rewrite.
+### Phase 2: Patient Chart + Clinical Data Views
+**Rationale:** The patient chart UI is the delivery vehicle for every other M002 feature. Clinical data tabs must exist before encounter documentation because the encounter editor pulls allergy/medication/problem data into CDS alerts. Scheduling can be built in parallel with clinical data tabs since both depend only on the Phase 1 router and patient chart shell.
+**Delivers:** PatientList with debounced search and pagination; PatientChart tabbed shell with patient banner; facesheet summary view; AllergyList, ProblemList, MedicationList, ImmunizationList; LabResultsTable with abnormal flagging; scheduling CalendarView, FlowBoard, WaitlistBoard
+**Addresses:** All table-stakes patient chart UI features; clinical data display; scheduling workflow
+**Avoids:** Pitfall 10 (RBAC for new resources extended as each component is added); TanStack Virtual added preemptively for clinical lists
+**Research flag:** Standard patterns — no additional research needed
 
-**Delivers:** A functional desktop EMR that a solo practitioner can use for daily patient care without AI. HIPAA-compliant from the first line of code.
+### Phase 3: Encounter Documentation
+**Rationale:** Encounter documentation is the highest-frequency physician workflow (15-25 encounters/day). It must be built and validated manually before the AI pipeline is added on top. Billing also depends on signed, coded encounters — so this phase is the prerequisite for both Phase 4 and Phase 5.
+**Delivers:** EncounterEditor + SOAPForm (structured S/O/A/P, ICD-10 linking, draft auto-save, sign workflow, addendum-on-signed pattern); VitalsForm with BMI auto-calc and abnormal value flagging; 14-system ROSForm with E/M level indicator; specialty-based PEForm with "all normal" macro; 10-15 encounter templates; encounter list with status; PDF export of signed note
+**Addresses:** All SOAP note entry, vitals, ROS, and PE table-stakes features from FEATURES.md
+**Avoids:** Copy-forward anti-feature; auto-sign anti-feature; mandatory rich text anti-feature; note status workflow correctly gated by RBAC
+**Research flag:** Standard patterns — E/M coding guidelines are regulatory standards (2021 CMS); SOAP form patterns well understood
 
-**Build order (strict dependencies):**
-1. SQLCipher schema + Rust DB layer (everything depends on this)
-2. Tauri shell + IPC scaffolding
-3. Authentication + RBAC (at data layer, not just routes)
-4. Audit logging (hash-chained, append-only)
-5. React app shell + routing (can parallel with 2-4)
-6. Patient demographics CRUD + search
-7. Scheduling module + patient flow board
-8. SOAP note entry with templates + vitals + ROS + PE forms
-9. Medication list + allergy tracking + problem list
-10. Lab results viewer (manual), document management
-11. Encrypted backups + macOS distribution (DMG, notarization, auto-updates)
+### Phase 4: AI Voice Pipeline
+**Rationale:** The AI pipeline is additive on top of a working encounter editor. It must be isolated in `components/ai/` so clinical workflow continues when Ollama is unavailable. Adding AI before the manual workflow is validated creates confounding variables — neither the physician nor the team can assess AI quality if the base workflow is also unfamiliar. Whisper-rs CoreML model generation must be validated in a production build before UI integration.
+**Delivers:** RecordButton + TranscriptReview + DraftSOAPPanel with mandatory "AI Draft — Review Required" banner; whisper-rs Rust command with CoreML acceleration and `spawn_blocking`; ollama-rs SOAP generation from Rust with PHI boundary enforced; audit log extensions for all AI operations (transcription_started, transcription_completed, soap_generated, soap_accepted/rejected); Ollama health check with graceful degradation; patient context injection into LLM prompt (allergies, medications, active problems)
+**Addresses:** AI SOAP generation table stakes and differentiators; ambient capture deferred to Phase 3+
+**Avoids:** Pitfalls 3 (AI bypassing audit chain), 9 (CoreML model not in production bundle); anti-features: auto-submit, streaming during encounter, raw audio retention
+**Research flag:** NEEDS RESEARCH — whisper-rs CoreML build requirements on target Xcode version; Ollama CORS configuration for sandboxed notarized Tauri app; LLaMA 3.1 8B prompt engineering for SOAP structure; CoreML .mlmodelc production bundle inclusion
 
-**Addresses features:** All Phase 1 table stakes from FEATURES.md
-**Avoids pitfalls:** HIPAA-as-checkbox, FHIR impedance mismatch, SQLCipher performance cliff, sidecar lifecycle (establish core EMR independence from sidecar)
-
-### Phase 2: Billing, E-Prescribing, and Integrations (Months 7-10)
-
-**Rationale:** Billing and e-prescribing are the features that make an EMR complete enough for practices to switch from their current system. Both have heavy external dependencies (clearinghouses, Weno Exchange) with long certification timelines -- start certification processes at Phase 2 kickoff. Claims and e-prescribing depend on the clinical documentation and medication data from Phase 1.
-
-**Delivers:** Revenue cycle management and prescription capabilities. The EMR can now replace a practice's existing system entirely.
-
-**Key deliverables:**
-1. CPT/ICD-10 coding interface + fee schedule management
-2. X12 837P claim generation with pre-submission scrubbing
-3. 835 ERA processing (payment posting, denial management)
-4. AR tracking and financial reporting
-5. E-prescribing via Weno Exchange (start certification month 1)
-6. RxNav-in-a-Box drug interaction checking
-7. HL7 v2 lab interface (electronic ordering and results)
-8. Insurance eligibility verification (270/271)
-9. CQM/eCQM reporting foundation
-10. Appointment reminders (SMS/email via Twilio)
-
-**Addresses features:** All Phase 2 features from FEATURES.md
-**Avoids pitfalls:** E-prescribing underestimation (start Weno early), X12 claims brittleness (use pyx12 library, not string concatenation; scrub before submit), alert fatigue (severity-based drug interaction filtering from day one)
-
-### Phase 3: AI Enhancement Layer (Months 11-15)
-
-**Rationale:** AI features enhance the manual workflows now proven in Phase 1-2. The clinical data accumulated over 6-10 months provides the context AI needs (encounter history for pre-charting, scheduling data for no-show prediction). The sidecar can be built and tested independently without disrupting the stable core EMR.
-
-**Delivers:** The primary differentiator -- ambient AI documentation, coding assistance, and diagnostic support. This is what makes MedArc worth switching to.
-
-**Key deliverables:**
-1. FastAPI sidecar scaffold + PyInstaller build pipeline + health monitoring
-2. whisper.cpp/WhisperKit voice transcription with confidence scoring
-3. Speaker diarization (pyannote.audio) for doctor vs patient separation
-4. MedSpaCy/SciSpaCy NLP pipeline (entity extraction, section detection, negation)
-5. Ollama LLM integration for SOAP note generation (human-in-the-loop mandatory)
-6. FAISS vector search for ICD-10/CPT code suggestions
-7. AI pre-charting (pre-visit context assembly)
-8. Smart scheduling (XGBoost no-show prediction)
-9. AWS Bedrock fallback for complex cases (de-identified data only)
-
-**Addresses features:** All AI differentiators from FEATURES.md
-**Avoids pitfalls:** AI hallucination (draft state, confidence scoring, entity validation, provenance tracking), sidecar lifecycle (health checks, timeouts, graceful degradation), memory pressure (lazy model loading, model unloading on idle)
-
-### Phase 4: Cloud Migration and Expansion (Months 16-18)
-
-**Rationale:** Multi-site practices need cloud sync. Only pursue after desktop product-market fit is proven. SQLAlchemy enters here (not before) for the cloud API layer targeting PostgreSQL.
-
-**Delivers:** Optional cloud connectivity for multi-device/multi-site operation. Revenue expansion through cloud hosting tier ($65-110/mo per clinic).
-
-**Key deliverables:**
-1. AWS infrastructure (RDS PostgreSQL, S3, Cognito)
-2. Cloud API layer (FastAPI + SQLAlchemy on Lambda)
-3. PowerSync bidirectional sync (local SQLCipher <-> cloud PostgreSQL)
-4. Migration tooling and validation
-5. Patient portal (patient-facing features)
-6. ONC certification pursuit (when revenue supports it)
+### Phase 5: Billing + E-Prescribing (Parallel Tracks)
+**Rationale:** Billing and e-prescribing are independent tracks that can be built in parallel after the encounter documentation foundation exists. Both depend on signed notes and the clinical data in the patient chart, but not on each other and not on the AI pipeline. Weno enrollment (initiated at M002 kickoff) should be complete by the time this phase starts.
+**Delivers (Billing track):** ClaimForm with CPT/ICD-10 search and modifier support; X12 837P generation in Rust (spike x12-types first; fallback to custom serializer); Office Ally clearinghouse submission; claim status tracking; ERA/835 payment posting with CARC/RARC interpretation; AR dashboard; AI CPT/ICD-10 suggestions with per-code review UX, confidence scores, and CCI edit pre-validation
+**Delivers (E-prescribing track):** Drug search via RxNorm local database (RxNav-in-a-Box or bundled SQLite snapshot); prescription creation form; Weno Exchange NewRx/CancelRx/RxRenewalRequest/RxRenewalResponse (full lifecycle, not just NewRx); pharmacy directory routing; drug interaction checking; allergy conflict hard stops; EPCS via Weno ONLINE API (if enrollment complete); refill request inbox
+**Addresses:** All billing and e-prescribing features from FEATURES.md
+**Avoids:** Pitfalls 4 (Weno enrollment), 5 (837P claim scenarios), 6 (AI coding as authoritative); NCPDP SCRIPT version abstracted for 2028 migration
+**Research flag:** NEEDS RESEARCH (Billing) — x12-types v0.9.x 837P loop coverage verification; Office Ally sandbox submission and 10-scenario test suite; ERA 835 CARC/RARC mapping. NEEDS RESEARCH (E-Rx) — Weno Switch API full message lifecycle (blocked until developer account); NCPDP SCRIPT 2023011 vs 2017071 feature delta for migration planning; EPCS DEA Part 1311 biometric/hardware token requirements
 
 ### Phase Ordering Rationale
 
-- **Security and data model first:** HIPAA compliance and FHIR storage cannot be retrofitted. Every research file confirms this. The audit log, RBAC, and encryption architecture must exist before any clinical data is stored.
-- **Manual before AI:** Every AI feature enhances an underlying manual workflow. The manual workflow must work perfectly, and clinical data must accumulate, before AI adds value. This also de-risks the project -- if AI proves harder than expected, the core EMR still ships.
-- **Billing before AI:** Practices need revenue cycle management to justify switching EMRs. Billing has hard external dependencies (clearinghouse enrollment, Weno certification) with long lead times that must start early.
-- **Cloud last:** Local-first is the value proposition. Cloud is optional expansion, not core product. SQLAlchemy's complexity is justified only when PostgreSQL enters the picture.
+- Phases 1 → 2 → 3 are strictly ordered by dependency: IPC types must exist before components; patient chart must exist before encounters
+- Phase 4 (AI) is gated on Phase 3 because the AI panel outputs to the encounter editor and the audit trail must be extended before AI code runs
+- Phase 5 billing and e-prescribing are gated on Phase 3 (signed encounters to bill/prescribe from) but are independent of Phase 4 (AI) — these three phases can sequence as 3 → 4 and 3 → 5 in parallel
+- Weno enrollment must be initiated on Day 1 of M002 regardless of Phase 5 timing — 2-4 week external lead time is the binding constraint
+- The EPCS architecture decision (own DEA audit vs Weno ONLINE API) must be made before any Phase 5 architecture work begins
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
-- **Phase 1 (FHIR schema design):** The hybrid FHIR-JSON + indexed projection pattern needs careful schema design for the 15-20 query fields. Recommend a research spike with Synthea synthetic data before finalizing the schema.
-- **Phase 2 (e-prescribing):** NCPDP SCRIPT message format, Weno Exchange certification process, EPCS DEA requirements -- these are complex regulated integrations with sparse public documentation. Needs dedicated research.
-- **Phase 2 (X12 claims):** 837P/835 processing has hundreds of situational rules. Research the pyx12 library capabilities and Office Ally sandbox API before scoping.
-- **Phase 3 (AI pipeline):** MedSpaCy compatibility must be verified; whisper.cpp vs WhisperKit evaluation needed; LangChain vs custom orchestration decision. Recommend research spike in Phase 2 to de-risk.
+Phases needing deeper research during planning:
+- **Phase 4 (AI Pipeline):** whisper-rs CoreML build requirements; Ollama CORS in sandboxed notarized app; LLaMA 3.1 8B SOAP prompt engineering; CoreML .mlmodelc production bundle inclusion
+- **Phase 5-Billing:** x12-types v0.9.x 837P loop coverage (spike required); Office Ally sandbox API and test claim suite; ERA 835 CARC/RARC standard code mapping; FAISS ICD-10/CPT index build pipeline and codebook licensing (AMA license for CPT)
+- **Phase 5-E-Rx:** Weno Switch API full lifecycle (requires developer account); NCPDP SCRIPT 2023011 migration delta; DEA Part 1311 EPCS biometric requirements
 
 Phases with standard patterns (skip research-phase):
-- **Phase 1 (Tauri + React + SQLCipher):** Well-documented stack with established patterns. Tauri 2.x has explicit sidecar support documentation.
-- **Phase 1 (RBAC + auth):** Standard implementation patterns for role-based access with Argon2 hashing and TOTP MFA.
-- **Phase 4 (AWS infrastructure):** Standard cloud patterns with well-documented services (RDS, Lambda, Cognito, S3).
+- **Phase 1 (IPC Foundation):** React Router v7 + Tauri SPA mode is well-documented; Zustand + TanStack Query patterns are established
+- **Phase 2 (Patient Chart):** Standard React component patterns over existing Tauri commands; no novel integrations
+- **Phase 3 (Encounter Docs):** E/M coding guidelines are regulatory standards; SOAP form patterns are well understood
+
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM | Core technologies (React, FastAPI, SQLCipher, FAISS) are well-established. MedSpaCy compatibility is LOW confidence. All version numbers need verification (web search was unavailable). |
-| Features | MEDIUM-HIGH | Table stakes and differentiators are well-defined from PRD + competitor analysis. HIPAA requirements are stable regulation (HIGH). Competitor-specific pricing may have changed (LOW). |
-| Architecture | MEDIUM | Rust-for-CRUD + Python-for-AI-only pattern is well-reasoned and internally consistent. Tauri 2.x sidecar specifics and rusqlite + SQLCipher integration need verification against current docs. |
-| Pitfalls | MEDIUM-HIGH | Regulatory pitfalls (HIPAA, DEA, X12) are based on stable standards (HIGH). AI accuracy statistics need validation against current benchmarks (MEDIUM). Performance characteristics are based on documented specs (MEDIUM). |
+| Stack | MEDIUM-HIGH | All npm versions verified against current registry (March 2026); whisper-rs CoreML confirmed active (Sep 2025); ollama-rs confirmed active (Feb 2026); x12-types is LOW confidence specifically for 837P completeness — spike before committing |
+| Features | HIGH | Requirements backed by regulatory standards (DEA 1311, CMS E/M guidelines, NCPDP SCRIPT), peer-reviewed AI coding accuracy studies (NEJM AI, Nature 2025), and direct competitor analysis (OpenEMR v8, DrChrono, Practice Fusion) |
+| Architecture | HIGH (integration patterns); MEDIUM (whisper-rs CoreML build); LOW (x12-types 837P) | M001 codebase directly verified — 50+ commands in lib.rs; lib/tauri.ts covers auth/FHIR/audit only; Tauri integration patterns confirmed via official docs and GitHub discussions |
+| Pitfalls | MEDIUM-HIGH | Healthcare regulations HIGH confidence (stable regulatory standards); Tauri App Sandbox issue confirmed via GitHub #13878; AI hallucination rates from peer-reviewed sources; Weno certification timeline from official Weno documentation |
 
-**Overall confidence:** MEDIUM
+**Overall confidence:** MEDIUM-HIGH
 
 ### Gaps to Address
 
-- **MedSpaCy Python 3.11/3.12 compatibility:** Highest-risk dependency. Test in week 1 of Phase 1. If incompatible, fall back to spaCy + SciSpaCy + custom clinical rules (covers 90% of value).
-- **SQLCipher Python bindings + SQLAlchemy 2.0:** Verify pysqlcipher3/sqlcipher3 maintenance status. Moot for Phase 1-3 (Rust owns DB), but needed for Phase 4 cloud migration planning.
-- **Tauri 2.x sidecar IPC specifics:** Verify current Tauri 2.x documentation for sidecar lifecycle management, health checking, and process restart patterns.
-- **PyInstaller + spaCy/FAISS/torch bundling:** Non-trivial packaging challenge. Budget 3-5 days for a packaging spike in early Phase 3. Nuitka is the fallback.
-- **@medplum/react and fhir-react maturity:** Niche FHIR UI libraries with uncertain maintenance status. Evaluate early; may need custom FHIR components.
-- **LangChain vs custom orchestration:** LangChain adds ~50 transitive dependencies and has frequent breaking changes. Evaluate whether a lighter custom pipeline is sufficient during Phase 3 research.
-- **Whisper hallucination rate at current versions:** The ~1% figure is from older research. Validate against current whisper.cpp/WhisperKit benchmarks before Phase 3 implementation.
+- **x12-types 837P coverage:** Verify during Phase 5 billing spike (1-2 days) before committing to the crate. Custom serializer fallback is 400-600 lines and has zero external dependency risk.
+- **Weno Switch API technical documentation:** Full message lifecycle requires a Weno developer account. Initiate registration at M002 kickoff. Abstract the NCPDP SCRIPT version at module boundary from day one — mandatory 2023011 migration by January 1, 2028 per CMS.
+- **whisper-rs CoreML production bundle:** CoreML `.mlmodelc` files must be pre-generated via whisper.cpp's `generate_coreml_model.py` and verified resolvable inside the signed Tauri app bundle. Validate in a notarized production build before declaring Phase 4 complete.
+- **EPCS path decision (business decision):** Own DEA audit (4-8 weeks) vs Weno ONLINE API (Weno handles DEA compliance). This decision must be made at M002 kickoff — it affects Phase 5 architecture before any code is written.
+- **FAISS ICD-10/CPT index:** AI billing coding suggestions require a FAISS index of ICD-10-CM (NLM, free) and CPT (AMA license, ~$200/year). Index build pipeline not covered in current research. Address during Phase 5 AI coding planning.
+- **Generated TypeScript bindings tooling:** Choose between ts-rs (simpler, generates types from proc macro) and tauri-specta (generates types + validates command signatures). Decision must be made in Phase 1 before any IPC wrappers are extended.
+
+---
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- HIPAA Security Rule (45 CFR 164.312) -- stable regulation, well-documented requirements
-- DEA 21 CFR Part 1311 -- EPCS requirements, established regulation
-- X12 837P 5010 / NCPDP SCRIPT -- stable healthcare IT standards
-- FHIR R4 specification -- stable, well-documented resource structures
+- MedArc M001 codebase (directly verified) — 50+ Rust commands in lib.rs; lib/tauri.ts covers auth/FHIR/audit only; package.json has no router or state management dependencies
+- CMS.gov — X12 837P 5010A1 implementation guide; E/M coding 2021 guidelines; Medicare Part D EPCS mandate
+- DEA Diversion Control Division — 21 CFR Part 1311 EPCS requirements; biometric/hardware token two-factor mandates
+- NLM/LHNCBC — RxNav-in-a-Box official documentation; UMLS license requirements; ICD-10-CM codebook
+- Weno Exchange — Official Switch API documentation; EPCS DEA 1311.120 compliance; OpenEMR wiki integration pattern
+- NEJM AI / Nature 2025 — AI medical coding accuracy: GPT-4 33.9% ICD-10 exact match without RAG; ~69% with RAG+FAISS
+- Tauri 2 official docs — sidecar, CSP, entitlements, App Sandbox networking requirements
+- whisper-rs crates.io — v0.15.1 (released 2025-09-10), coreml + metal feature flags confirmed
+- ollama-rs GitHub — v0.3.4 (updated 2026-02-12), async Tokio, streaming confirmed
 
 ### Secondary (MEDIUM confidence)
-- MedArc Day0.md PRD -- comprehensive requirements document with cited statistics and competitor analysis
-- Tauri 2.x architecture and capabilities -- training data (May 2025 cutoff), needs version verification
-- SQLCipher documentation -- encryption characteristics, performance overhead
-- OpenEMR v8.0.0 feature baseline -- from PRD analysis, aligns with known capabilities
+- react-router npm — v7.13.1 current (March 2026); SPA mode documented at reactrouter.com
+- zustand npm — v5.0.11 current; useSyncExternalStore native in v5
+- @tanstack/react-query npm — v5.90.21 current
+- @tanstack/react-table npm — v8.21.3 current; v9 in development but not stable
+- shadcn vs MUI comparison (makersden.io 2025) — bundle size and Tauri integration notes
+- agmmnn/tauri-ui template — shadcn + Tauri 2 integration confirmed working
+- Tauri GitHub issue #13878 — App Sandbox blocking outbound HTTP confirmed in production builds
+- AMA 2025 / NEJM Catalyst — AI scribe documentation workflow and physician burnout research
+- OpenEMR v8, DrChrono, Practice Fusion — competitor feature analysis (patient chart UI, e-Rx, billing)
+- NCPDP SCRIPT 2017071 retirement — January 1, 2028 deadline per CMS
 
 ### Tertiary (LOW confidence)
-- MedSpaCy maintenance status and Python compatibility -- last major release 2023, uncertain
-- @medplum/react and fhir-react library maturity -- niche libraries, unverified
-- AI accuracy benchmarks (Whisper hallucination, LLaMA NEJM scores, GPT-4 ICD-10 accuracy) -- cited in PRD from published research but not independently verified against original papers
-- Competitor-specific pricing (SimplePractice, DrChrono, Tebra) -- may have changed since PRD research
+- x12-types crates.io v0.9.1 (updated 2025-07-09) — 837P loop coverage unverified; spike required before committing
+- WhisperKit (argmaxinc, ICML 2025) — Apple Neural Engine alternative to whisper.cpp; noted for M003 evaluation only, not recommended for M002
+- node-x12 npm — JavaScript X12 fallback option; not the recommended path for data that already lives in Rust
 
 ---
-*Research completed: 2026-03-10*
+*Research completed: 2026-03-11*
 *Ready for roadmap: yes*
