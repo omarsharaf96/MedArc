@@ -32,14 +32,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. User can launch the Tauri desktop application on macOS and see the React frontend rendered in WKWebView
   2. All persisted data is stored in a SQLCipher-encrypted SQLite database with AES-256-CBC and per-page HMAC tamper detection
   3. Database encryption key is retrieved from macOS Keychain (Secure Enclave-backed on Apple Silicon) -- never hardcoded or stored in config files
-  4. FHIR R4 resources are stored as JSON columns with indexed lookup tables, and Alembic migrations run correctly against SQLite
+  4. FHIR R4 resources are stored as JSON columns with indexed lookup tables, and schema migrations run correctly against SQLite
   5. All database CRUD operations execute through Rust-native Tauri commands with no Python dependency
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md -- Scaffold Tauri 2.x app with SQLCipher database and macOS Keychain key management
+- [ ] 01-02-PLAN.md -- FHIR R4 resource schema, Rust CRUD commands, and frontend integration
+- [ ] 01-03-PLAN.md -- Frontend component polish and end-to-end requirement verification
 
 ### Phase 2: Authentication & Access Control
 **Goal**: Users can securely create accounts, log in with multiple authentication methods, and have their access restricted by role
