@@ -38,6 +38,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::health::check_db,
             commands::health::get_app_info,
+            commands::fhir::create_resource,
+            commands::fhir::get_resource,
+            commands::fhir::list_resources,
+            commands::fhir::update_resource,
+            commands::fhir::delete_resource,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
