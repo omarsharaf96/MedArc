@@ -58,6 +58,8 @@ pub fn run() {
             commands::auth::register_user,
             commands::auth::login,
             commands::auth::logout,
+            commands::auth::complete_login,
+            commands::auth::check_first_run,
             commands::session::lock_session,
             commands::session::unlock_session,
             commands::session::refresh_session,

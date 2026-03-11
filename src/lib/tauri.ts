@@ -74,6 +74,16 @@ export const commands = {
   /** Log out the current user. */
   logout: () => invoke<void>("logout"),
 
+  /** Complete login after MFA verification (password was already checked). */
+  completeLogin: (userId: string, totpCode: string) =>
+    invoke<LoginResponse>("complete_login", {
+      user_id: userId,
+      totp_code: totpCode,
+    }),
+
+  /** Check if this is the first run (no users exist). */
+  checkFirstRun: () => invoke<boolean>("check_first_run"),
+
   // ─── Session commands ────────────────────────────────────────────
 
   /** Lock the current active session. */
@@ -105,8 +115,9 @@ export const commands = {
   disableTotp: (password: string) =>
     invoke<void>("disable_totp", { password }),
 
-  /** Check a TOTP code during login. */
-  checkTotp: (code: string) => invoke<boolean>("check_totp", { code }),
+  /** Check a TOTP code during login (requires user_id since session may not exist yet). */
+  checkTotp: (userId: string, code: string) =>
+    invoke<boolean>("check_totp", { user_id: userId, code }),
 
   /** Check biometric (Touch ID) availability and enablement. */
   checkBiometric: () => invoke<BiometricStatus>("check_biometric"),

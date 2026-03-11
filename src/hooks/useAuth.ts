@@ -43,29 +43,36 @@ export function useAuth(): UseAuthReturn {
   const [error, setError] = useState<string | null>(null);
   const [mfaRequired, setMfaRequired] = useState(false);
   const [firstRun, setFirstRun] = useState(false);
-  // Store pending login user for MFA flow completion
-  const [pendingMfaUser, setPendingMfaUser] = useState<UserResponse | null>(
+  // Store pending user ID for MFA flow completion
+  const [pendingMfaUserId, setPendingMfaUserId] = useState<string | null>(
     null,
   );
-  const [pendingMfaSession, setPendingMfaSession] =
-    useState<SessionInfo | null>(null);
 
-  /** Check session state on mount. */
+  /** Check session state and first-run status on mount. */
   useEffect(() => {
     async function checkSession() {
       try {
-        const sessionInfo = await commands.getSessionState();
-        setSession(sessionInfo);
+        // Check if this is first run (no users in database)
+        const isFirstRun = await commands.checkFirstRun();
+        setFirstRun(isFirstRun);
 
-        if (sessionInfo.state === "active" || sessionInfo.state === "locked") {
-          // We have an active/locked session. Set user info from session.
-          if (sessionInfo.userId && sessionInfo.role) {
-            setUser({
-              id: sessionInfo.userId,
-              username: "",
-              displayName: "",
-              role: sessionInfo.role,
-            });
+        if (!isFirstRun) {
+          const sessionInfo = await commands.getSessionState();
+          setSession(sessionInfo);
+
+          if (
+            sessionInfo.state === "active" ||
+            sessionInfo.state === "locked"
+          ) {
+            // We have an active/locked session. Set user info from session.
+            if (sessionInfo.userId && sessionInfo.role) {
+              setUser({
+                id: sessionInfo.userId,
+                username: "",
+                displayName: "",
+                role: sessionInfo.role,
+              });
+            }
           }
         }
       } catch {
@@ -93,18 +100,18 @@ export function useAuth(): UseAuthReturn {
     try {
       const response = await commands.login({ username, password });
 
-      // Check if user has TOTP enabled by attempting totp check.
-      // The backend login succeeds but MFA verification is a second step.
-      // For now, complete login immediately. MFA gate is handled at the
-      // backend command level when it exists (Plan 02-03).
-      // TODO: When MFA backend commands are available, check user.totpEnabled
-      // and set mfaRequired=true instead of completing login.
-      setUser(response.user);
-      setSession(response.session);
-      setPendingMfaUser(null);
-      setPendingMfaSession(null);
-      setMfaRequired(false);
-      setFirstRun(false);
+      if (response.mfaRequired && response.pendingUserId) {
+        // MFA is required -- store pending user ID and prompt for TOTP code
+        setPendingMfaUserId(response.pendingUserId);
+        setMfaRequired(true);
+      } else {
+        // No MFA -- complete login immediately
+        setUser(response.user);
+        setSession(response.session);
+        setPendingMfaUserId(null);
+        setMfaRequired(false);
+        setFirstRun(false);
+      }
     } catch (e) {
       setError("Invalid credentials");
     } finally {
@@ -149,8 +156,7 @@ export function useAuth(): UseAuthReturn {
       setUser(null);
       setSession(null);
       setMfaRequired(false);
-      setPendingMfaUser(null);
-      setPendingMfaSession(null);
+      setPendingMfaUserId(null);
     } catch (e) {
       setError(String(e));
     }
@@ -170,22 +176,26 @@ export function useAuth(): UseAuthReturn {
   const verifyMfa = useCallback(
     async (code: string) => {
       setError(null);
+      setLoading(true);
       try {
-        const valid = await commands.checkTotp(code);
-        if (valid && pendingMfaUser && pendingMfaSession) {
-          setUser(pendingMfaUser);
-          setSession(pendingMfaSession);
-          setMfaRequired(false);
-          setPendingMfaUser(null);
-          setPendingMfaSession(null);
-        } else {
-          setError("Invalid verification code");
+        if (!pendingMfaUserId) {
+          setError("No pending MFA session");
+          return;
         }
+        // Call complete_login which verifies TOTP and creates a full session
+        const response = await commands.completeLogin(pendingMfaUserId, code);
+        setUser(response.user);
+        setSession(response.session);
+        setMfaRequired(false);
+        setPendingMfaUserId(null);
+        setFirstRun(false);
       } catch (e) {
         setError("Invalid verification code");
+      } finally {
+        setLoading(false);
       }
     },
-    [pendingMfaUser, pendingMfaSession],
+    [pendingMfaUserId],
   );
 
   return {

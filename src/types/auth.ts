@@ -39,6 +39,10 @@ export interface RegisterInput {
 export interface LoginResponse {
   user: UserResponse;
   session: SessionInfo;
+  /** When true, the user has TOTP enabled and must provide a code via completeLogin. */
+  mfaRequired: boolean;
+  /** Present when mfaRequired is true; pass to completeLogin. */
+  pendingUserId: string | null;
 }
 
 /** TOTP setup response from setup_totp command. */

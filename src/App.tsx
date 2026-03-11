@@ -27,6 +27,13 @@ function App() {
     fetchTimeout();
   }, []);
 
+  // Auto-show registration form on first run
+  useEffect(() => {
+    if (auth.firstRun) {
+      setShowRegister(true);
+    }
+  }, [auth.firstRun]);
+
   // Start idle timer when authenticated and not locked
   useIdleTimer(timeoutMinutes, auth.isAuthenticated && !auth.isLocked);
 
