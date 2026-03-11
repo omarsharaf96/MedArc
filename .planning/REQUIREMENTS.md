@@ -12,9 +12,9 @@ Requirements for initial release (Phase 1 MVP). Core EMR functionality without A
 - [x] **FOUN-01**: Application launches as a macOS desktop app via Tauri 2.x shell with WKWebView rendering React frontend
 - [x] **FOUN-02**: All data stored in SQLCipher-encrypted SQLite database with AES-256-CBC and per-page HMAC tamper detection
 - [x] **FOUN-03**: Database encryption key stored exclusively in macOS Keychain (Secure Enclave-backed on Apple Silicon)
-- [ ] **FOUN-04**: Data modeled as FHIR R4 resources stored as JSON columns with indexed lookup tables for frequently queried fields
+- [x] **FOUN-04**: Data modeled as FHIR R4 resources stored as JSON columns with indexed lookup tables for frequently queried fields
 - [x] **FOUN-05**: Alembic schema migrations with render_as_batch=True for SQLite compatibility
-- [ ] **FOUN-06**: Rust-native Tauri commands handle all database CRUD and file system operations (no Python dependency for core EMR)
+- [x] **FOUN-06**: Rust-native Tauri commands handle all database CRUD and file system operations (no Python dependency for core EMR)
 
 ### Authentication & Access Control
 
@@ -175,9 +175,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUN-01 | Phase 1: Desktop Shell & Encrypted Database | Pending |
 | FOUN-02 | Phase 1: Desktop Shell & Encrypted Database | Pending |
 | FOUN-03 | Phase 1: Desktop Shell & Encrypted Database | Pending |
-| FOUN-04 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-04 | Phase 1: Desktop Shell & Encrypted Database | Complete |
 | FOUN-05 | Phase 1: Desktop Shell & Encrypted Database | Pending |
-| FOUN-06 | Phase 1: Desktop Shell & Encrypted Database | Pending |
+| FOUN-06 | Phase 1: Desktop Shell & Encrypted Database | Complete |
 | AUTH-01 | Phase 2: Authentication & Access Control | Pending |
 | AUTH-02 | Phase 2: Authentication & Access Control | Pending |
 | AUTH-03 | Phase 2: Authentication & Access Control | Pending |

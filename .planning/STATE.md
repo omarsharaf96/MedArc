@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: executing
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-03-11T03:17:36.246Z"
+last_activity: 2026-03-11 -- Completed 01-02-PLAN.md (FHIR resource schema, CRUD commands, frontend wiring)
+progress:
+  total_phases: 9
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 2
+  percent: 67
+---
+
 # Project State
 
 ## Project Reference
@@ -10,28 +26,28 @@ See: .planning/PROJECT.md (updated 2026-03-10)
 ## Current Position
 
 Phase: 1 of 9 (Desktop Shell & Encrypted Database)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: Executing
-Last activity: 2026-03-11 -- Completed 01-01-PLAN.md (Tauri desktop shell + SQLCipher encrypted database)
+Last activity: 2026-03-11 -- Completed 01-02-PLAN.md (FHIR resource schema, CRUD commands, frontend wiring)
 
-Progress: [█░░░░░░░░░] 4%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 8 min
-- Total execution time: 0.13 hours
+- Total plans completed: 2
+- Average duration: 6.5 min
+- Total execution time: 0.22 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1 - Desktop Shell & Encrypted Database | 1 | 8 min | 8 min |
+| 1 - Desktop Shell & Encrypted Database | 2 | 13 min | 6.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (8 min)
-- Trend: baseline
+- Last 5 plans: 01-01 (8 min), 01-02 (5 min)
+- Trend: improving
 
 *Updated after each plan completion*
 
@@ -49,6 +65,10 @@ Recent decisions affecting current work:
 - [01-01]: Used raw hex key (x'...') for SQLCipher to skip PBKDF2 startup latency
 - [01-01]: Used std::sync::LazyLock for static migrations instead of lazy_static crate
 - [01-01]: Set [lib] name = "app_lib" in Cargo.toml for clear binary/library separation
+- [01-02]: Used #[serde(rename_all = "camelCase")] on Rust FHIR structs for Tauri 2 frontend serialization
+- [01-02]: Added NotFound variant to AppError for CRUD not-found error handling
+- [01-02]: Used json_extract approach for Patient lookups rather than virtual generated columns (SQLite ALTER TABLE limitations)
+- [01-02]: Tauri 2 invoke() params use Rust parameter names (snake_case), not serde-renamed field names
 
 ### Pending Todos
 
@@ -61,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-11
-Stopped at: Completed 01-01-PLAN.md (Tauri desktop shell + SQLCipher encrypted database)
-Resume file: .planning/phases/01-desktop-shell-encrypted-database/01-01-SUMMARY.md
+Last session: 2026-03-11T03:17:36.242Z
+Stopped at: Completed 01-02-PLAN.md
+Resume file: None

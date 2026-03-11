@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md -- Scaffold Tauri 2.x app with SQLCipher database and macOS Keychain key management
-- [ ] 01-02-PLAN.md -- FHIR R4 resource schema, Rust CRUD commands, and frontend integration
+- [x] 01-02-PLAN.md -- FHIR R4 resource schema, Rust CRUD commands, and frontend integration
 - [ ] 01-03-PLAN.md -- Frontend component polish and end-to-end requirement verification
 
 ### Phase 2: Authentication & Access Control
