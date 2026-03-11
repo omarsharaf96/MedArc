@@ -6,15 +6,21 @@ const MIN_PASSWORD_LENGTH: usize = 12;
 /// Hash a password using Argon2id.
 /// Returns the PHC-formatted hash string (starts with "$argon2id$").
 /// Rejects passwords shorter than MIN_PASSWORD_LENGTH.
-pub fn hash_password(_password: &str) -> Result<String, AppError> {
-    // Stub: will fail tests
-    Err(AppError::Authentication("not implemented".to_string()))
+pub fn hash_password(password: &str) -> Result<String, AppError> {
+    if password.len() < MIN_PASSWORD_LENGTH {
+        return Err(AppError::Validation(format!(
+            "Password must be at least {} characters",
+            MIN_PASSWORD_LENGTH
+        )));
+    }
+    Ok(password_auth::generate_hash(password))
 }
 
 /// Verify a plaintext password against an Argon2id hash.
-pub fn verify(_password: &str, _hash: &str) -> Result<(), AppError> {
-    // Stub: will fail tests
-    Err(AppError::Authentication("not implemented".to_string()))
+pub fn verify(password: &str, hash: &str) -> Result<(), AppError> {
+    password_auth::verify_password(password, hash).map_err(|_| {
+        AppError::Authentication("Invalid credentials".to_string())
+    })
 }
 
 #[cfg(test)]

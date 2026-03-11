@@ -57,14 +57,3 @@ pub struct LoginInput {
     pub username: String,
     pub password: String,
 }
-
-/// Session information exposed to the frontend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionInfo {
-    pub session_id: Option<String>,
-    pub user_id: Option<String>,
-    pub role: Option<String>,
-    pub state: String,
-    pub last_activity: Option<String>,
-}
