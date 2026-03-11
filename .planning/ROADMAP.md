@@ -69,11 +69,13 @@ Plans:
   2. Audit log entries form a cryptographic hash chain where each entry includes the hash of the previous entry, preventing undetectable tampering
   3. Audit logs are retained for a minimum of 6 years and cannot be deleted or modified by any user role
   4. Provider can view their own audit log entries; System Admin can view all audit log entries
-**Plans**: TBD
+**Plans:** 4 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md -- Audit core data layer: Migration 8, audit module (entry.rs + query.rs), SHA-256 hash chain, immutability triggers (TDD)
+- [ ] 03-02-PLAN.md -- FHIR and auth command instrumentation: inject write_audit_entry into all 9 ePHI commands
+- [ ] 03-03-PLAN.md -- Tauri audit commands and React AuditLog UI: get_audit_log, verify_audit_chain, role-scoped table view
+- [ ] 03-04-PLAN.md -- lib.rs wiring and end-to-end AUDT requirement verification
 
 ### Phase 4: Patient Demographics & Care Teams
 **Goal**: Users can create, search, and manage patient records with demographics, insurance, employer data, clinical identifiers, and care team assignments
@@ -179,7 +181,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 |-------|----------------|--------|-----------|
 | 1. Desktop Shell & Encrypted Database | 3/3 | Complete   | 2026-03-11 |
 | 2. Authentication & Access Control | 2/5 | In progress | - |
-| 3. Audit Logging | 0/2 | Not started | - |
+| 3. Audit Logging | 0/4 | Not started | - |
 | 4. Patient Demographics & Care Teams | 0/3 | Not started | - |
 | 5. Clinical Patient Data | 0/2 | Not started | - |
 | 6. Scheduling | 0/3 | Not started | - |
