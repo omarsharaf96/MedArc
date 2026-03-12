@@ -3,7 +3,7 @@
 **Active Milestone:** M002 — MedArc Phase 2 Frontend
 **Active Slice:** S01 — Navigation Shell & Type System
 **Phase:** planning
-**Requirements Status:** 12 active · 56 validated · 0 deferred · 0 out of scope
+**Requirements Status:** 28 active · 31 validated · 9 deferred · 0 out of scope
 
 ## Milestone Registry
 - ✅ **M001:** MedArc Phase 1 MVP
