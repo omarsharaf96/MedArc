@@ -80,6 +80,7 @@ pub fn run() {
             commands::mfa::check_biometric,
             commands::mfa::enable_touch_id,
             commands::mfa::disable_touch_id,
+            commands::mfa::biometric_authenticate,
             commands::audit::get_audit_log,
             commands::audit::verify_audit_chain_cmd,
             commands::patient::create_patient,
@@ -150,6 +151,13 @@ pub fn run() {
             commands::backup::create_backup,
             commands::backup::restore_backup,
             commands::backup::list_backups,
+            // M003/S01 — PT Note Templates
+            commands::pt_notes::create_pt_note,
+            commands::pt_notes::get_pt_note,
+            commands::pt_notes::list_pt_notes,
+            commands::pt_notes::update_pt_note,
+            commands::pt_notes::cosign_pt_note,
+            commands::pt_notes::lock_pt_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

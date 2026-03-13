@@ -62,7 +62,7 @@ This milestone is complete only when all are true:
 
 ## Slices
 
-- [ ] **S01: Touch ID Fix + PT Note Templates** `risk:high` `depends:[]`
+- [x] **S01: Touch ID Fix + PT Note Templates** `risk:high` `depends:[]`
   > After this: Touch ID works on the lock screen; provider can create, co-sign, and lock all three PT note types (IE, Daily Progress Note, Discharge Summary) with PT-specific fields — proven by cargo test --lib for data models and tsc --noEmit for UI.
 
 - [ ] **S02: Objective Measures & Outcome Scores** `risk:medium` `depends:[S01]`

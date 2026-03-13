@@ -310,6 +310,17 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
             </div>
           )}
 
+          {/* PT Notes — Provider and SystemAdmin only */}
+          {(role === "Provider" || role === "SystemAdmin") && (
+            <button
+              type="button"
+              onClick={() => navigate({ page: "pt-notes", patientId })}
+              className="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+            >
+              PT Notes
+            </button>
+          )}
+
           {/* Edit button — hidden for BillingStaff */}
           {!isBillingStaff && (
             <button

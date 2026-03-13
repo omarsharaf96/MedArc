@@ -1,11 +1,13 @@
 use serde::Serialize;
 use tauri::State;
 
+use crate::audit::{write_audit_entry, AuditEntryInput};
 use crate::auth::biometric;
 use crate::auth::password;
 use crate::auth::session::SessionManager;
 use crate::auth::totp;
 use crate::db::connection::Database;
+use crate::device_id::DeviceId;
 use crate::error::AppError;
 
 /// Response from biometric availability check.
@@ -232,4 +234,197 @@ pub fn disable_touch_id(
     )?;
 
     Ok(())
+}
+
+// ── biometric_authenticate — macOS implementation ──────────────────────────
+
+/// Authenticate the locked session using Touch ID (LAContext).
+///
+/// The LAContext is created and destroyed on a dedicated OS thread to satisfy
+/// the ObjC requirement that `LAContext` is used on the same thread throughout.
+/// A synchronous mpsc channel bridges the async ObjC callback back to the
+/// calling Rust thread. On success, the session is unlocked and an audit row
+/// is written. Both success and failure paths produce audit entries.
+///
+/// # Errors
+/// - `AppError::Authentication("Touch ID is not available on this device")` — no Touch ID hardware/enrollment
+/// - `AppError::Authentication("No locked session to unlock")` — session not in locked state
+/// - `AppError::Authentication(reason)` — LAContext evaluation failed (user cancelled, hardware error, etc.)
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn biometric_authenticate(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<(), AppError> {
+    // ── Pre-flight: check hardware availability ──────────────────────────
+    if !biometric::check_biometric_available() {
+        return Err(AppError::Authentication(
+            "Touch ID is not available on this device".to_string(),
+        ));
+    }
+
+    // ── Pre-flight: require a locked session ─────────────────────────────
+    let state_info = session.get_state();
+    let user_id = state_info
+        .user_id
+        .ok_or_else(|| AppError::Authentication("No locked session to unlock".to_string()))?;
+    let session_id = state_info
+        .session_id
+        .ok_or_else(|| AppError::Authentication("No locked session to unlock".to_string()))?;
+
+    if state_info.state != "locked" {
+        return Err(AppError::Authentication(
+            "No locked session to unlock".to_string(),
+        ));
+    }
+
+    let reason_str = biometric::authenticate_biometric_reason();
+    let device_id_str = device_id.get().to_string();
+    let user_id_clone = user_id.clone();
+
+    // ── Spawn a blocking thread so we don't block the async executor ──────
+    // Inside the blocking task we spawn a dedicated OS thread that owns the
+    // LAContext for its entire lifetime, satisfying the ObjC threading contract.
+    let biometric_result: Result<(), String> =
+        tauri::async_runtime::spawn_blocking(move || {
+            use std::sync::mpsc;
+            use std::thread;
+
+            let (tx, rx) = mpsc::sync_channel::<Result<(), String>>(1);
+
+            // Dedicated thread: LAContext is created, used, and dropped here.
+            let handle = thread::spawn(move || {
+                use block2::RcBlock;
+                use objc2::rc::Retained;
+                use objc2::runtime::Bool;
+                use objc2_foundation::{NSError, NSString};
+                use objc2_local_authentication::{LAContext, LAPolicy};
+
+                // SAFETY: LAContext is created on this thread and never shared.
+                // evaluatePolicy_localizedReason_reply calls the block on an
+                // internal GCD queue; the block only captures the SyncSender
+                // (which is Send), so cross-thread safety is maintained.
+                unsafe {
+                    let ctx: Retained<LAContext> = LAContext::new();
+                    let ns_reason = NSString::from_str(&reason_str);
+
+                    // Build the ObjC reply block. The tx sender is Send + Sync.
+                    let block = RcBlock::new(move |success: Bool, err_ptr: *mut NSError| {
+                        if success.as_bool() {
+                            let _ = tx.send(Ok(()));
+                        } else {
+                            let msg = if err_ptr.is_null() {
+                                "Touch ID authentication failed".to_string()
+                            } else {
+                                // SAFETY: err_ptr is non-null and owned by LAContext.
+                                let err: &NSError = &*err_ptr;
+                                err.localizedDescription().to_string()
+                            };
+                            let _ = tx.send(Err(msg));
+                        }
+                    });
+
+                    // Kick off the asynchronous LAContext evaluation. The block
+                    // fires on an internal queue when the user taps Touch ID.
+                    ctx.evaluatePolicy_localizedReason_reply(
+                        LAPolicy::DeviceOwnerAuthenticationWithBiometrics,
+                        &ns_reason,
+                        &*block,
+                    );
+
+                    // Block this thread until the ObjC callback fires.
+                    rx.recv()
+                        .unwrap_or_else(|_| Err("Touch ID channel closed".to_string()))
+                }
+            });
+
+            handle
+                .join()
+                .unwrap_or_else(|_| Err("Touch ID thread panicked".to_string()))
+        })
+        .await
+        .map_err(|e| AppError::Authentication(format!("Touch ID task failed: {}", e)))?;
+
+    // ── Audit: write entry for both success and failure paths ────────────
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    match biometric_result {
+        Ok(()) => {
+            // Unlock the session in-memory
+            session.unlock(&user_id)?;
+
+            // Update the sessions row
+            conn.execute(
+                "UPDATE sessions SET state = 'active', last_activity = datetime('now') WHERE id = ?1",
+                rusqlite::params![session_id],
+            )?;
+
+            // Audit: success
+            write_audit_entry(
+                &conn,
+                AuditEntryInput {
+                    user_id: user_id_clone,
+                    action: "auth.biometric.unlock".to_string(),
+                    resource_type: "auth".to_string(),
+                    resource_id: None,
+                    patient_id: None,
+                    device_id: device_id_str,
+                    success: true,
+                    details: None,
+                },
+            )?;
+
+            Ok(())
+        }
+        Err(err_msg) => {
+            // Audit: failure
+            write_audit_entry(
+                &conn,
+                AuditEntryInput {
+                    user_id: user_id_clone,
+                    action: "auth.biometric.failed".to_string(),
+                    resource_type: "auth".to_string(),
+                    resource_id: None,
+                    patient_id: None,
+                    device_id: device_id_str,
+                    success: false,
+                    details: Some(err_msg.clone()),
+                },
+            )?;
+
+            Err(AppError::Authentication(err_msg))
+        }
+    }
+}
+
+/// Biometric authenticate — non-macOS fallback (always returns unavailable).
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn biometric_authenticate(
+    _db: State<'_, Database>,
+    _session: State<'_, SessionManager>,
+    _device_id: State<'_, DeviceId>,
+) -> Result<(), AppError> {
+    Err(AppError::Authentication(
+        "Biometric not available".to_string(),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that check_biometric_available() is callable and returns a bool
+    /// on any platform. The function must compile and execute without panicking.
+    #[test]
+    fn biometric_check_available_returns_bool() {
+        let result: bool = biometric::check_biometric_available();
+        // On CI/non-Touch-ID hardware this will be false; on enrolled hardware true.
+        // We only verify the function is callable and returns the right type.
+        let _ = result;
+    }
 }

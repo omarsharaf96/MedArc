@@ -4,6 +4,7 @@ import { commands } from "../../lib/tauri";
 interface LockScreenProps {
   displayName: string;
   onUnlock: (password: string) => Promise<void>;
+  onBiometricUnlock: () => Promise<void>;
   onLogout: () => Promise<void>;
   error: string | null;
 }
@@ -18,6 +19,7 @@ interface LockScreenProps {
 export default function LockScreen({
   displayName,
   onUnlock,
+  onBiometricUnlock,
   onLogout,
   error,
 }: LockScreenProps) {
@@ -50,16 +52,11 @@ export default function LockScreen({
   };
 
   const handleTouchId = async () => {
-    // Touch ID authentication is handled by the Tauri biometric plugin
-    // on the backend side. For now, this provides the UI trigger.
-    // The actual biometric prompt is shown natively by the OS.
     setUnlocking(true);
     try {
-      // Attempt biometric unlock via backend
-      // This would call a biometric_unlock command when available
-      await onUnlock("");
+      await onBiometricUnlock();
     } catch {
-      // Touch ID failed or cancelled
+      // error is already set in useAuth
     } finally {
       setUnlocking(false);
     }

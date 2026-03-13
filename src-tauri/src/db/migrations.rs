@@ -5,7 +5,7 @@ use rusqlite_migration::{Migrations, M};
 use crate::db::connection::Database;
 use crate::error::AppError;
 
-static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
+pub static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
     Migrations::new(vec![
         // Migration 1: App metadata table
         M::up(
@@ -454,6 +454,43 @@ static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             );
             CREATE INDEX IF NOT EXISTS idx_backup_log_started ON backup_log(started_at);
             CREATE INDEX IF NOT EXISTS idx_backup_log_op      ON backup_log(operation);"
+        ),
+        // Migration 15: PT Note index table for PT-DOC-01 through PT-DOC-04
+        //
+        // `pt_note_index` is the fast-query index for Physical Therapy notes.
+        // The actual note content is stored as FHIR Composition JSON in `fhir_resources`
+        // (resource_type = 'PTNote').
+        //
+        // Three note types are supported:
+        //   initial_eval     — Initial Evaluation (PT-DOC-01)
+        //   progress_note    — Daily Progress Note (PT-DOC-02)
+        //   discharge_summary — Discharge Summary (PT-DOC-03)
+        //
+        // Status lifecycle: draft → signed → locked
+        //   draft   — editable by the creating provider
+        //   signed  — co-signed; triggers visit counter hooks in S07
+        //   locked  — immutable; no further edits allowed
+        //
+        // `addendum_of` ships from day one so S07 addendum linkage requires no
+        // breaking migration later.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS pt_note_index (
+                pt_note_id   TEXT PRIMARY KEY NOT NULL,
+                patient_id   TEXT NOT NULL,
+                encounter_id TEXT,
+                note_type    TEXT NOT NULL
+                             CHECK(note_type IN ('initial_eval','progress_note','discharge_summary')),
+                status       TEXT NOT NULL DEFAULT 'draft'
+                             CHECK(status IN ('draft','signed','locked')),
+                provider_id  TEXT NOT NULL,
+                addendum_of  TEXT REFERENCES pt_note_index(pt_note_id),
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_pt_note_patient ON pt_note_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_pt_note_type    ON pt_note_index(note_type);
+            CREATE INDEX IF NOT EXISTS idx_pt_note_status  ON pt_note_index(status);"
         ),
     ])
 });

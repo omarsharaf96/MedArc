@@ -16,6 +16,8 @@ import { EncounterWorkspace } from "../../pages/EncounterWorkspace";
 import { SchedulePage } from "../../pages/SchedulePage";
 import { SettingsPage } from "../../pages/SettingsPage";
 import { AuditLogPage } from "../../pages/AuditLogPage";
+import { PTNotesPage } from "../../pages/PTNotesPage";
+import { PTNoteFormPage } from "../../pages/PTNoteFormPage";
 import { useAuth } from "../../hooks/useAuth";
 
 // ─── Unknown route fallback ─────────────────────────────────────────────────
@@ -73,6 +75,22 @@ export function ContentArea() {
       return <SettingsPage />;
     case "audit-log":
       return <AuditLogPage />;
+    case "pt-notes":
+      return (
+        <PTNotesPage
+          patientId={currentRoute.patientId}
+          role={user?.role ?? ""}
+        />
+      );
+    case "pt-note-detail":
+      return (
+        <PTNoteFormPage
+          patientId={currentRoute.patientId}
+          noteType={currentRoute.noteType}
+          ptNoteId={currentRoute.ptNoteId}
+          role={user?.role ?? ""}
+        />
+      );
     default: {
       // Exhaustiveness guard: TypeScript will warn if a Route variant is unhandled.
       // Cast to string so we can display the unknown page value at runtime.

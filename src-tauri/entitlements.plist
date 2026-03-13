@@ -57,8 +57,9 @@
     <key>com.apple.security.files.downloads.read-write</key>
     <false/>
 
-    <!-- ── Touch ID / biometric (AUTH-04) ───────────────────────── -->
-    <key>com.apple.security.personal-information.location</key>
-    <false/>
+    <!-- ── Touch ID / biometric (AUTH-04-FIX) ──────────────────── -->
+    <!-- Required for LAContext evaluatePolicy to succeed in the sandbox -->
+    <key>com.apple.security.device.biometric-access</key>
+    <true/>
 </dict>
 </plist>

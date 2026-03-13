@@ -75,6 +75,7 @@ function App() {
         <LockScreen
           displayName={auth.user?.displayName || auth.user?.username || "User"}
           onUnlock={auth.unlock}
+          onBiometricUnlock={auth.biometricUnlock}
           onLogout={auth.logout}
           error={auth.error}
         />

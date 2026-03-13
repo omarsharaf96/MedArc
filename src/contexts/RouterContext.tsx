@@ -11,6 +11,7 @@
 
 import { createContext, useContext, useState, useCallback } from "react";
 import type { ReactNode } from "react";
+import type { PtNoteType } from "../types/pt";
 
 // ─── Route union type ───────────────────────────────────────────────────────
 
@@ -25,7 +26,9 @@ export type Route =
   | { page: "encounter-workspace"; patientId: string; encounterId: string }
   | { page: "schedule" }
   | { page: "settings" }
-  | { page: "audit-log" };
+  | { page: "audit-log" }
+  | { page: "pt-notes"; patientId: string }
+  | { page: "pt-note-detail"; patientId: string; noteType: PtNoteType; ptNoteId: string };
 
 // ─── Context value type ─────────────────────────────────────────────────────
 

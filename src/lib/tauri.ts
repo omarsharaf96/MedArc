@@ -94,6 +94,8 @@ import type {
 
 import type { BackupResult, RestoreResult, BackupLogEntry } from "../types/backup";
 
+import type { PtNoteInput, PtNoteRecord, PtNoteType } from "../types/pt";
+
 export const commands = {
   /** Check database encryption health status. */
   checkDb: () => invoke<DbStatus>("check_db"),
@@ -196,6 +198,9 @@ export const commands = {
 
   /** Disable Touch ID. */
   disableTouchId: () => invoke<void>("disable_touch_id"),
+
+  /** Authenticate using biometrics (Touch ID). Throws on failure or cancellation. */
+  biometricAuthenticate: () => invoke<void>("biometric_authenticate", {}),
 
   // ─── Break-glass commands ────────────────────────────────────────
 
@@ -497,4 +502,33 @@ export const commands = {
 
   /** List all backup log entries (most recent first, limit 100). */
   listBackups: () => invoke<BackupLogEntry[]>("list_backups"),
+
+  // ─── PT Note commands ────────────────────────────────────────────
+
+  /** Create a new PT note (draft). Returns the created PtNoteRecord. */
+  createPtNote: (input: PtNoteInput) =>
+    invoke<PtNoteRecord>("create_pt_note", { input }),
+
+  /** Retrieve a single PT note by ID. */
+  getPtNote: (ptNoteId: string) =>
+    invoke<PtNoteRecord>("get_pt_note", { ptNoteId }),
+
+  /** List PT notes for a patient, optionally filtered by note type. */
+  listPtNotes: (patientId: string, noteType?: PtNoteType | null) =>
+    invoke<PtNoteRecord[]>("list_pt_notes", {
+      patientId,
+      noteType: noteType ?? null,
+    }),
+
+  /** Update a PT note's fields (draft only; locked notes are rejected). */
+  updatePtNote: (ptNoteId: string, input: PtNoteInput) =>
+    invoke<PtNoteRecord>("update_pt_note", { ptNoteId, input }),
+
+  /** Co-sign a PT note, transitioning it from draft → signed. */
+  cosignPtNote: (ptNoteId: string) =>
+    invoke<PtNoteRecord>("cosign_pt_note", { ptNoteId }),
+
+  /** Lock a signed PT note, transitioning it from signed → locked. */
+  lockPtNote: (ptNoteId: string) =>
+    invoke<PtNoteRecord>("lock_pt_note", { ptNoteId }),
 };

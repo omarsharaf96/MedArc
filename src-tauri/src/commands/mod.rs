@@ -9,5 +9,6 @@ pub mod health;
 pub mod labs;
 pub mod mfa;
 pub mod patient;
+pub mod pt_notes;
 pub mod scheduling;
 pub mod session;

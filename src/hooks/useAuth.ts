@@ -26,6 +26,7 @@ export interface UseAuthReturn extends AuthState {
   ) => Promise<void>;
   logout: () => Promise<void>;
   unlock: (password: string) => Promise<void>;
+  biometricUnlock: () => Promise<void>;
   verifyMfa: (code: string) => Promise<void>;
   clearError: () => void;
 }
@@ -173,6 +174,17 @@ export function useAuth(): UseAuthReturn {
     }
   }, []);
 
+  const biometricUnlock = useCallback(async () => {
+    setError(null);
+    try {
+      await commands.biometricAuthenticate();
+      const sessionInfo = await commands.getSessionState();
+      setSession(sessionInfo);
+    } catch {
+      setError("Touch ID authentication failed. Please use your password.");
+    }
+  }, []);
+
   const verifyMfa = useCallback(
     async (code: string) => {
       setError(null);
@@ -211,6 +223,7 @@ export function useAuth(): UseAuthReturn {
     register,
     logout,
     unlock,
+    biometricUnlock,
     verifyMfa,
     clearError,
   };
