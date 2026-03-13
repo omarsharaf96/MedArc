@@ -11,10 +11,10 @@
 - 🔄 **M003:** PT Practice
 
 ## Recent Decisions
-- S02: Scoring logic is pure Rust at record time; FABQ work subscale in `score`, PA in `score_secondary`; `get_outcome_comparison` is a dedicated backend command; inline SVG trend chart (no npm packages); tabular body-region selector (no SVG body diagram); ROM/MMT in `fhir_resources` only (no secondary index); `cargo test --lib` is primary Rust verification gate
+- None recorded
 
 ## Blockers
 - None
 
 ## Next Action
-Execute T01: Backend — scoring module, Migration 16, and Tauri commands.
+Execute T01: Backend — scoring module, Migration 16, and Tauri commands in slice S02.
