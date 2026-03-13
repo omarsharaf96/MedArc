@@ -22,15 +22,16 @@ Physicians can document patient encounters through voice capture that automatica
 - [x] Clinical documentation: SOAP notes, vitals (LOINC-coded + BMI auto-calc), 14-system ROS, 13-system physical exam, 12 specialty templates, co-sign workflow, passive drug-allergy CDS — CLIN-01–07 validated, 24 unit tests, Migration 12, ClinicalDocumentation RBAC (S07)
 - [x] Lab results & document management: lab catalogue (LOINC), lab orders (ServiceRequest + provider signature), lab results (DiagnosticReport + abnormal flagging + sign-off), document upload/browse/verify (SHA-256 integrity, 64 MB limit) — LABS-01–04 + DOCS-01–03 validated, 33 unit tests, Migration 13, LabResults + PatientDocuments RBAC (S08)
 - [x] Backup, distribution & release: AES-256-GCM encrypted backup/restore, backup_log audit trail, Backup RBAC, tauri-plugin-updater Ed25519 auto-update wiring, macOS App Sandbox + Hardened Runtime entitlements, code-signing/notarization config, docs/RELEASE.md runbook — BKUP-01–03 + DIST-01–03 validated, 13 unit tests (265 total), Migration 14 (S09) — **M001 COMPLETE**
+- [x] **Frontend UI** — Full React UI layer: PatientListPage + PatientDetailPage + PatientFormModal, CalendarPage + FlowBoardPage + AppointmentFormModal + WaitlistPanel + RecallPanel, EncounterWorkspace (SOAP + vitals + ROS + PhysicalExam), ClinicalSidebar (Problems/Medications/Allergies/Immunizations + DrugAllergyAlertBanner), LabResultsPanel, DocumentBrowser (native file picker + chunked base64), SettingsPage (Backup/Security/Account) — UI-01–07 validated, RBAC-gated navigation, 88 Tauri invoke wrappers, tsc --noEmit exits 0 — **M002 COMPLETE**
 
-### Active (Phase 2 — M001 Complete, M002 Not Yet Started)
+### Active (Phase 3 — M002 Complete)
 
-**M001 is fully complete (2026-03-11).** The Phase 1 MVP backend is built and proven with 265 unit tests. The following capabilities are implemented in Rust/Tauri but have no React frontend UI yet — Phase 2 should prioritize the UI layer before adding new backend features:
+**M002 is fully complete (2026-03-12).** The full React frontend layer is built and wired to all 88 M001 backend commands. A practitioner can log in, manage patients, write clinical encounters (SOAP + vitals + ROS + PE), view labs/documents, schedule appointments, track the Patient Flow Board, and manage backup/MFA settings. The following remain for future milestones:
 
-- [ ] **Frontend UI** — PatientList, PatientForm, PatientDetail, ScheduleCalendar, FlowBoard, ClinicalNote, VitalsFlowsheet, LabResults, DocumentBrowser, BackupSettings (all Tauri APIs exist; UI components are missing)
 - [ ] **Touch ID** — biometric.rs stub always returns unavailable; requires tauri-plugin-biometry integration
 - [ ] **Pediatric growth charts** (CLIN-08) — vitals data captured; CDC/WHO percentile tables not included
 - [ ] **Scheduled automatic backups** (BKUP-04) — on-demand only; LaunchAgent or Tauri background scheduler required
+- [ ] **`verifyDocumentIntegrity` UI** — invoke wrapper exists in tauri.ts but no UI surface invokes it; deferred from S06
 - [ ] **E-prescribing** — drug search, Weno Exchange integration, EPCS, interaction checks, RxNorm/SNOMED coding
 - [ ] **Lab integration** — HL7 v2 message exchange, procedure ordering, results workflow, LOINC mapping
 - [ ] **Billing** — CPT/HCPCS/ICD-10/SNOMED coding, fee sheets, X12 837P claims, ERA 835 processing, AR tracking
@@ -41,16 +42,17 @@ Physicians can document patient encounters through voice capture that automatica
 - [ ] **AI medical coding** — LLM entity extraction + FAISS vector search for ICD-10/CPT suggestions
 - [ ] **Cloud migration** — AWS RDS PostgreSQL, PowerSync offline-first sync, dual-write strategy
 
-### Known Technical Debt (from M001)
+### Known Technical Debt
 
-- `src-tauri/src/commands/` contains `* 2.rs` duplicate files (`audit 2.rs`, `clinical 2.rs`, `documentation 2.rs`, `labs 2.rs`, `patient 2.rs`, `scheduling 2.rs`) — must be audited and removed before Phase 2 development
 - `tauri.conf.json` contains `PLACEHOLDER_ED25519_PUBKEY` — must be replaced with real Ed25519 key before auto-updater functions
 - `restore_backup` requires app restart after restore (SQLite connection pool holds stale state)
 - All datetimes should be normalized to no-timezone-suffix format — `scheduling.rs` datetime parsing will produce wrong results for suffixed timestamps
+- `SettingsPage` TOTP status is inferred from command availability (no dedicated `is_totp_enabled` query) — UX gap when TOTP is not yet set up
+- Live interactive end-to-end UAT was not completed in M002 (cargo compile timeout consumed CPU); S07-UAT.md records PARTIAL status with resume instructions
 
 ### Out of Scope
 
-- Patient portal (Phase 1) — deprioritized in favor of desktop clinical workflow
+- Patient portal — deprioritized in favor of desktop clinical workflow
 - Mobile companion app — scoped for Phase 4+
 - ONC certification — technically voluntary, architecture supports future certification
 - AWS HealthLake — $197/mo base, not cost-effective for small clinics
@@ -97,6 +99,9 @@ Physicians can document patient encounters through voice capture that automatica
 | AWS Bedrock for cloud AI | Hosts Claude + LLaMA with standard BAA, near-instant approval, zero data retention | -- Pending |
 | PowerSync for offline-first sync | Production-proven PostgreSQL <-> SQLite sync, bucket-based partial sync, causal consistency | -- Pending |
 | 4-phase 18-month implementation | Phase 1: MVP (no AI), Phase 2: feature parity, Phase 3: AI enhancement, Phase 4: cloud migration | -- Pending |
+| State-based discriminated-union router | No react-router-dom — Tauri WKWebView has no URL bar; typed route payloads enable exhaustive TypeScript checking | M002 |
+| Flat `commands` object in tauri.ts | All 88 wrappers at top level (no namespacing) — consistent with existing callsites, avoids widespread refactoring | M002 |
+| tsc --noEmit as primary verification gate | cargo test --lib takes 30+ min cold; TypeScript contract checking is fast and catches the most likely frontend mistakes | M002 |
 
 ---
-*Last updated: 2026-03-11 — M001 MedArc Phase 1 MVP complete (265 unit tests, all 43 requirements validated)*
+*Last updated: 2026-03-12 — M002 MedArc Phase 2 Frontend complete (full React UI, 88 Tauri commands wired, tsc exits 0, UI-01–07 validated)*

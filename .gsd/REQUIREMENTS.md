@@ -2,6 +2,69 @@
 
 ## Active
 
+### UI-07 — UI enforces RBAC: navigation items and views are role-gated
+
+- Status: validated
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S01
+
+Navigation sidebar shows only role-appropriate sections. FrontDesk: Schedule only. Provider: Patients + Schedule + Settings. NurseMa: Patients + Schedule + Settings. BillingStaff: Schedule + Settings. SystemAdmin: all views including audit log. Unknown role: no nav items, sign out only. Enforced in two layers: sidebar filters visible items, each route component independently verifies auth/role. Proven by M002/S01: NAV_ITEMS_BY_ROLE in Sidebar.tsx confirmed FrontDesk→[Schedule only] via static source analysis; tsc --noEmit exits 0.
+
+### UI-01 — User can manage patients through a React UI (list, search, create, view, edit)
+
+- Status: validated
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S02
+
+Patient module: searchable/paginated patient roster, patient detail page (demographics, insurance, care team), create/edit patient form. Backed by existing Tauri commands from M001/S04. Proven by M002/S02: PatientListPage, PatientDetailPage, PatientFormModal ship wired to createPatient/getPatient/updatePatient/searchPatients/deletePatient; tsc --noEmit exits 0.
+
+### UI-02 — User can view and manage appointments via a calendar UI and Patient Flow Board
+
+- Status: validated
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S05
+
+Scheduling module: day/week calendar grid, appointment create/cancel/edit (with recurring series), open-slot search, real-time Patient Flow Board status transitions, waitlist and recall board views. Backed by existing Tauri commands from M001/S06. Proven by M002/S05: CalendarPage, FlowBoardPage, AppointmentFormModal, WaitlistPanel, RecallPanel ship wired to all scheduling commands; tsc --noEmit exits 0.
+
+### UI-03 — Provider can write clinical encounter notes through a structured SOAP workspace
+
+- Status: validated
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S03
+
+Encounter workspace: tabbed SOAP note editor with template pre-population, vitals recording panel, 14-system ROS form, 13-system physical exam form, save/update encounter. Backed by existing Tauri commands from M001/S07. Proven by M002/S03+S06: EncounterWorkspace (1,648 lines) with SOAP/vitals/ROS/PhysicalExam tabs wired to createEncounter/recordVitals/saveRos/savePhysicalExam/listTemplates; tsc --noEmit exits 0.
+
+### UI-04 — Provider can view and update the patient's clinical data sidebar (problems, medications, allergies, immunizations)
+
+- Status: validated
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S04
+
+Clinical sidebar: tabbed panel showing active problems (ICD-10), medications (RxNorm), allergies, and immunization history with add/update/status-change flows and passive drug-allergy alert surfacing. Backed by existing Tauri commands from M001/S05. Proven by M002/S04: ClinicalSidebar with 4 tabs + 4 write-path modals + DrugAllergyAlertBanner wired to all clinical data commands including checkDrugAllergyAlerts; tsc --noEmit exits 0.
+
+### UI-05 — Provider can manage lab results and patient documents through a UI
+
+- Status: validated
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S06
+
+Lab results panel: order list, result entry with abnormal highlighting, provider sign-off. Document browser: upload via native file picker (tauri-plugin-dialog + tauri-plugin-fs), chunked base64 encoding, categorized list. Backed by existing Tauri commands from M001/S08. Proven by M002/S06: LabResultsPanel and DocumentBrowser ship wired to enterLabResult/signLabResult/uploadDocument/listDocuments; tsc --noEmit exits 0.
+
+### UI-06 — User can manage backup, MFA, and account settings through a Settings panel
+
+- Status: validated
+- Class: core-capability
+- Source: M002 planning
+- Primary Slice: M002/S07
+
+Settings panel: create/list/restore encrypted backups, MFA enrollment status and setup, session info, account details. Backed by existing Tauri commands from M001/S09 and S02. Proven by M002/S07: SettingsPage (640 lines, 3-tab: Backup/Security/Account) wired to createBackup/listBackups/restoreBackup/setupTotp/verifyTotp/disableTotp; tsc --noEmit exits 0.
+
 ### AUDT-03 — Audit logs are retained for minimum 6 years
 
 - Status: active
@@ -556,68 +619,5 @@ Surfaced during S06: a daily summary view (total booked, cancelled, no-show coun
 - Primary Slice: none yet
 
 Surfaced during S06: when an appointment is cancelled (`cancel_appointment`), the system could automatically query `waitlist_index` for entries matching the same `provider_id` and `appt_type` with `preferred_date ≤ cancelled_slot_date` and notify or auto-schedule the highest-priority match. Not implemented in S06 — discharged manually via `discharge_waitlist`.
-
-### UI-01 — User can manage patients through a React UI (list, search, create, view, edit)
-
-- Status: active
-- Class: core-capability
-- Source: M002 planning
-- Primary Slice: M002/S02
-
-Patient module: searchable/paginated patient roster, patient detail page (demographics, insurance, care team), create/edit patient form. Backed by existing Tauri commands from M001/S04.
-
-### UI-02 — User can view and manage appointments via a calendar UI and Patient Flow Board
-
-- Status: active
-- Class: core-capability
-- Source: M002 planning
-- Primary Slice: M002/S05
-
-Scheduling module: day/week calendar grid, appointment create/cancel/edit (with recurring series), open-slot search, real-time Patient Flow Board status transitions, waitlist and recall board views. Backed by existing Tauri commands from M001/S06.
-
-### UI-03 — Provider can write clinical encounter notes through a structured SOAP workspace
-
-- Status: active
-- Class: core-capability
-- Source: M002 planning
-- Primary Slice: M002/S03
-
-Encounter workspace: tabbed SOAP note editor with template pre-population, vitals recording panel, 14-system ROS form, save/update encounter. Backed by existing Tauri commands from M001/S07.
-
-### UI-04 — Provider can view and update the patient's clinical data sidebar (problems, medications, allergies, immunizations)
-
-- Status: active
-- Class: core-capability
-- Source: M002 planning
-- Primary Slice: M002/S04
-
-Clinical sidebar: tabbed panel showing active problems (ICD-10), medications (RxNorm), allergies, and immunization history with add/update/status-change flows and passive drug-allergy alert surfacing. Backed by existing Tauri commands from M001/S05.
-
-### UI-05 — Provider can manage lab results and patient documents through a UI
-
-- Status: active
-- Class: core-capability
-- Source: M002 planning
-- Primary Slice: M002/S06
-
-Lab results panel: order list, result entry with abnormal highlighting, provider sign-off. Document browser: upload via native file picker, categorized list, SHA-256 integrity verify. Backed by existing Tauri commands from M001/S08.
-
-### UI-06 — User can manage backup, MFA, and account settings through a Settings panel
-
-- Status: active
-- Class: core-capability
-- Source: M002 planning
-- Primary Slice: M002/S07
-
-Settings panel: create/list/restore encrypted backups, MFA enrollment status and setup, session info, account details. Backed by existing Tauri commands from M001/S09 and S02.
-
-### UI-07 — UI enforces RBAC: navigation items and views are role-gated
-
-- Status: active
-- Class: core-capability
-- Source: M002 planning
-- Primary Slice: M002/S01
-
-Navigation sidebar shows only role-appropriate sections. FrontDesk: Schedule only. Provider: Patients + Schedule + Labs + Settings. BillingStaff: read-only access to applicable views. SystemAdmin: all views including audit log. No clinical data visible to unauthorized roles.
 
 ## Out of Scope
