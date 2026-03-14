@@ -20,6 +20,7 @@ import { useEncounter } from "../hooks/useEncounter";
 import { useNav } from "../contexts/RouterContext";
 import { commands } from "../lib/tauri";
 import { AuthAlertBanner } from "../components/clinical/AuthTrackingPanel";
+import { TherapyCapBanner } from "../components/clinical/TherapyCapBanner";
 import type {
   SoapInput,
   VitalsInput,
@@ -1542,8 +1543,13 @@ export function EncounterWorkspace({
   return (
     <div className="flex flex-col space-y-0 p-6">
       {/* ── Auth tracking alert banner ──────────────────────────────────── */}
-      <div className="mb-4">
+      <div className="mb-2">
         <AuthAlertBanner patientId={patientId} />
+      </div>
+
+      {/* ── Therapy cap status banner ────────────────────────────────────── */}
+      <div className="mb-4">
+        <TherapyCapBanner patientId={patientId} />
       </div>
 
       {/* ── Page header ─────────────────────────────────────────────────── */}

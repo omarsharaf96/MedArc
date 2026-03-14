@@ -781,6 +781,92 @@ pub static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );"
         ),
+        // Migration 24: Therapy Cap & KX Modifier tables (M004/S02)
+        //
+        // Two tables support therapy cap monitoring:
+        //   - therapy_cap_tracking: per-patient per-year cumulative Medicare charge totals,
+        //     KX modifier application date, and Targeted Medical Review flag.
+        //   - abn_records: Advance Beneficiary Notice (CMS-R-131) records tracking
+        //     patient choice (option1_pay / option2_dont_pay / option3_dont_provide)
+        //     and signature date.
+        //
+        // therapy_cap_tracking has a UNIQUE constraint on (patient_id, calendar_year, payer_type)
+        // so upserts are safe via INSERT OR REPLACE / UPDATE patterns.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS therapy_cap_tracking (
+              tracking_id TEXT PRIMARY KEY,
+              patient_id TEXT NOT NULL,
+              calendar_year INTEGER NOT NULL,
+              payer_type TEXT NOT NULL DEFAULT 'medicare' CHECK(payer_type IN ('medicare','medicaid','commercial')),
+              cumulative_charges REAL NOT NULL DEFAULT 0,
+              threshold_amount REAL NOT NULL DEFAULT 2480,
+              kx_applied_date TEXT,
+              review_threshold_reached INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+              UNIQUE(patient_id, calendar_year, payer_type)
+            );
+            CREATE INDEX IF NOT EXISTS idx_cap_patient ON therapy_cap_tracking(patient_id);
+
+            CREATE TABLE IF NOT EXISTS abn_records (
+              abn_id TEXT PRIMARY KEY,
+              patient_id TEXT NOT NULL,
+              reason TEXT NOT NULL CHECK(reason IN ('therapy_cap_approaching','auth_expired','non_covered_service','frequency_limit')),
+              services_json TEXT NOT NULL,
+              patient_choice TEXT CHECK(patient_choice IN ('option1_pay','option2_dont_pay','option3_dont_provide')),
+              signed_date TEXT,
+              created_by TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_abn_patient ON abn_records(patient_id);"
+        ),
+        // Migration 25: Electronic Claims Submission tables (M004/S02)
+        //
+        // Two tables support 837P EDI claim management:
+        //   - payer_config:  payer configurations (EDI payer ID, clearinghouse, billing rule)
+        //   - claims:        837P claim lifecycle (draft → validated → submitted → accepted → paid/denied/appealed)
+        //
+        // claims.status follows a strict lifecycle enforced by CHECK constraint.
+        // edi_content stores the full 837P EDI text; edi_file_path stores the file system path.
+        // control_number is the ISA13/GS06 interchange control number used for payer correlation.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS payer_config (
+              payer_id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              edi_payer_id TEXT,
+              clearinghouse TEXT CHECK(clearinghouse IN ('office_ally','availity','trizetto','manual')),
+              billing_rule TEXT NOT NULL DEFAULT 'medicare' CHECK(billing_rule IN ('medicare','ama')),
+              phone TEXT,
+              address TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS claims (
+              claim_id TEXT PRIMARY KEY,
+              encounter_billing_id TEXT NOT NULL REFERENCES encounter_billing(billing_id),
+              payer_id TEXT NOT NULL REFERENCES payer_config(payer_id),
+              patient_id TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','validated','submitted','accepted','paid','denied','appealed')),
+              edi_content TEXT,
+              edi_file_path TEXT,
+              control_number TEXT,
+              submitted_at TEXT,
+              response_at TEXT,
+              paid_amount REAL,
+              adjustment_amount REAL,
+              denial_reason TEXT,
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_claims_patient ON claims(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
+            CREATE INDEX IF NOT EXISTS idx_claims_payer ON claims(payer_id);"
+        ),
     ])
 });
 

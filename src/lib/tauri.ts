@@ -177,6 +177,27 @@ import type {
   EncounterBilling,
 } from "../types/billing";
 
+import type {
+  TherapyCapCheck,
+  TherapyCapStatus,
+  TherapyCapAlert,
+  AbnInput,
+  AbnChoiceInput,
+  AbnRecord,
+  PtaModifierCheck,
+} from "../types/therapy-cap";
+
+import type {
+  PayerInput,
+  PayerRecord,
+  CreateClaimInput,
+  ClaimRecord,
+  ValidationResult,
+  EdiGenerationResult,
+  UpdateClaimStatusInput,
+  ClaimStatus,
+} from "../types/claims";
+
 export const commands = {
   /** Check database encryption health status. */
   checkDb: () => invoke<DbStatus>("check_db"),
@@ -980,4 +1001,123 @@ export const commands = {
    */
   saveEncounterBilling: (input: SaveEncounterBillingInput) =>
     invoke<EncounterBilling>("save_encounter_billing", { input }),
+
+  // M004/S02 — Therapy Cap & KX Modifier Monitoring
+
+  /**
+   * Check therapy cap status for a patient.
+   * Returns cumulative charges, threshold, remaining, and KX/TMR flags.
+   * If calendarYear is omitted, defaults to the current year.
+   */
+  checkTherapyCap: (patientId: string, calendarYear?: number | null) =>
+    invoke<TherapyCapCheck>("check_therapy_cap", {
+      patientId,
+      calendarYear: calendarYear ?? null,
+    }),
+
+  /**
+   * Recompute and persist cumulative charge tracking for a patient.
+   * Call after saving encounter billing to keep the tracking table in sync.
+   */
+  refreshTherapyCapTracking: (patientId: string, calendarYear?: number | null) =>
+    invoke<TherapyCapStatus>("refresh_therapy_cap_tracking", {
+      patientId,
+      calendarYear: calendarYear ?? null,
+    }),
+
+  /**
+   * Apply KX modifier to all timed service lines on a billing record.
+   * Returns the number of line items updated.
+   */
+  applyKxModifier: (billingId: string, patientId: string) =>
+    invoke<number>("apply_kx_modifier", { billingId, patientId }),
+
+  /**
+   * Get active therapy cap alerts for a patient (current year).
+   * Returns zero to two alerts: approaching_therapy_cap, kx_modifier_required,
+   * or targeted_medical_review.
+   */
+  getTherapyCapAlerts: (patientId: string) =>
+    invoke<TherapyCapAlert[]>("get_therapy_cap_alerts", { patientId }),
+
+  /**
+   * Create an ABN (Advance Beneficiary Notice / CMS-R-131) record for a patient.
+   * The patient's choice and signature are recorded separately via recordAbnChoice.
+   */
+  generateAbn: (input: AbnInput) =>
+    invoke<AbnRecord>("generate_abn", { input }),
+
+  /**
+   * Record a patient's choice on an existing ABN and mark as signed.
+   */
+  recordAbnChoice: (input: AbnChoiceInput) =>
+    invoke<AbnRecord>("record_abn_choice", { input }),
+
+  /**
+   * List all ABN records for a patient (most recent first).
+   */
+  listAbns: (patientId: string) =>
+    invoke<AbnRecord[]>("list_abns", { patientId }),
+
+  /**
+   * Check whether the treating provider for an encounter is a PTA.
+   * Returns isPta and cqModifierRequired flags.
+   */
+  checkPtaModifier: (encounterId: string, providerId: string) =>
+    invoke<PtaModifierCheck>("check_pta_modifier", { encounterId, providerId }),
+
+  // ─── M004/S02 — Electronic Claims Submission (837P) ──────────────
+
+  /** Create a new payer configuration. */
+  createPayer: (input: PayerInput) =>
+    invoke<PayerRecord>("create_payer", { input }),
+
+  /** List all payer configurations. */
+  listPayers: () => invoke<PayerRecord[]>("list_payers"),
+
+  /** Get a single payer configuration by ID. */
+  getPayer: (payerId: string) =>
+    invoke<PayerRecord>("get_payer", { payerId }),
+
+  /** Update an existing payer configuration. */
+  updatePayer: (payerId: string, input: PayerInput) =>
+    invoke<PayerRecord>("update_payer", { payerId, input }),
+
+  /** Create a new claim in draft status linked to an encounter billing record. */
+  createClaim: (input: CreateClaimInput) =>
+    invoke<ClaimRecord>("create_claim", { input }),
+
+  /**
+   * Validate a claim — checks NPI, Tax ID, payer EDI ID, member ID, diagnosis codes,
+   * and CPT line items. Transitions draft → validated on success.
+   */
+  validateClaim: (claimId: string) =>
+    invoke<ValidationResult>("validate_claim", { claimId }),
+
+  /**
+   * Generate 837P EDI content for an encounter billing + payer combination.
+   * Saves EDI text to the claim record and returns the full EDI string.
+   */
+  generate837p: (encounterBillingId: string, payerId: string) =>
+    invoke<EdiGenerationResult>("generate_837p", { encounterBillingId, payerId }),
+
+  /** Mark a claim as submitted. Requires draft or validated status. */
+  submitClaim: (claimId: string) =>
+    invoke<ClaimRecord>("submit_claim", { claimId }),
+
+  /** List claims with optional filters by patient, status, and/or payer. */
+  listClaims: (patientId?: string | null, status?: ClaimStatus | null, payerId?: string | null) =>
+    invoke<ClaimRecord[]>("list_claims", {
+      patientId: patientId ?? null,
+      status: status ?? null,
+      payerId: payerId ?? null,
+    }),
+
+  /** Get a single claim by ID with all details including EDI content. */
+  getClaim: (claimId: string) =>
+    invoke<ClaimRecord>("get_claim", { claimId }),
+
+  /** Manually update a claim's status (accepted, paid, denied, appealed, etc.). */
+  updateClaimStatus: (claimId: string, input: UpdateClaimStatusInput) =>
+    invoke<ClaimRecord>("update_claim_status", { claimId, input }),
 };

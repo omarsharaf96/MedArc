@@ -27,6 +27,7 @@ import { ExportPage } from "../../pages/ExportPage";
 import { FaxPage } from "../../pages/FaxPage";
 import { HEPBuilderPage } from "../../pages/HEPBuilderPage";
 import { BillingPage } from "../../pages/BillingPage";
+import { ClaimsPage } from "../../pages/ClaimsPage";
 import { useAuth } from "../../hooks/useAuth";
 
 // ─── Unknown route fallback ─────────────────────────────────────────────────
@@ -163,6 +164,13 @@ export function ContentArea() {
         <BillingPage
           patientId={currentRoute.patientId}
           encounterId={currentRoute.encounterId}
+          role={user?.role ?? ""}
+        />
+      );
+    case "claims":
+      return (
+        <ClaimsPage
+          patientId={currentRoute.patientId}
           role={user?.role ?? ""}
         />
       );

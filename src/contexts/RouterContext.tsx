@@ -37,7 +37,8 @@ export type Route =
   | { page: "export"; patientId: string }
   | { page: "fax" }
   | { page: "hep-builder"; patientId: string; encounterId?: string }
-  | { page: "billing"; patientId: string; encounterId: string };
+  | { page: "billing"; patientId: string; encounterId: string }
+  | { page: "claims"; patientId?: string };
 
 // ─── Context value type ─────────────────────────────────────────────────────
 

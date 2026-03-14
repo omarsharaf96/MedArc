@@ -240,6 +240,27 @@ pub fn run() {
             commands::billing::list_fee_schedule,
             commands::billing::get_encounter_billing_summary,
             commands::billing::save_encounter_billing,
+            // M004/S02 — Therapy Cap & KX Modifier Monitoring
+            commands::therapy_cap::check_therapy_cap,
+            commands::therapy_cap::refresh_therapy_cap_tracking,
+            commands::therapy_cap::apply_kx_modifier,
+            commands::therapy_cap::get_therapy_cap_alerts,
+            commands::therapy_cap::generate_abn,
+            commands::therapy_cap::record_abn_choice,
+            commands::therapy_cap::list_abns,
+            commands::therapy_cap::check_pta_modifier,
+            // M004/S02 — Electronic Claims Submission (837P)
+            commands::claims::create_payer,
+            commands::claims::list_payers,
+            commands::claims::get_payer,
+            commands::claims::update_payer,
+            commands::claims::create_claim,
+            commands::claims::validate_claim,
+            commands::claims::generate_837p,
+            commands::claims::submit_claim,
+            commands::claims::list_claims,
+            commands::claims::get_claim,
+            commands::claims::update_claim_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
