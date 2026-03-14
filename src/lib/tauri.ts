@@ -198,6 +198,55 @@ import type {
   ClaimStatus,
 } from "../types/claims";
 
+import type {
+  RemittanceAdvice,
+  RemittanceRecord,
+  AutoPostResult,
+  DenialRecord,
+  ArAgingReport,
+  PatientBalance,
+} from "../types/era";
+
+import type {
+  OperationalKPIs,
+  FinancialKPIs,
+  ClinicalOutcomes,
+  PayerMix,
+  DashboardSummary,
+  KpiSnapshot,
+  PeriodType,
+} from "../types/analytics";
+
+import type {
+  MipsPerformance,
+  MipsDashboard,
+  EligiblePatient,
+  MipsScreening,
+  UserListEntry,
+} from "../types/mips";
+
+import type {
+  ReminderConfigInput,
+  ReminderConfigRecord,
+  ReminderLog,
+  ReminderResult,
+  ProcessRemindersResult,
+  WaitlistMatch,
+} from "../types/reminders";
+
+import type {
+  WcCaseInput,
+  WcCaseRecord,
+  WcContactInput,
+  WcContactRecord,
+  FroiResult,
+  WcFeeResult,
+  ImpairmentRatingInput,
+  ImpairmentRatingRecord,
+  WcCommunicationInput,
+  WcCommunicationRecord,
+} from "../types/workers-comp";
+
 export const commands = {
   /** Check database encryption health status. */
   checkDb: () => invoke<DbStatus>("check_db"),
@@ -1120,4 +1169,315 @@ export const commands = {
   /** Manually update a claim's status (accepted, paid, denied, appealed, etc.). */
   updateClaimStatus: (claimId: string, input: UpdateClaimStatusInput) =>
     invoke<ClaimRecord>("update_claim_status", { claimId, input }),
+
+  // ─── M003/S02 — ERA/835 Remittance Processing ────────────────────
+
+  /**
+   * Parse an 835 EDI file and return structured remittance data WITHOUT saving to DB.
+   * Use this for previewing before import.
+   */
+  parse835File: (filePath: string) =>
+    invoke<RemittanceAdvice>("parse_835_file", { filePath }),
+
+  /**
+   * Parse an 835 EDI file, save the remittance_advice record, and return the saved record.
+   * Does NOT auto-post — call autoPostRemittance separately.
+   */
+  import835: (filePath: string) =>
+    invoke<RemittanceRecord>("import_835", { filePath }),
+
+  /**
+   * Auto-post a remittance: match ERA payments to claims by control number,
+   * create claim_payments records, and update claim statuses to paid/denied.
+   */
+  autoPostRemittance: (remittanceId: string) =>
+    invoke<AutoPostResult>("auto_post_remittance", { remittanceId }),
+
+  /**
+   * List all remittance advice records with optional filters.
+   */
+  listRemittances: (payerId?: string | null, dateFrom?: string | null, dateTo?: string | null) =>
+    invoke<RemittanceRecord[]>("list_remittances", {
+      payerId: payerId ?? null,
+      dateFrom: dateFrom ?? null,
+      dateTo: dateTo ?? null,
+    }),
+
+  /**
+   * Return the denial queue: claims with status "denied" or CO adjustment codes.
+   * Filterable by status and payer.
+   */
+  listDenials: (status?: string | null, payerId?: string | null) =>
+    invoke<DenialRecord[]>("list_denials", {
+      status: status ?? null,
+      payerId: payerId ?? null,
+    }),
+
+  /**
+   * Get A/R aging report buckets (0-30, 31-60, 61-90, 91-120, 120+) for unpaid claims.
+   */
+  getArAging: (payerId?: string | null) =>
+    invoke<ArAgingReport>("get_ar_aging", { payerId: payerId ?? null }),
+
+  /**
+   * Get patient balance summary: total billed, insurance paid, patient responsibility,
+   * and outstanding balance broken down by claim.
+   */
+  getPatientBalance: (patientId: string) =>
+    invoke<PatientBalance>("get_patient_balance", { patientId }),
+
+  // ─── M003/S02 — Analytics & Outcomes Dashboard ────────────────────
+
+  /** Compute operational KPIs (visits, cancellations, units/visit, new patients). */
+  getOperationalKpis: (
+    startDate: string,
+    endDate: string,
+    providerId?: string | null,
+  ) =>
+    invoke<OperationalKPIs>("get_operational_kpis", {
+      startDate,
+      endDate,
+      providerId: providerId ?? null,
+    }),
+
+  /** Compute financial KPIs (charges, collections, days in A/R, aging). */
+  getFinancialKpis: (
+    startDate: string,
+    endDate: string,
+    payerId?: string | null,
+  ) =>
+    invoke<FinancialKPIs>("get_financial_kpis", {
+      startDate,
+      endDate,
+      payerId: payerId ?? null,
+    }),
+
+  /** Compute clinical outcomes (MCID rates, avg improvement, discharge rate). */
+  getClinicalOutcomes: (
+    startDate: string,
+    endDate: string,
+    measureType?: string | null,
+    providerId?: string | null,
+  ) =>
+    invoke<ClinicalOutcomes>("get_clinical_outcomes", {
+      startDate,
+      endDate,
+      measureType: measureType ?? null,
+      providerId: providerId ?? null,
+    }),
+
+  /** Compute payer mix (revenue %, visit count, avg reimbursement per payer). */
+  getPayerMix: (startDate: string, endDate: string) =>
+    invoke<PayerMix>("get_payer_mix", { startDate, endDate }),
+
+  /** Compute all KPI sections in one call. */
+  getDashboardSummary: (startDate: string, endDate: string) =>
+    invoke<DashboardSummary>("get_dashboard_summary", { startDate, endDate }),
+
+  /** Compute and persist KPIs as a named snapshot. */
+  saveKpiSnapshot: (
+    periodType: PeriodType,
+    startDate: string,
+    endDate: string,
+    providerId?: string | null,
+  ) =>
+    invoke<KpiSnapshot>("save_kpi_snapshot", {
+      periodType,
+      startDate,
+      endDate,
+      providerId: providerId ?? null,
+    }),
+
+  /** List historical KPI snapshots, optionally filtered by period type. */
+  listKpiSnapshots: (periodType?: PeriodType | null) =>
+    invoke<KpiSnapshot[]>("list_kpi_snapshots", {
+      periodType: periodType ?? null,
+    }),
+
+  // ─── M004/S07 — MIPS Quality Measure Capture ──────────────────────
+
+  /**
+   * Get MIPS performance data (numerator/denominator/rate) for a year.
+   * Optionally filter by an array of measure IDs.
+   */
+  getMipsPerformance: (
+    performanceYear: number,
+    measureIds?: string[] | null,
+  ) =>
+    invoke<MipsPerformance[]>("get_mips_performance", {
+      performanceYear,
+      measureIds: measureIds ?? null,
+    }),
+
+  /**
+   * Get patients in the denominator of a specific MIPS measure.
+   * Returns patient ID, display name, and whether they are in the numerator.
+   */
+  getMipsEligiblePatients: (measureId: string) =>
+    invoke<EligiblePatient[]>("get_mips_eligible_patients", { measureId }),
+
+  /**
+   * Record a PHQ-2 depression screening for a patient.
+   * Scores >= 3 automatically flag for PHQ-9 follow-up.
+   */
+  recordPhq2Screening: (
+    patientId: string,
+    score: number,
+    encounterId?: string | null,
+  ) =>
+    invoke<MipsScreening>("record_phq2_screening", {
+      patientId,
+      score,
+      encounterId: encounterId ?? null,
+    }),
+
+  /**
+   * Record a falls risk screening for a patient.
+   * For patients 65+ with positive screen + plan, satisfies Measure #155.
+   */
+  recordFallsScreening: (
+    patientId: string,
+    result: string,
+    planDocumented: boolean,
+    encounterId?: string | null,
+  ) =>
+    invoke<MipsScreening>("record_falls_screening", {
+      patientId,
+      result,
+      planDocumented,
+      encounterId: encounterId ?? null,
+    }),
+
+  /**
+   * Get the full MIPS dashboard for a performance year.
+   * Returns all measure cards with tiers and a projected composite score.
+   */
+  getMipsDashboard: (performanceYear: number) =>
+    invoke<MipsDashboard>("get_mips_dashboard", { performanceYear }),
+
+  // ─── M003/S02 — Appointment Reminders ────────────────────────────
+
+  /**
+   * Configure reminder settings (SMS/email toggles, intervals, credentials).
+   * SystemAdmin only. Credentials stored encrypted in SQLCipher.
+   */
+  configureReminders: (input: ReminderConfigInput) =>
+    invoke<ReminderConfigRecord>("configure_reminders", { input }),
+
+  /** Get the current reminder configuration. Secrets are masked. */
+  getReminderConfig: () =>
+    invoke<ReminderConfigRecord>("get_reminder_config"),
+
+  /**
+   * Scan upcoming appointments and send any pending 24hr/2hr reminders.
+   * Call this on a timer (e.g. every 5 minutes) or manually.
+   */
+  processPendingReminders: () =>
+    invoke<ProcessRemindersResult>("process_pending_reminders"),
+
+  /**
+   * Manually send a specific reminder for an appointment.
+   * reminderType: "24hr" | "2hr" | "no_show" | "custom"
+   */
+  sendReminder: (appointmentId: string, reminderType: string) =>
+    invoke<ReminderResult[]>("send_reminder", { appointmentId, reminderType }),
+
+  /** Send a no-show follow-up message for a missed appointment. */
+  sendNoShowFollowup: (appointmentId: string) =>
+    invoke<ReminderResult[]>("send_no_show_followup", { appointmentId }),
+
+  /**
+   * When an appointment is cancelled, check the waitlist for matches
+   * and send them a slot-open offer via SMS/email.
+   */
+  processCancellationWaitlist: (appointmentId: string) =>
+    invoke<WaitlistMatch[]>("process_cancellation_waitlist", { appointmentId }),
+
+  /** Confirm a waitlist rebooking (marks waitlist entry as fulfilled). */
+  confirmWaitlistBooking: (waitlistId: string) =>
+    invoke<void>("confirm_waitlist_booking", { waitlistId }),
+
+  /**
+   * List reminder log entries.
+   * Optionally filter by patientId and/or date range (ISO 8601 strings).
+   */
+  listReminderLog: (
+    patientId?: string | null,
+    startDate?: string | null,
+    endDate?: string | null,
+  ) =>
+    invoke<ReminderLog[]>("list_reminder_log", {
+      patientId: patientId ?? null,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+    }),
+
+  // ─── User Management ───────────────────────────────────────────────
+
+  /**
+   * List all users in the system (SystemAdmin only).
+   * Returns id, username, displayName, role, isActive, createdAt.
+   */
+  listUsers: () => invoke<UserListEntry[]>("list_users"),
+
+  /**
+   * Deactivate a user account (sets is_active = false).
+   * SystemAdmin only. Cannot deactivate your own account.
+   */
+  deactivateUser: (userIdToDeactivate: string) =>
+    invoke<void>("deactivate_user", { userIdToDeactivate }),
+
+  // ─── M003/S02 — Workers' Compensation Module ────────────────────────
+
+  /** Create a new workers' comp case linked to a patient. */
+  createWcCase: (input: WcCaseInput) =>
+    invoke<WcCaseRecord>("create_wc_case", { input }),
+
+  /** Retrieve a single WC case by ID. */
+  getWcCase: (caseId: string) =>
+    invoke<WcCaseRecord>("get_wc_case", { caseId }),
+
+  /** List WC cases, optionally filtered by patient ID. */
+  listWcCases: (patientId?: string | null) =>
+    invoke<WcCaseRecord[]>("list_wc_cases", { patientId: patientId ?? null }),
+
+  /** Update an existing WC case. */
+  updateWcCase: (caseId: string, input: WcCaseInput) =>
+    invoke<WcCaseRecord>("update_wc_case", { caseId, input }),
+
+  /** Add a contact (adjuster, attorney, NCM, employer rep) to a WC case. */
+  addWcContact: (caseId: string, input: WcContactInput) =>
+    invoke<WcContactRecord>("add_wc_contact", { caseId, input }),
+
+  /** List all contacts for a WC case. */
+  listWcContacts: (caseId: string) =>
+    invoke<WcContactRecord[]>("list_wc_contacts", { caseId }),
+
+  /** Update an existing WC contact. */
+  updateWcContact: (contactId: string, input: WcContactInput) =>
+    invoke<WcContactRecord>("update_wc_contact", { contactId, input }),
+
+  /** Generate a First Report of Injury (FROI) document for a WC case. */
+  generateFroi: (caseId: string) =>
+    invoke<FroiResult>("generate_froi", { caseId }),
+
+  /** Look up the WC max allowable fee for a CPT code in a state. */
+  lookupWcFee: (state: string, cptCode: string) =>
+    invoke<WcFeeResult>("lookup_wc_fee", { state, cptCode }),
+
+  /** Record an AMA Guides impairment rating for a WC case. */
+  recordImpairmentRating: (caseId: string, input: ImpairmentRatingInput) =>
+    invoke<ImpairmentRatingRecord>("record_impairment_rating", { caseId, input }),
+
+  /** List all impairment ratings for a WC case. */
+  listImpairmentRatings: (caseId: string) =>
+    invoke<ImpairmentRatingRecord[]>("list_impairment_ratings", { caseId }),
+
+  /** Log a communication entry for a WC case. */
+  logWcCommunication: (caseId: string, input: WcCommunicationInput) =>
+    invoke<WcCommunicationRecord>("log_wc_communication", { caseId, input }),
+
+  /** List all communication log entries for a WC case. */
+  listWcCommunications: (caseId: string) =>
+    invoke<WcCommunicationRecord[]>("list_wc_communications", { caseId }),
 };

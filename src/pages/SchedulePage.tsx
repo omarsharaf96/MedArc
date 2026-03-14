@@ -18,7 +18,7 @@
  *   - Runtime: grep "[useSchedule]" in browser console for per-domain errors
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useSchedule } from "../hooks/useSchedule";
 import { CalendarPage } from "../components/scheduling/CalendarPage";
@@ -27,7 +27,9 @@ import { WaitlistPanel } from "../components/scheduling/WaitlistPanel";
 import { RecallPanel } from "../components/scheduling/RecallPanel";
 import { AppointmentFormModal } from "../components/scheduling/AppointmentFormModal";
 import { extractAppointmentDisplay } from "../lib/fhirExtract";
+import { commands } from "../lib/tauri";
 import type { AppointmentRecord, UpdateFlowStatusInput, WaitlistInput, RecallInput } from "../types/scheduling";
+import type { ReminderLog, ReminderResult } from "../types/reminders";
 
 // ─── RBAC helper ──────────────────────────────────────────────────────────────
 
@@ -86,6 +88,13 @@ export function SchedulePage() {
   // Modal state (T03)
   const [createOpen, setCreateOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<AppointmentRecord | null>(null);
+
+  // Reminder panel state
+  const [reminderLogs, setReminderLogs] = useState<Record<string, ReminderLog[]>>({});
+  const [reminderSending, setReminderSending] = useState<Record<string, boolean>>({});
+  const [reminderResults, setReminderResults] = useState<Record<string, ReminderResult[] | null>>({});
+  const [noShowSending, setNoShowSending] = useState<Record<string, boolean>>({});
+  const [expandedReminder, setExpandedReminder] = useState<string | null>(null);
 
   // Date range strings derived from currentDate + view
   const { start: startDate, end: endDate } = getDateRange(currentDate, view);
@@ -175,6 +184,55 @@ export function SchedulePage() {
       : "";
     return time ? `${type} — ${time}` : type;
   }
+
+  // ── Reminder handlers ────────────────────────────────────────────────────────
+
+  const handleLoadReminderLog = useCallback(async (appointmentId: string) => {
+    if (expandedReminder === appointmentId) {
+      setExpandedReminder(null);
+      return;
+    }
+    setExpandedReminder(appointmentId);
+    try {
+      const logs = await commands.listReminderLog(null, null, null);
+      const filtered = logs.filter((l) => l.appointmentId === appointmentId);
+      setReminderLogs((prev) => ({ ...prev, [appointmentId]: filtered }));
+    } catch {
+      // silently ignore
+    }
+  }, [expandedReminder]);
+
+  const handleSendReminder = useCallback(async (appointmentId: string, type: string) => {
+    setReminderSending((prev) => ({ ...prev, [appointmentId]: true }));
+    setReminderResults((prev) => ({ ...prev, [appointmentId]: null }));
+    try {
+      const results = await commands.sendReminder(appointmentId, type);
+      setReminderResults((prev) => ({ ...prev, [appointmentId]: results }));
+      // Refresh the log
+      const logs = await commands.listReminderLog(null, null, null);
+      const filtered = logs.filter((l) => l.appointmentId === appointmentId);
+      setReminderLogs((prev) => ({ ...prev, [appointmentId]: filtered }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setReminderResults((prev) => ({
+        ...prev,
+        [appointmentId]: [{ reminderId: "", status: "failed", channel: "sms", recipient: "", externalId: null, errorMessage: msg }],
+      }));
+    } finally {
+      setReminderSending((prev) => ({ ...prev, [appointmentId]: false }));
+    }
+  }, []);
+
+  const handleSendNoShow = useCallback(async (appointmentId: string) => {
+    setNoShowSending((prev) => ({ ...prev, [appointmentId]: true }));
+    try {
+      await commands.sendNoShowFollowup(appointmentId);
+    } catch {
+      // silently ignore
+    } finally {
+      setNoShowSending((prev) => ({ ...prev, [appointmentId]: false }));
+    }
+  }, []);
 
   // ── Skeleton spinner ────────────────────────────────────────────────────────
   if (loading) {
@@ -305,6 +363,139 @@ export function SchedulePage() {
           onCompleteRecall={handleCompleteRecall}
         />
       </section>
+
+      {/* ── Reminders Panel ──────────────────────────────────────────────── */}
+      {appointments.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">Appointment Reminders</h2>
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-100">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Patient</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Reminders Sent</th>
+                  {writeAllowed && (
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {appointments.map((appt) => {
+                  const display = extractAppointmentDisplay(appt.resource);
+                  const isSending = reminderSending[appt.id];
+                  const isNoShowSending = noShowSending[appt.id];
+                  const isExpanded = expandedReminder === appt.id;
+                  const logs = reminderLogs[appt.id] ?? [];
+                  const results = reminderResults[appt.id];
+                  const statusStr = display.status ?? "booked";
+                  const isPastNoShow =
+                    statusStr === "noshow" ||
+                    (display.start && new Date(display.start) < new Date() && statusStr !== "fulfilled" && statusStr !== "cancelled");
+                  return (
+                    <>
+                      <tr key={appt.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          {appt.patientId}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {display.start
+                            ? new Date(display.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={[
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                            statusStr === "fulfilled" ? "bg-green-100 text-green-700" :
+                            statusStr === "cancelled" ? "bg-red-100 text-red-600" :
+                            statusStr === "noshow" || isPastNoShow ? "bg-orange-100 text-orange-700" :
+                            "bg-blue-100 text-blue-700",
+                          ].join(" ")}>
+                            {statusStr}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => handleLoadReminderLog(appt.id)}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            {isExpanded ? "Hide" : "View log"}
+                          </button>
+                        </td>
+                        {writeAllowed && (
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-2 flex-wrap">
+                              <button
+                                type="button"
+                                disabled={isSending || statusStr === "cancelled"}
+                                onClick={() => handleSendReminder(appt.id, "24hr")}
+                                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                              >
+                                {isSending ? "Sending…" : "Send Reminder"}
+                              </button>
+                              {(isPastNoShow) && (
+                                <button
+                                  type="button"
+                                  disabled={isNoShowSending}
+                                  onClick={() => handleSendNoShow(appt.id)}
+                                  className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-medium text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                                >
+                                  {isNoShowSending ? "Sending…" : "No-Show Follow-up"}
+                                </button>
+                              )}
+                            </div>
+                            {results && results.length > 0 && (
+                              <div className="mt-1 text-xs">
+                                {results.map((r, i) => (
+                                  <span key={i} className={`ml-1 ${r.status === "sent" ? "text-green-600" : "text-red-600"}`}>
+                                    {r.channel}: {r.status}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                      {isExpanded && (
+                        <tr key={`${appt.id}-log`}>
+                          <td colSpan={writeAllowed ? 5 : 4} className="px-4 py-3 bg-gray-50">
+                            {logs.length === 0 ? (
+                              <span className="text-xs text-gray-400">No reminders sent yet.</span>
+                            ) : (
+                              <div className="space-y-1">
+                                {logs.map((log) => (
+                                  <div key={log.reminderId} className="flex items-center gap-3 text-xs text-gray-600">
+                                    <span className={`rounded-full px-2 py-0.5 font-medium ${log.status === "sent" || log.status === "delivered" ? "bg-green-100 text-green-700" : log.status === "failed" ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-500"}`}>
+                                      {log.status}
+                                    </span>
+                                    <span className="font-medium">{log.reminderType}</span>
+                                    <span>{log.channel}</span>
+                                    <span className="text-gray-400">{log.recipient}</span>
+                                    {log.sentAt && (
+                                      <span className="text-gray-400">
+                                        {new Date(log.sentAt).toLocaleString()}
+                                      </span>
+                                    )}
+                                    {log.errorMessage && (
+                                      <span className="text-red-500">{log.errorMessage}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* ── AppointmentFormModal — create mode ───────────────────────────── */}
       {createOpen && (

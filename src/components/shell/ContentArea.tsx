@@ -28,6 +28,10 @@ import { FaxPage } from "../../pages/FaxPage";
 import { HEPBuilderPage } from "../../pages/HEPBuilderPage";
 import { BillingPage } from "../../pages/BillingPage";
 import { ClaimsPage } from "../../pages/ClaimsPage";
+import { RemittancePage } from "../../pages/RemittancePage";
+import { AnalyticsDashboardPage } from "../../pages/AnalyticsDashboardPage";
+import { MIPSDashboardPage } from "../../pages/MIPSDashboardPage";
+import { WorkersCompPage } from "../../pages/WorkersCompPage";
 import { useAuth } from "../../hooks/useAuth";
 
 // ─── Unknown route fallback ─────────────────────────────────────────────────
@@ -171,6 +175,20 @@ export function ContentArea() {
       return (
         <ClaimsPage
           patientId={currentRoute.patientId}
+          role={user?.role ?? ""}
+        />
+      );
+    case "remittance":
+      return <RemittancePage role={user?.role ?? ""} />;
+    case "analytics":
+      return <AnalyticsDashboardPage role={user?.role ?? ""} />;
+    case "mips":
+      return <MIPSDashboardPage role={user?.role ?? ""} />;
+    case "workers-comp":
+      return (
+        <WorkersCompPage
+          patientId={currentRoute.patientId}
+          caseId={currentRoute.caseId}
           role={user?.role ?? ""}
         />
       );

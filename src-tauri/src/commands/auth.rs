@@ -8,6 +8,8 @@ use crate::db::connection::Database;
 use crate::db::models::user::UserResponse;
 use crate::device_id::DeviceId;
 use crate::error::AppError;
+use crate::rbac::middleware;
+use crate::rbac::roles::{Action, Resource};
 
 /// Login response combining user info and session info.
 /// When mfa_required is true, session is a partial placeholder and
@@ -533,4 +535,124 @@ pub fn check_first_run(db: State<'_, Database>) -> Result<bool, AppError> {
         .map_err(|e| AppError::Database(e.to_string()))?;
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
     Ok(count == 0)
+}
+
+/// Extended user response that includes is_active status, for user management.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserListEntry {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub role: String,
+    pub is_active: bool,
+    pub created_at: String,
+}
+
+/// List all users in the system.
+///
+/// SystemAdmin only. Returns id, username, display_name, role, is_active, created_at.
+/// Password hash and TOTP secrets are never returned.
+#[tauri::command]
+pub fn list_users(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<Vec<UserListEntry>, AppError> {
+    let (user_id, _role) =
+        middleware::check_permission(&session, Resource::UserManagement, Action::Read)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, username, display_name, role, is_active, created_at
+         FROM users
+         ORDER BY created_at ASC",
+    )?;
+
+    let users: Vec<UserListEntry> = stmt
+        .query_map([], |row| {
+            Ok(UserListEntry {
+                id: row.get(0)?,
+                username: row.get(1)?,
+                display_name: row.get(2)?,
+                role: row.get(3)?,
+                is_active: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id,
+            action: "auth.list_users".to_string(),
+            resource_type: "users".to_string(),
+            resource_id: None,
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some(format!("count={}", users.len())),
+        },
+    );
+
+    Ok(users)
+}
+
+/// Deactivate a user account (sets is_active = false).
+///
+/// SystemAdmin only. Cannot deactivate your own account.
+#[tauri::command]
+pub fn deactivate_user(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+    user_id_to_deactivate: String,
+) -> Result<(), AppError> {
+    let (acting_user_id, _role) =
+        middleware::check_permission(&session, Resource::UserManagement, Action::Update)?;
+
+    // Prevent self-deactivation
+    if acting_user_id == user_id_to_deactivate {
+        return Err(AppError::Validation(
+            "Cannot deactivate your own account".to_string(),
+        ));
+    }
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let updated = conn.execute(
+        "UPDATE users SET is_active = 0, updated_at = datetime('now') WHERE id = ?1",
+        rusqlite::params![user_id_to_deactivate],
+    )?;
+
+    if updated == 0 {
+        return Err(AppError::NotFound(format!(
+            "User '{}' not found",
+            user_id_to_deactivate
+        )));
+    }
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: acting_user_id,
+            action: "auth.deactivate_user".to_string(),
+            resource_type: "users".to_string(),
+            resource_id: Some(user_id_to_deactivate.clone()),
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some(format!("deactivated user_id={}", user_id_to_deactivate)),
+        },
+    );
+
+    Ok(())
 }

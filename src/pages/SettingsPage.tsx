@@ -22,6 +22,8 @@ import { useAuth } from "../hooks/useAuth";
 import MfaSetup from "../components/auth/MfaSetup";
 import type { BackupResult, BackupLogEntry } from "../types/backup";
 import type { BiometricStatus } from "../types/auth";
+import type { UserListEntry } from "../types/mips";
+import type { ReminderConfigRecord, ReminderConfigInput } from "../types/reminders";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,9 +53,32 @@ function statusBadge(status: string): React.ReactElement {
   return <span className={`${base} bg-gray-100 text-gray-600`}>{status}</span>;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const ROLE_OPTIONS = [
+  "SystemAdmin",
+  "Provider",
+  "NurseMa",
+  "BillingStaff",
+  "FrontDesk",
+] as const;
+
+function roleBadge(role: string): React.ReactElement {
+  const base = "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
+  const map: Record<string, string> = {
+    SystemAdmin: "bg-purple-100 text-purple-800",
+    Provider: "bg-blue-100 text-blue-800",
+    NurseMa: "bg-green-100 text-green-800",
+    BillingStaff: "bg-yellow-100 text-yellow-800",
+    FrontDesk: "bg-gray-100 text-gray-700",
+  };
+  const cls = map[role] ?? "bg-gray-100 text-gray-600";
+  return <span className={`${base} ${cls}`}>{role}</span>;
+}
+
 // ─── Tab type ─────────────────────────────────────────────────────────────────
 
-type Tab = "backup" | "security" | "fax" | "account";
+type Tab = "backup" | "security" | "fax" | "reminders" | "account" | "users";
 
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
@@ -102,8 +127,55 @@ export function SettingsPage() {
   const [faxTesting, setFaxTesting] = useState(false);
   const [faxTestResult, setFaxTestResult] = useState<string | null>(null);
 
+  // ── Reminders tab state ──────────────────────────────────────────────────────
+  const [reminderConfig, setReminderConfig] = useState<ReminderConfigRecord | null>(null);
+  const [reminderSmsEnabled, setReminderSmsEnabled] = useState(false);
+  const [reminderEmailEnabled, setReminderEmailEnabled] = useState(false);
+  const [reminder24hr, setReminder24hr] = useState(true);
+  const [reminder2hr, setReminder2hr] = useState(true);
+  const [reminderPracticeName, setReminderPracticeName] = useState("");
+  const [reminderPracticePhone, setReminderPracticePhone] = useState("");
+  const [twilioSid, setTwilioSid] = useState("");
+  const [twilioToken, setTwilioToken] = useState("");
+  const [twilioFrom, setTwilioFrom] = useState("");
+  const [sgApiKey, setSgApiKey] = useState("");
+  const [sgFromEmail, setSgFromEmail] = useState("");
+  const [sgFromName, setSgFromName] = useState("");
+  const [reminderSaving, setReminderSaving] = useState(false);
+  const [reminderError, setReminderError] = useState<string | null>(null);
+  const [reminderSuccess, setReminderSuccess] = useState<string | null>(null);
+  const [reminderTesting, setReminderTesting] = useState(false);
+  const [reminderTestResult, setReminderTestResult] = useState<string | null>(null);
+
   // ── Account tab state ───────────────────────────────────────────────────────
   const [signingOut, setSigningOut] = useState(false);
+
+  // ── Users tab state (SystemAdmin only) ──────────────────────────────────────
+  const [users, setUsers] = useState<UserListEntry[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [newRole, setNewRole] = useState<string>(ROLE_OPTIONS[1]);
+  const [newPassword, setNewPassword] = useState("");
+  const [addUserError, setAddUserError] = useState<string | null>(null);
+  const [addUserLoading, setAddUserLoading] = useState(false);
+  const [addUserSuccess, setAddUserSuccess] = useState<string | null>(null);
+
+  // ── Users: load when SystemAdmin opens the Users tab ────────────────────────
+  useEffect(() => {
+    if (user?.role !== "SystemAdmin") return;
+    if (activeTab !== "users") return;
+    let mounted = true;
+    setUsersLoading(true);
+    setUsersError(null);
+    commands.listUsers()
+      .then((list) => { if (mounted) setUsers(list); })
+      .catch((e) => { if (mounted) setUsersError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (mounted) setUsersLoading(false); });
+    return () => { mounted = false; };
+  }, [activeTab, user?.role]);
 
   // ── Backup: fetch history on mount and after create ─────────────────────────
   useEffect(() => {
@@ -134,6 +206,27 @@ export function SettingsPage() {
       .catch(() => { /* unavailable on this platform — silently ignore */ });
     return () => { mounted = false; };
   }, []);
+
+  // ── Reminders: load config when tab becomes active ────────────────────────────
+  useEffect(() => {
+    if (activeTab !== "reminders") return;
+    let mounted = true;
+    commands.getReminderConfig()
+      .then((cfg) => {
+        if (!mounted) return;
+        setReminderConfig(cfg);
+        setReminderSmsEnabled(cfg.smsEnabled);
+        setReminderEmailEnabled(cfg.emailEnabled);
+        setReminder24hr(cfg.reminder24hr);
+        setReminder2hr(cfg.reminder2hr);
+        setReminderPracticeName(cfg.practiceName ?? "");
+        setReminderPracticePhone(cfg.practicePhone ?? "");
+        setTwilioFrom(cfg.twilioFromNumber ?? "");
+        setSgFromEmail(cfg.sendgridFromEmail ?? "");
+      })
+      .catch(() => { /* not yet configured — silently ignore */ });
+    return () => { mounted = false; };
+  }, [activeTab]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -266,6 +359,55 @@ export function SettingsPage() {
     }
   }, []);
 
+  const handleSaveReminderConfig = useCallback(async () => {
+    setReminderSaving(true);
+    setReminderError(null);
+    setReminderSuccess(null);
+    try {
+      const input: ReminderConfigInput = {
+        smsEnabled: reminderSmsEnabled,
+        emailEnabled: reminderEmailEnabled,
+        reminder24hr,
+        reminder2hr,
+        practiceName: reminderPracticeName.trim() || null,
+        practicePhone: reminderPracticePhone.trim() || null,
+        twilio: (twilioSid.trim() || twilioToken.trim() || twilioFrom.trim())
+          ? { accountSid: twilioSid.trim(), authToken: twilioToken.trim(), fromNumber: twilioFrom.trim() }
+          : null,
+        sendgrid: (sgApiKey.trim() || sgFromEmail.trim())
+          ? { apiKey: sgApiKey.trim(), fromEmail: sgFromEmail.trim(), fromName: sgFromName.trim() || null }
+          : null,
+      };
+      const cfg = await commands.configureReminders(input);
+      setReminderConfig(cfg);
+      setReminderSuccess("Reminder settings saved.");
+    } catch (e) {
+      setReminderError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReminderSaving(false);
+    }
+  }, [
+    reminderSmsEnabled, reminderEmailEnabled, reminder24hr, reminder2hr,
+    reminderPracticeName, reminderPracticePhone,
+    twilioSid, twilioToken, twilioFrom,
+    sgApiKey, sgFromEmail, sgFromName,
+  ]);
+
+  const handleTestReminders = useCallback(async () => {
+    setReminderTesting(true);
+    setReminderTestResult(null);
+    try {
+      const result = await commands.processPendingReminders();
+      setReminderTestResult(
+        `Processed: ${result.sentCount} sent, ${result.skippedCount} skipped, ${result.failedCount} failed.`
+      );
+    } catch (e) {
+      setReminderTestResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setReminderTesting(false);
+    }
+  }, []);
+
   const handleSignOut = useCallback(async () => {
     setSigningOut(true);
     try {
@@ -276,13 +418,53 @@ export function SettingsPage() {
     }
   }, [logout]);
 
+  const handleAddUser = useCallback(async () => {
+    if (!newUsername.trim() || !newDisplayName.trim() || !newPassword) return;
+    setAddUserLoading(true);
+    setAddUserError(null);
+    setAddUserSuccess(null);
+    try {
+      await commands.registerUser({
+        username: newUsername.trim(),
+        password: newPassword,
+        displayName: newDisplayName.trim(),
+        role: newRole,
+      });
+      setAddUserSuccess(`User '${newUsername.trim()}' created successfully.`);
+      setNewUsername("");
+      setNewDisplayName("");
+      setNewPassword("");
+      setNewRole(ROLE_OPTIONS[1]);
+      setShowAddUser(false);
+      // Refresh user list
+      const list = await commands.listUsers();
+      setUsers(list);
+    } catch (e) {
+      setAddUserError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddUserLoading(false);
+    }
+  }, [newUsername, newDisplayName, newPassword, newRole]);
+
+  const handleDeactivateUser = useCallback(async (userId: string) => {
+    try {
+      await commands.deactivateUser(userId);
+      const list = await commands.listUsers();
+      setUsers(list);
+    } catch (e) {
+      setUsersError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
-  const tabs: { id: Tab; label: string }[] = [
+  const tabs: { id: Tab; label: string; adminOnly?: boolean }[] = [
     { id: "backup", label: "Backup" },
     { id: "security", label: "Security" },
     { id: "fax", label: "Fax" },
+    { id: "reminders", label: "Reminders", adminOnly: true },
     { id: "account", label: "Account" },
+    { id: "users", label: "Users", adminOnly: true },
   ];
 
   return (
@@ -298,21 +480,23 @@ export function SettingsPage() {
       {/* Tab bar */}
       <div className="mb-6 border-b border-gray-200">
         <nav className="-mb-px flex gap-6">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={[
-                "whitespace-nowrap border-b-2 pb-3 text-sm font-medium transition-colors",
-                activeTab === tab.id
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700",
-              ].join(" ")}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {tabs
+            .filter((tab) => !tab.adminOnly || user?.role === "SystemAdmin")
+            .map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={[
+                  "whitespace-nowrap border-b-2 pb-3 text-sm font-medium transition-colors",
+                  activeTab === tab.id
+                    ? "border-blue-600 text-blue-600"
+                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700",
+                ].join(" ")}
+              >
+                {tab.label}
+              </button>
+            ))}
         </nav>
       </div>
 
@@ -732,6 +916,435 @@ export function SettingsPage() {
                 )}
               </div>
             </section>
+          </div>
+        )}
+
+        {/* ─── USERS TAB (SystemAdmin only) ───────────────────────────────────── */}
+        {activeTab === "users" && user?.role === "SystemAdmin" && (
+          <div className="space-y-6 max-w-4xl">
+
+            {usersError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {usersError}
+              </div>
+            )}
+
+            {addUserSuccess && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                {addUserSuccess}
+              </div>
+            )}
+
+            {/* Add User */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-base font-semibold text-gray-900">
+                  System Users
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddUser((v) => !v);
+                    setAddUserError(null);
+                  }}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+                >
+                  {showAddUser ? "Cancel" : "Add User"}
+                </button>
+              </div>
+
+              {showAddUser && (
+                <div className="mb-6 rounded-md border border-blue-100 bg-blue-50 p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-blue-900">
+                    New User
+                  </h3>
+
+                  {addUserError && (
+                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      {addUserError}
+                    </div>
+                  )}
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        placeholder="john.doe"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Display Name
+                      </label>
+                      <input
+                        type="text"
+                        value={newDisplayName}
+                        onChange={(e) => setNewDisplayName(e.target.value)}
+                        placeholder="John Doe, PT"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Role
+                      </label>
+                      <select
+                        value={newRole}
+                        onChange={(e) => setNewRole(e.target.value)}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Password (min 12 chars)
+                      </label>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAddUser}
+                    disabled={
+                      addUserLoading ||
+                      !newUsername.trim() ||
+                      !newDisplayName.trim() ||
+                      newPassword.length < 12
+                    }
+                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {addUserLoading ? "Creating…" : "Create User"}
+                  </button>
+                </div>
+              )}
+
+              {/* User list */}
+              {usersLoading ? (
+                <p className="text-sm text-gray-500">Loading users…</p>
+              ) : users.length === 0 ? (
+                <p className="text-sm text-gray-500">No users found.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead>
+                      <tr>
+                        {["Username", "Display Name", "Role", "Status", "Created", "Actions"].map(
+                          (h) => (
+                            <th
+                              key={h}
+                              className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500"
+                            >
+                              {h}
+                            </th>
+                          )
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {users.map((u) => (
+                        <tr
+                          key={u.id}
+                          className={u.isActive ? "" : "bg-gray-50 opacity-60"}
+                        >
+                          <td className="px-3 py-2 font-mono text-xs text-gray-700">
+                            {u.username}
+                          </td>
+                          <td className="px-3 py-2 text-gray-900">
+                            {u.displayName}
+                          </td>
+                          <td className="px-3 py-2">{roleBadge(u.role)}</td>
+                          <td className="px-3 py-2">
+                            {u.isActive ? (
+                              <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                                Active
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500">
+                                Inactive
+                              </span>
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-500">
+                            {new Date(u.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="px-3 py-2">
+                            {u.isActive && u.id !== user.id && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeactivateUser(u.id)}
+                                className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-100"
+                              >
+                                Deactivate
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {/* ─── REMINDERS TAB ──────────────────────────────────────────────────── */}
+        {activeTab === "reminders" && (
+          <div className="space-y-6 max-w-3xl">
+
+            {/* Status badges */}
+            {reminderConfig && (
+              <div className="flex gap-3 flex-wrap">
+                <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${reminderConfig.twilioConfigured ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                  SMS {reminderConfig.twilioConfigured ? "Configured" : "Not Configured"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${reminderConfig.sendgridConfigured ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                  Email {reminderConfig.sendgridConfigured ? "Configured" : "Not Configured"}
+                </span>
+              </div>
+            )}
+
+            {reminderError && (
+              <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                {reminderError}
+              </div>
+            )}
+            {reminderSuccess && (
+              <div className="rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
+                {reminderSuccess}
+              </div>
+            )}
+
+            {/* Channel toggles */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-gray-900">Channels</h2>
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reminderSmsEnabled}
+                    onChange={(e) => setReminderSmsEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Enable SMS reminders (Twilio)</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reminderEmailEnabled}
+                    onChange={(e) => setReminderEmailEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Enable email reminders (SendGrid)</span>
+                </label>
+              </div>
+            </section>
+
+            {/* Reminder intervals */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-gray-900">Reminder Intervals</h2>
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reminder24hr}
+                    onChange={(e) => setReminder24hr(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700">24 hours before appointment</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reminder2hr}
+                    onChange={(e) => setReminder2hr(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700">2 hours before appointment</span>
+                </label>
+              </div>
+            </section>
+
+            {/* Practice info */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-gray-900">Practice Information</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Practice Name</label>
+                  <input
+                    type="text"
+                    value={reminderPracticeName}
+                    onChange={(e) => setReminderPracticeName(e.target.value)}
+                    placeholder="e.g. MedArc Physical Therapy"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Practice Phone</label>
+                  <input
+                    type="tel"
+                    value={reminderPracticePhone}
+                    onChange={(e) => setReminderPracticePhone(e.target.value)}
+                    placeholder="e.g. 555-123-4567"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Twilio credentials */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-1 text-base font-semibold text-gray-900">Twilio SMS Credentials</h2>
+              <p className="mb-4 text-xs text-gray-500">
+                Required for SMS reminders. Stored encrypted at rest.{" "}
+                {reminderConfig?.twilioConfigured && (
+                  <span className="text-green-600 font-medium">Currently configured.</span>
+                )}
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Account SID</label>
+                  <input
+                    type="password"
+                    value={twilioSid}
+                    onChange={(e) => setTwilioSid(e.target.value)}
+                    placeholder={reminderConfig?.twilioConfigured ? "Leave blank to keep existing" : "ACxxxxxxxxxxxxxxxx"}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Auth Token</label>
+                  <input
+                    type="password"
+                    value={twilioToken}
+                    onChange={(e) => setTwilioToken(e.target.value)}
+                    placeholder={reminderConfig?.twilioConfigured ? "Leave blank to keep existing" : "Auth token"}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">From Number (E.164)</label>
+                  <input
+                    type="text"
+                    value={twilioFrom}
+                    onChange={(e) => setTwilioFrom(e.target.value)}
+                    placeholder="+15551234567"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* SendGrid credentials */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-1 text-base font-semibold text-gray-900">SendGrid Email Credentials</h2>
+              <p className="mb-4 text-xs text-gray-500">
+                Required for email reminders. Stored encrypted at rest.{" "}
+                {reminderConfig?.sendgridConfigured && (
+                  <span className="text-green-600 font-medium">Currently configured.</span>
+                )}
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                  <input
+                    type="password"
+                    value={sgApiKey}
+                    onChange={(e) => setSgApiKey(e.target.value)}
+                    placeholder={reminderConfig?.sendgridConfigured ? "Leave blank to keep existing" : "SG.xxxxxx"}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">From Email</label>
+                  <input
+                    type="email"
+                    value={sgFromEmail}
+                    onChange={(e) => setSgFromEmail(e.target.value)}
+                    placeholder="noreply@yourpractice.com"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">From Name</label>
+                  <input
+                    type="text"
+                    value={sgFromName}
+                    onChange={(e) => setSgFromName(e.target.value)}
+                    placeholder="MedArc Physical Therapy"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Template preview */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-2 text-base font-semibold text-gray-900">Default Templates</h2>
+              <p className="mb-4 text-xs text-gray-500">
+                Placeholders: {"{patient_name}"}, {"{appointment_date}"}, {"{appointment_time}"},{" "}
+                {"{provider_name}"}, {"{practice_name}"}, {"{practice_phone}"}
+              </p>
+              <div className="space-y-3">
+                {[
+                  { label: "24hr Reminder", text: "Hi {patient_name}, this is a reminder of your PT appointment tomorrow at {appointment_time} with {provider_name}. Reply C to confirm or call {practice_phone} to reschedule." },
+                  { label: "2hr Reminder", text: "Reminder: Your PT appointment is in 2 hours at {appointment_time}. See you soon!" },
+                  { label: "No-Show Follow-up", text: "We missed you at your appointment today. Please call {practice_phone} to reschedule." },
+                  { label: "Waitlist Offer", text: "Hi {patient_name}, a slot has opened at {appointment_time} on {appointment_date}. Reply Y to book or call {practice_phone}." },
+                ].map((tmpl) => (
+                  <div key={tmpl.label} className="rounded-md bg-gray-50 p-3">
+                    <div className="text-xs font-semibold text-gray-600 mb-1">{tmpl.label}</div>
+                    <div className="text-sm text-gray-700 font-mono whitespace-pre-wrap">{tmpl.text}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Action buttons */}
+            <div className="flex gap-3 flex-wrap">
+              <button
+                type="button"
+                onClick={handleSaveReminderConfig}
+                disabled={reminderSaving}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {reminderSaving ? "Saving…" : "Save Settings"}
+              </button>
+              <button
+                type="button"
+                onClick={handleTestReminders}
+                disabled={reminderTesting}
+                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {reminderTesting ? "Processing…" : "Process Pending Reminders"}
+              </button>
+            </div>
+            {reminderTestResult && (
+              <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700">
+                {reminderTestResult}
+              </div>
+            )}
           </div>
         )}
 

@@ -867,6 +867,256 @@ pub static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
             CREATE INDEX IF NOT EXISTS idx_claims_payer ON claims(payer_id);"
         ),
+        // Migration 26: ERA/835 Remittance Processing tables (M003/S02)
+        //
+        // Two tables support 835 Electronic Remittance Advice processing:
+        //   - remittance_advice: one row per 835 file/transaction; tracks payment amount,
+        //     payer, trace number, and whether auto-posting has been performed.
+        //   - claim_payments:    per-claim (and optionally per-service-line) payment records
+        //     linking ERA payments to claims; stores paid amount, adjustments, patient
+        //     responsibility, and comma-separated CARC codes for denial management.
+        //
+        // Indexes on claim_payments(claim_id) and (remittance_id) ensure fast ERA→claim
+        // joins for auto-posting and A/R aging queries.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS remittance_advice (
+              remittance_id TEXT PRIMARY KEY,
+              payer_id TEXT,
+              trace_number TEXT,
+              payment_amount REAL NOT NULL,
+              payment_date TEXT,
+              file_path TEXT,
+              posted INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS claim_payments (
+              payment_id TEXT PRIMARY KEY,
+              claim_id TEXT NOT NULL REFERENCES claims(claim_id),
+              remittance_id TEXT REFERENCES remittance_advice(remittance_id),
+              paid_amount REAL NOT NULL,
+              adjustment_amount REAL DEFAULT 0,
+              patient_responsibility REAL DEFAULT 0,
+              adjustment_codes TEXT,
+              posted_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_payment_claim ON claim_payments(claim_id);
+            CREATE INDEX IF NOT EXISTS idx_payment_remittance ON claim_payments(remittance_id);"
+        ),
+        // Migration 27: KPI snapshots table for Analytics & Outcomes Dashboard (M003/S02)
+        //
+        // `kpi_snapshots` stores pre-computed KPI payloads as JSON for fast
+        // historical trend retrieval.  The kpi_data column holds serialised
+        // OperationalKPIs / FinancialKPIs / ClinicalOutcomes / PayerMix values.
+        //
+        // period_type CHECK ensures only valid cadences are stored.
+        // idx_kpi_period supports listing and trend queries by period_type + start date.
+        M::up(
+            "CREATE TABLE IF NOT EXISTS kpi_snapshots (
+              snapshot_id TEXT PRIMARY KEY,
+              period_type TEXT NOT NULL CHECK(period_type IN ('daily','weekly','monthly','quarterly','yearly')),
+              period_start TEXT NOT NULL,
+              period_end TEXT NOT NULL,
+              provider_id TEXT,
+              kpi_data TEXT NOT NULL,
+              computed_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_kpi_period ON kpi_snapshots(period_type, period_start);"
+        ),
+        // Migration 28: MIPS Quality Measure Capture (M004/S07)
+        //
+        // Two tables support MIPS quality measure tracking:
+        //   - mips_screenings:   PHQ-2, PHQ-9, falls risk, and BMI screening
+        //     records per patient per encounter, with result and follow-up plan.
+        //   - mips_performance:  Pre-computed numerator/denominator/rate per
+        //     measure per performance year for fast dashboard retrieval.
+        //
+        // mips_screenings indexes on (patient_id) and (performance_year) to
+        // support per-patient lookups and annual reporting queries.
+        // mips_performance has a UNIQUE constraint on (performance_year, measure_id).
+        M::up(
+            "CREATE TABLE IF NOT EXISTS mips_screenings (
+              screening_id TEXT PRIMARY KEY,
+              patient_id TEXT NOT NULL,
+              encounter_id TEXT,
+              measure_type TEXT NOT NULL CHECK(measure_type IN ('phq2','phq9','falls_risk','bmi')),
+              score REAL,
+              result TEXT,
+              follow_up_plan TEXT,
+              performance_year INTEGER NOT NULL,
+              screened_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_mips_patient ON mips_screenings(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_mips_year ON mips_screenings(performance_year);
+
+            CREATE TABLE IF NOT EXISTS mips_performance (
+              perf_id TEXT PRIMARY KEY,
+              performance_year INTEGER NOT NULL,
+              measure_id TEXT NOT NULL,
+              measure_name TEXT NOT NULL,
+              numerator INTEGER NOT NULL DEFAULT 0,
+              denominator INTEGER NOT NULL DEFAULT 0,
+              performance_rate REAL,
+              computed_at TEXT NOT NULL DEFAULT (datetime('now')),
+              UNIQUE(performance_year, measure_id)
+            );"
+        ),
+        // Migration 29: Reserved for future use (no schema changes).
+        M::up("SELECT 1;"),
+        // Migration 30: Appointment Reminders — reminder_log and reminder_templates (M003/S02)
+        //
+        // Two tables support the Appointment Reminders feature:
+        //   - reminder_log:       one row per delivered (or failed) reminder;
+        //     tracks appointment_id, patient_id, type, channel, recipient,
+        //     message body, status lifecycle, and optional external message SID.
+        //   - reminder_templates: default and custom message templates keyed by
+        //     reminder_type + channel; is_default flag identifies built-in entries.
+        //
+        // Indexes on reminder_log(appointment_id), (patient_id), and (status)
+        // support per-appointment reminder checks, per-patient history, and
+        // bulk status queries used for deduplication and reporting.
+        M::up(
+            "CREATE TABLE IF NOT EXISTS reminder_log (
+              reminder_id TEXT PRIMARY KEY,
+              appointment_id TEXT NOT NULL,
+              patient_id TEXT NOT NULL,
+              reminder_type TEXT NOT NULL CHECK(reminder_type IN ('24hr','2hr','no_show','waitlist_offer','custom')),
+              channel TEXT NOT NULL CHECK(channel IN ('sms','email')),
+              recipient TEXT NOT NULL,
+              message_body TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','delivered','failed')),
+              external_id TEXT,
+              error_message TEXT,
+              sent_at TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_reminder_appointment ON reminder_log(appointment_id);
+            CREATE INDEX IF NOT EXISTS idx_reminder_patient ON reminder_log(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_reminder_status ON reminder_log(status);
+
+            CREATE TABLE IF NOT EXISTS reminder_templates (
+              template_id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              reminder_type TEXT NOT NULL,
+              channel TEXT NOT NULL,
+              body_template TEXT NOT NULL,
+              is_default INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );"
+        ),
+        // Migration 31: Workers' Compensation Module tables (M003/S02)
+        //
+        // Five tables support workers' comp case management:
+        //   - wc_cases:               core WC case record linked to FHIR EpisodeOfCare;
+        //     status CHECK: open | closed | settled | disputed
+        //   - wc_contacts:            per-case contacts (adjuster, attorney,
+        //     nurse_case_manager, employer_rep) with phone/email/fax
+        //   - wc_fee_schedules:       state-specific max allowable amounts per CPT code;
+        //     UNIQUE(state, cpt_code, effective_date) prevents duplicates
+        //   - wc_impairment_ratings:  AMA Guides-based WPI ratings per case;
+        //     whole_person_pct CHECK enforces 0–100% range
+        //   - wc_communications:      full communication history per case
+        //     (phone, email, fax, letter, in_person)
+        //
+        // Seeded with sample WC fee schedules for CA, TX, FL, NY, WA so that
+        // lookup_wc_fee works out of the box for common PT CPT codes.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS wc_cases (
+              case_id TEXT PRIMARY KEY,
+              resource_id TEXT NOT NULL REFERENCES fhir_resources(id) ON DELETE CASCADE,
+              patient_id TEXT NOT NULL,
+              employer_name TEXT NOT NULL,
+              employer_contact TEXT,
+              injury_date TEXT NOT NULL,
+              injury_description TEXT,
+              body_parts TEXT,
+              claim_number TEXT,
+              state TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','settled','disputed')),
+              mmi_date TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_wc_patient ON wc_cases(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_wc_status ON wc_cases(status);
+
+            CREATE TABLE IF NOT EXISTS wc_contacts (
+              contact_id TEXT PRIMARY KEY,
+              case_id TEXT NOT NULL REFERENCES wc_cases(case_id) ON DELETE CASCADE,
+              role TEXT NOT NULL CHECK(role IN ('adjuster','attorney','nurse_case_manager','employer_rep')),
+              name TEXT NOT NULL,
+              company TEXT,
+              phone TEXT,
+              email TEXT,
+              fax TEXT,
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_wc_contact_case ON wc_contacts(case_id);
+
+            CREATE TABLE IF NOT EXISTS wc_fee_schedules (
+              fee_id TEXT PRIMARY KEY,
+              state TEXT NOT NULL,
+              cpt_code TEXT NOT NULL,
+              max_allowable REAL NOT NULL,
+              effective_date TEXT,
+              UNIQUE(state, cpt_code, effective_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_wcfee_state ON wc_fee_schedules(state);
+
+            CREATE TABLE IF NOT EXISTS wc_impairment_ratings (
+              rating_id TEXT PRIMARY KEY,
+              case_id TEXT NOT NULL REFERENCES wc_cases(case_id) ON DELETE CASCADE,
+              body_part TEXT NOT NULL,
+              ama_guides_edition TEXT CHECK(ama_guides_edition IN ('3rd_rev','4th','5th','6th')),
+              impairment_class TEXT,
+              grade_modifier TEXT,
+              whole_person_pct REAL NOT NULL CHECK(whole_person_pct >= 0 AND whole_person_pct <= 100),
+              evaluator TEXT,
+              evaluation_date TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_wc_rating_case ON wc_impairment_ratings(case_id);
+
+            CREATE TABLE IF NOT EXISTS wc_communications (
+              comm_id TEXT PRIMARY KEY,
+              case_id TEXT NOT NULL REFERENCES wc_cases(case_id) ON DELETE CASCADE,
+              contact_id TEXT REFERENCES wc_contacts(contact_id),
+              direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
+              method TEXT NOT NULL CHECK(method IN ('phone','email','fax','letter','in_person')),
+              subject TEXT,
+              content TEXT,
+              comm_date TEXT NOT NULL DEFAULT (datetime('now')),
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_wc_comm_case ON wc_communications(case_id);
+
+            INSERT OR IGNORE INTO wc_fee_schedules (fee_id, state, cpt_code, max_allowable, effective_date) VALUES
+              ('wf_ca_97110', 'CA', '97110', 42.00, '2026-01-01'),
+              ('wf_ca_97140', 'CA', '97140', 38.00, '2026-01-01'),
+              ('wf_ca_97530', 'CA', '97530', 40.00, '2026-01-01'),
+              ('wf_ca_99213', 'CA', '99213', 85.00, '2026-01-01'),
+              ('wf_tx_97110', 'TX', '97110', 38.00, '2026-01-01'),
+              ('wf_tx_97140', 'TX', '97140', 34.00, '2026-01-01'),
+              ('wf_tx_97530', 'TX', '97530', 36.00, '2026-01-01'),
+              ('wf_tx_99213', 'TX', '99213', 78.00, '2026-01-01'),
+              ('wf_fl_97110', 'FL', '97110', 36.00, '2026-01-01'),
+              ('wf_fl_97140', 'FL', '97140', 32.00, '2026-01-01'),
+              ('wf_fl_97530', 'FL', '97530', 34.00, '2026-01-01'),
+              ('wf_fl_99213', 'FL', '99213', 75.00, '2026-01-01'),
+              ('wf_ny_97110', 'NY', '97110', 45.00, '2026-01-01'),
+              ('wf_ny_97140', 'NY', '97140', 41.00, '2026-01-01'),
+              ('wf_ny_97530', 'NY', '97530', 43.00, '2026-01-01'),
+              ('wf_ny_99213', 'NY', '99213', 92.00, '2026-01-01'),
+              ('wf_wa_97110', 'WA', '97110', 40.00, '2026-01-01'),
+              ('wf_wa_97140', 'WA', '97140', 36.00, '2026-01-01'),
+              ('wf_wa_97530', 'WA', '97530', 38.00, '2026-01-01'),
+              ('wf_wa_99213', 'WA', '99213', 82.00, '2026-01-01');"
+        ),
     ])
 });
 
