@@ -64,6 +64,8 @@ pub enum Resource {
     PatientDocuments,
     /// Backup & Restore: create encrypted backups, restore from backup (S09)
     Backup,
+    /// PDF Export & Report Generation (M003/S05)
+    PdfExport,
 }
 
 /// Actions that can be performed on resources.
@@ -91,23 +93,25 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (SystemAdmin, _, _) => true,
 
         // Provider: Full CRUD clinical, CRU scheduling (no delete),
-        // Read billing, Full CRUD prescriptions, Read own audit logs
+        // Full CRUD billing (M004/S01 — provider creates/views billing on encounters),
+        // Full CRUD prescriptions, Read own audit logs
         (Provider, ClinicalRecords, _) => true,
         (Provider, Scheduling, Create | Read | Update) => true,
         (Provider, Scheduling, Delete) => false,
-        (Provider, Billing, Read) => true,
-        (Provider, Billing, _) => false,
+        (Provider, Billing, _) => true,
         (Provider, Prescriptions, _) => true,
         (Provider, AuditLogs, Read) => true,
         (Provider, AuditLogs, _) => false,
         (Provider, UserManagement, _) => false,
 
         // NurseMa: Read+Update clinical, CRU scheduling,
-        // No billing, Read-only prescriptions, No audit
+        // Read-only billing (M004/S01 — NurseMa can view billing summaries),
+        // Read-only prescriptions, No audit
         (NurseMa, ClinicalRecords, Read | Update) => true,
         (NurseMa, ClinicalRecords, _) => false,
         (NurseMa, Scheduling, Create | Read | Update) => true,
         (NurseMa, Scheduling, Delete) => false,
+        (NurseMa, Billing, Read) => true,
         (NurseMa, Billing, _) => false,
         (NurseMa, Prescriptions, Read) => true,
         (NurseMa, Prescriptions, _) => false,
@@ -237,6 +241,15 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (NurseMa, Backup, _) => false,
         (BillingStaff, Backup, _) => false,
         (FrontDesk, Backup, _) => false,
+
+        // ── PdfExport resource (M003/S05) ─────────────────────────────────────
+        (SystemAdmin, PdfExport, _) => true,
+        (Provider, PdfExport, _) => true,
+        (NurseMa, PdfExport, Read) => true,
+        (NurseMa, PdfExport, _) => false,
+        (BillingStaff, PdfExport, Read) => true,
+        (BillingStaff, PdfExport, _) => false,
+        (FrontDesk, PdfExport, _) => false,
     }
 }
 
@@ -379,11 +392,12 @@ mod tests {
     }
 
     #[test]
-    fn provider_billing_read_only() {
-        assert!(!has_permission(Provider, Billing, Create));
+    fn provider_billing_full_crud() {
+        // M004/S01: Provider has full CRUD on Billing (attaches CPT codes to encounters)
+        assert!(has_permission(Provider, Billing, Create));
         assert!(has_permission(Provider, Billing, Read));
-        assert!(!has_permission(Provider, Billing, Update));
-        assert!(!has_permission(Provider, Billing, Delete));
+        assert!(has_permission(Provider, Billing, Update));
+        assert!(has_permission(Provider, Billing, Delete));
     }
 
     #[test]
@@ -429,9 +443,10 @@ mod tests {
     }
 
     #[test]
-    fn nurse_no_billing() {
+    fn nurse_billing_read_only() {
+        // M004/S01: NurseMa has Read-only access to Billing (can view billing summaries)
         assert!(!has_permission(NurseMa, Billing, Create));
-        assert!(!has_permission(NurseMa, Billing, Read));
+        assert!(has_permission(NurseMa, Billing, Read));
         assert!(!has_permission(NurseMa, Billing, Update));
         assert!(!has_permission(NurseMa, Billing, Delete));
     }

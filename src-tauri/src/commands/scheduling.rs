@@ -438,7 +438,7 @@ pub async fn create_appointment(
     // --- Validate duration ---
     if input.duration_minutes < 5 || input.duration_minutes > 60 {
         if let Ok(conn) = db.conn.lock() {
-            let _ = write_audit_entry(
+            write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: sess.user_id.clone(),

@@ -94,7 +94,88 @@ import type {
 
 import type { BackupResult, RestoreResult, BackupLogEntry } from "../types/backup";
 
-import type { PtNoteInput, PtNoteRecord, PtNoteType } from "../types/pt";
+import type {
+  PtNoteInput,
+  PtNoteRecord,
+  PtNoteType,
+  MeasureType,
+  OutcomeScoreInput,
+  OutcomeScoreRecord,
+  ObjectiveMeasuresInput,
+  ObjectiveMeasuresRecord,
+  OutcomeComparison,
+} from "../types/pt";
+
+import type {
+  AudioLevel,
+  MicrophoneStatus,
+  StartRecordingResult,
+  StopRecordingResult,
+  TranscriptionResult,
+  WhisperModelInfo,
+  WhisperModelSize,
+  OllamaStatus,
+  NoteDraftResult,
+  CptSuggestion,
+  ExtractedObjectiveData,
+  PatientContext,
+  LlmSettings,
+  LlmSettingsInput,
+} from "../types/ai";
+
+import type { PdfExportResult } from "../types/export";
+
+import type {
+  FaxRecord,
+  FaxContact,
+  FaxContactInput,
+  SendFaxInput,
+  PhaxioConfigInput,
+  PhaxioConfigRecord,
+  FaxDirection,
+  FaxStatus,
+  FaxContactType,
+} from "../types/fax";
+
+import type {
+  DocumentCategory,
+  CategorizedDocumentInput,
+  CategorizedDocument,
+  SurveyTemplateInput,
+  SurveyTemplate,
+  SurveyResponseInput,
+  SurveyResponse,
+  ReferralInput,
+  ReferralRecord,
+} from "../types/documents";
+
+import type {
+  AuthRecordInput,
+  AuthRecord,
+  AuthAlert,
+} from "../types/auth-tracking";
+
+import type {
+  Exercise,
+  ExerciseRegion,
+  ExerciseCategory,
+  ExercisePrescription,
+  HEPProgram,
+  HEPTemplate,
+  CreateHepProgramInput,
+  CreateHepTemplateInput,
+} from "../types/hep";
+
+import type {
+  CptCode,
+  BillingRule,
+  ServiceMinutes,
+  UnitCalculationResult,
+  FeeScheduleInput,
+  FeeScheduleEntry,
+  SaveEncounterBillingInput,
+  EncounterBilling,
+} from "../types/billing";
 
 export const commands = {
   /** Check database encryption health status. */
@@ -491,13 +572,13 @@ export const commands = {
 
   /** Create an encrypted backup of the database at the given destination directory. */
   createBackup: (destinationPath: string) =>
-    invoke<BackupResult>("create_backup", { destinationPath }),
+    invoke<BackupResult>("create_backup", { destination_path: destinationPath }),
 
   /** Restore a backup from the given source path (SystemAdmin only). */
   restoreBackup: (sourcePath: string, expectedSha256?: string | null) =>
     invoke<RestoreResult>("restore_backup", {
-      sourcePath,
-      expectedSha256: expectedSha256 ?? null,
+      source_path: sourcePath,
+      expected_sha256: expectedSha256 ?? null,
     }),
 
   /** List all backup log entries (most recent first, limit 100). */
@@ -531,4 +612,372 @@ export const commands = {
   /** Lock a signed PT note, transitioning it from signed → locked. */
   lockPtNote: (ptNoteId: string) =>
     invoke<PtNoteRecord>("lock_pt_note", { ptNoteId }),
+
+  // ─── M003/S02 — Objective Measures & Outcome Scores ──────────────
+
+  /** Record objective measures (ROM, MMT, ortho tests) for a patient encounter. */
+  recordObjectiveMeasures: (input: ObjectiveMeasuresInput) =>
+    invoke<ObjectiveMeasuresRecord>("record_objective_measures", { input }),
+
+  /** Retrieve objective measures for a patient, optionally scoped to an encounter. */
+  getObjectiveMeasures: (patientId: string, encounterId?: string | null) =>
+    invoke<ObjectiveMeasuresRecord[]>("get_objective_measures", {
+      patientId,
+      encounterId: encounterId ?? null,
+    }),
+
+  /** Record and score an outcome measure for a patient. */
+  recordOutcomeScore: (input: OutcomeScoreInput) =>
+    invoke<OutcomeScoreRecord>("record_outcome_score", { input }),
+
+  /** List outcome scores for a patient, optionally filtered by measure type and date range. */
+  listOutcomeScores: (
+    patientId: string,
+    measureType?: MeasureType | null,
+    startDate?: string | null,
+    endDate?: string | null,
+  ) =>
+    invoke<OutcomeScoreRecord[]>("list_outcome_scores", {
+      patientId,
+      measureType: measureType ?? null,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+    }),
+
+  /** Get a single outcome score by ID. */
+  getOutcomeScore: (scoreId: string) =>
+    invoke<OutcomeScoreRecord>("get_outcome_score", { scoreId }),
+
+  /** Get outcome comparison (earliest vs latest per measure type) for a patient. */
+  getOutcomeComparison: (patientId: string) =>
+    invoke<OutcomeComparison>("get_outcome_comparison", { patientId }),
+
+  // ─── M003/S03 — Audio Capture & Transcription ────────────────────
+
+  /** Start recording audio from the microphone. Returns a recording ID. */
+  startAudioRecording: () =>
+    invoke<StartRecordingResult>("start_audio_recording"),
+
+  /** Stop an active recording. Returns the path to the WAV file. */
+  stopAudioRecording: (recordingId: string) =>
+    invoke<StopRecordingResult>("stop_audio_recording", { recordingId }),
+
+  /** Get the current audio amplitude level (0.0–1.0) for the visualizer. */
+  getAudioLevel: () =>
+    invoke<AudioLevel>("get_audio_level"),
+
+  /** Check whether a microphone is available on the system. */
+  checkMicrophoneAvailable: () =>
+    invoke<MicrophoneStatus>("check_microphone_available"),
+
+  /** Transcribe a WAV audio file using Whisper. Deletes the WAV after success. */
+  transcribeAudio: (wavPath: string, modelSize?: WhisperModelSize | null) =>
+    invoke<TranscriptionResult>("transcribe_audio", {
+      wavPath,
+      modelSize: modelSize ?? null,
+    }),
+
+  /** Check if a Whisper model is downloaded and ready to use. */
+  checkWhisperModel: (modelSize?: WhisperModelSize | null) =>
+    invoke<WhisperModelInfo>("check_whisper_model", {
+      modelSize: modelSize ?? null,
+    }),
+
+  /** Download a Whisper model to the app support directory. */
+  downloadWhisperModel: (modelSize?: WhisperModelSize | null) =>
+    invoke<WhisperModelInfo>("download_whisper_model", {
+      modelSize: modelSize ?? null,
+    }),
+
+  // ─── M003/S03 — LLM Integration (Ollama + Bedrock) ────────────────
+
+  /** Check if Ollama is running and list available models. */
+  checkOllamaStatus: () =>
+    invoke<OllamaStatus>("check_ollama_status"),
+
+  /** Generate a PT note draft from a session transcript. */
+  generateNoteDraft: (transcript: string, noteType: string, patientContext?: PatientContext | null) =>
+    invoke<NoteDraftResult>("generate_note_draft", {
+      transcript,
+      noteType,
+      patientContext: patientContext ?? null,
+    }),
+
+  /** Suggest CPT codes based on a note's text content. */
+  suggestCptCodes: (noteText: string) =>
+    invoke<CptSuggestion[]>("suggest_cpt_codes", { noteText }),
+
+  /** Extract objective data (ROM, pain, MMT) from a session transcript. */
+  extractObjectiveData: (transcript: string, patientId?: string | null) =>
+    invoke<ExtractedObjectiveData>("extract_objective_data", {
+      transcript,
+      patientId: patientId ?? null,
+    }),
+
+  /** Configure LLM provider, model, and credentials. */
+  configureLlmSettings: (input: LlmSettingsInput) =>
+    invoke<LlmSettings>("configure_llm_settings", { input }),
+
+  // ─── M003/S05 — PDF Export & Report Generation ───────────────────
+
+  /** Generate a single note PDF. */
+  generateNotePdf: (ptNoteId: string) =>
+    invoke<PdfExportResult>("generate_note_pdf", { ptNoteId }),
+
+  /** Generate a progress report PDF. */
+  generateProgressReport: (patientId: string, startDate?: string | null, endDate?: string | null) =>
+    invoke<PdfExportResult>("generate_progress_report", {
+      patientId,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+    }),
+
+  /** Generate an insurance narrative PDF. */
+  generateInsuranceNarrative: (patientId: string) =>
+    invoke<PdfExportResult>("generate_insurance_narrative", { patientId }),
+
+  /** Generate a legal/IME report PDF. */
+  generateLegalReport: (patientId: string) =>
+    invoke<PdfExportResult>("generate_legal_report", { patientId }),
+
+  /** Generate a full chart export PDF. */
+  generateChartExport: (patientId: string, startDate?: string | null, endDate?: string | null) =>
+    invoke<PdfExportResult>("generate_chart_export", {
+      patientId,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+    }),
+
+  // ─── M003/S04 — Document Center commands ──────────────────────────
+
+  /** Upload a document with a PT-specific category. */
+  uploadCategorizedDocument: (input: CategorizedDocumentInput) =>
+    invoke<CategorizedDocument>("upload_categorized_document", { input }),
+
+  /** List patient documents, optionally filtered by category and sorted. */
+  listPatientDocuments: (patientId: string, category?: DocumentCategory | null, sortBy?: string | null) =>
+    invoke<CategorizedDocument[]>("list_patient_documents", { patientId, category: category ?? null, sortBy: sortBy ?? null }),
+
+  /** Retrieve a single document by ID with metadata. */
+  getDocument: (documentId: string) =>
+    invoke<CategorizedDocument>("get_document", { documentId }),
+
+  /** Update the category of a document. */
+  updateDocumentCategory: (documentId: string, category: DocumentCategory) =>
+    invoke<CategorizedDocument>("update_document_category", { documentId, category }),
+
+  /** Soft-delete a document (marks FHIR status as entered-in-error). */
+  deleteDocument: (documentId: string) =>
+    invoke<void>("delete_document", { documentId }),
+
+  /** Create a custom survey template. */
+  createSurveyTemplate: (input: SurveyTemplateInput) =>
+    invoke<SurveyTemplate>("create_survey_template", { input }),
+
+  /** List all survey templates including built-in ones. */
+  listSurveyTemplates: () =>
+    invoke<SurveyTemplate[]>("list_survey_templates"),
+
+  /** Get a single survey template by ID. */
+  getSurveyTemplate: (templateId: string) =>
+    invoke<SurveyTemplate>("get_survey_template", { templateId }),
+
+  /** Submit a survey response for a patient. */
+  submitSurveyResponse: (input: SurveyResponseInput) =>
+    invoke<SurveyResponse>("submit_survey_response", { input }),
+
+  /** List all survey responses for a patient. */
+  listSurveyResponses: (patientId: string) =>
+    invoke<SurveyResponse[]>("list_survey_responses", { patientId }),
+
+  /** Get a single survey response by ID. */
+  getSurveyResponse: (responseId: string) =>
+    invoke<SurveyResponse>("get_survey_response", { responseId }),
+
+  /** Create a referral record for a patient. */
+  createReferral: (input: ReferralInput) =>
+    invoke<ReferralRecord>("create_referral", { input }),
+
+  /** Get a single referral by ID. */
+  getReferral: (referralId: string) =>
+    invoke<ReferralRecord>("get_referral", { referralId }),
+
+  /** List all referrals for a patient. */
+  listReferrals: (patientId: string) =>
+    invoke<ReferralRecord[]>("list_referrals", { patientId }),
+
+  /** Update a referral record. */
+  updateReferral: (referralId: string, input: ReferralInput) =>
+    invoke<ReferralRecord>("update_referral", { referralId, input }),
+
+  // ─── M003/S06 — Fax Integration (Phaxio) ─────────────────────────
+
+  /** Configure Phaxio API credentials. */
+  configurePhaxio: (input: PhaxioConfigInput) =>
+    invoke<PhaxioConfigRecord>("configure_phaxio", { input }),
+
+  /** Test Phaxio API connection. */
+  testPhaxioConnection: () =>
+    invoke<{ success: boolean; message: string }>("test_phaxio_connection"),
+
+  /** Send a fax via Phaxio. */
+  sendFax: (input: SendFaxInput) =>
+    invoke<FaxRecord>("send_fax", { input }),
+
+  /** Poll for received faxes from Phaxio. */
+  pollReceivedFaxes: () =>
+    invoke<FaxRecord[]>("poll_received_faxes"),
+
+  /** Create a fax contact. */
+  createFaxContact: (input: FaxContactInput) =>
+    invoke<FaxContact>("create_fax_contact", { input }),
+
+  /** List fax contacts, optionally filtered by type. */
+  listFaxContacts: (contactType?: FaxContactType | null) =>
+    invoke<FaxContact[]>("list_fax_contacts", { contactType: contactType ?? null }),
+
+  /** Update a fax contact. */
+  updateFaxContact: (contactId: string, input: FaxContactInput) =>
+    invoke<FaxContact>("update_fax_contact", { contactId, input }),
+
+  /** Delete a fax contact. */
+  deleteFaxContact: (contactId: string) =>
+    invoke<void>("delete_fax_contact", { contactId }),
+
+  /** List fax log entries with optional filters. */
+  listFaxLog: (patientId?: string | null, direction?: FaxDirection | null, status?: FaxStatus | null) =>
+    invoke<FaxRecord[]>("list_fax_log", { patientId: patientId ?? null, direction: direction ?? null, status: status ?? null }),
+
+  /** Get fax delivery status from Phaxio. */
+  getFaxStatus: (faxId: string) =>
+    invoke<FaxRecord>("get_fax_status", { faxId }),
+
+  /** Retry a failed fax. */
+  retryFax: (faxId: string) =>
+    invoke<FaxRecord>("retry_fax", { faxId }),
+
+  // ─── M003/S07 — Authorization & Visit Tracking ──────────────────
+
+  /** Create a new authorization record for a patient. */
+  createAuthRecord: (input: AuthRecordInput) =>
+    invoke<AuthRecord>("create_auth_record", { input }),
+
+  /** Retrieve a single authorization record by ID. */
+  getAuthRecord: (authId: string) =>
+    invoke<AuthRecord>("get_auth_record", { authId }),
+
+  /** List all authorization records for a patient. */
+  listAuthRecords: (patientId: string) =>
+    invoke<AuthRecord[]>("list_auth_records", { patientId }),
+
+  /** Update an existing authorization record. */
+  updateAuthRecord: (authId: string, input: AuthRecordInput) =>
+    invoke<AuthRecord>("update_auth_record", { authId, input }),
+
+  /** Increment visit count for active auth records (called on note co-sign). */
+  incrementVisitCount: (patientId: string) =>
+    invoke<AuthRecord[]>("increment_visit_count", { patientId }),
+
+  /** Get active alerts for a patient's auth records. */
+  getAuthAlerts: (patientId: string) =>
+    invoke<AuthAlert[]>("get_auth_alerts", { patientId }),
+
+  /** Generate a pre-filled re-authorization request letter. */
+  generateReauthLetter: (authId: string, patientId: string) =>
+    invoke<string>("generate_reauth_letter", { authId, patientId }),
+
+  // ─── M003/S02 — HEP Builder ──────────────────────────────────────
+
+  /** List exercises from the library, optionally filtered by body region and category. */
+  listExercises: (bodyRegion?: ExerciseRegion | null, category?: ExerciseCategory | null) =>
+    invoke<Exercise[]>("list_exercises", {
+      bodyRegion: bodyRegion ?? null,
+      category: category ?? null,
+    }),
+
+  /** Search exercises by name or description (case-insensitive). */
+  searchExercises: (query: string) =>
+    invoke<Exercise[]>("search_exercises", { query }),
+
+  /** Create a new HEP program for a patient. */
+  createHepProgram: (input: CreateHepProgramInput) =>
+    invoke<HEPProgram>("create_hep_program", { input }),
+
+  /** Retrieve a single HEP program by ID. */
+  getHepProgram: (programId: string) =>
+    invoke<HEPProgram>("get_hep_program", { programId }),
+
+  /** List all HEP programs for a patient. */
+  listHepPrograms: (patientId: string) =>
+    invoke<HEPProgram[]>("list_hep_programs", { patientId }),
+
+  /** Update an existing HEP program's exercise list. */
+  updateHepProgram: (programId: string, exercises: ExercisePrescription[], notes?: string | null) =>
+    invoke<HEPProgram>("update_hep_program", {
+      programId,
+      exercises,
+      notes: notes ?? null,
+    }),
+
+  /** Save a HEP program as a reusable template. */
+  createHepTemplate: (input: CreateHepTemplateInput) =>
+    invoke<HEPTemplate>("create_hep_template", { input }),
+
+  /** List all HEP templates (built-in and user-created). */
+  listHepTemplates: () =>
+    invoke<HEPTemplate[]>("list_hep_templates"),
+
+  /** Get a single HEP template by ID. */
+  getHepTemplate: (templateId: string) =>
+    invoke<HEPTemplate>("get_hep_template", { templateId }),
+
+  // M004/S01 — CPT Billing Engine
+
+  /**
+   * List all PT CPT codes from the built-in library.
+   * Optionally filter by category: "evaluation" | "timed" | "untimed"
+   */
+  listCptCodes: (category?: string) =>
+    invoke<CptCode[]>("list_cpt_codes", { category: category ?? null }),
+
+  /**
+   * Calculate billing units for a set of timed services using the specified rule.
+   * Untimed codes (97010, G0283, 97150) should be excluded from this call.
+   */
+  calculateBillingUnits: (services: ServiceMinutes[], ruleType: BillingRule) =>
+    invoke<UnitCalculationResult[]>("calculate_billing_units", {
+      services,
+      ruleType,
+    }),
+
+  /**
+   * Create a new fee schedule entry for a payer / CPT code combination.
+   * Pass payerId = null for the self-pay default schedule.
+   */
+  createFeeScheduleEntry: (input: FeeScheduleInput) =>
+    invoke<FeeScheduleEntry>("create_fee_schedule_entry", { input }),
+
+  /**
+   * List fee schedule entries, optionally filtered by payer ID.
+   * Pass payerId = null to retrieve the self-pay / default schedule.
+   */
+  listFeeSchedule: (payerId?: string | null) =>
+    invoke<FeeScheduleEntry[]>("list_fee_schedule", {
+      payerId: payerId ?? null,
+    }),
+
+  /**
+   * Get the complete billing summary (header + line items) for an encounter.
+   * Returns an error if no billing record exists for the encounter.
+   */
+  getEncounterBillingSummary: (encounterId: string) =>
+    invoke<EncounterBilling>("get_encounter_billing_summary", { encounterId }),
+
+  /**
+   * Save (create or replace) billing data for an encounter.
+   * Idempotent: if a billing record already exists it is replaced.
+   * Totals are computed server-side from the provided line items.
+   */
+  saveEncounterBilling: (input: SaveEncounterBillingInput) =>
+    invoke<EncounterBilling>("save_encounter_billing", { input }),
 };

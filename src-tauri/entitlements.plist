@@ -57,9 +57,13 @@
     <key>com.apple.security.files.downloads.read-write</key>
     <false/>
 
-    <!-- ── Touch ID / biometric (AUTH-04-FIX) ──────────────────── -->
-    <!-- Required for LAContext evaluatePolicy to succeed in the sandbox -->
-    <key>com.apple.security.device.biometric-access</key>
+    <!-- ── Microphone access (M003/S03 — Voice-to-Note) ─────────── -->
+    <!-- Required for cpal audio capture of PT session dictation -->
+    <key>com.apple.security.device.microphone</key>
     <true/>
+
+    <!-- ── Touch ID / biometric (AUTH-04) ───────────────────────── -->
+    <key>com.apple.security.personal-information.location</key>
+    <false/>
 </dict>
 </plist>

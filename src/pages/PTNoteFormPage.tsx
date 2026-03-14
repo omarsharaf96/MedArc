@@ -16,7 +16,7 @@
  *   - Backend audit rows written by T03 commands for every state transition.
  *   - console.error logs all backend failures with note/patient context.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { commands } from "../lib/tauri";
 import { useNav } from "../contexts/RouterContext";
 import type {
@@ -463,12 +463,20 @@ export function PTNoteFormPage({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [cosigning, setCosigning] = useState(false);
   const [cosignError, setCosignError] = useState<string | null>(null);
 
   const [locking, setLocking] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
+
+  // ── Cleanup timeout on unmount ────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   // ── Load existing note ─────────────────────────────────────────────────
   useEffect(() => {
@@ -591,7 +599,8 @@ export function PTNoteFormPage({
       applyRecord(updated);
       setSaveSuccess(true);
       // Clear success feedback after 3 s
-      setTimeout(() => setSaveSuccess(false), 3000);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setSaveSuccess(false), 3000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(

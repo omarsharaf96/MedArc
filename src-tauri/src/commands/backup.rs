@@ -497,7 +497,7 @@ pub fn create_backup(
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn2,
             AuditEntryInput {
                 user_id: session.user_id.clone(),
@@ -545,7 +545,7 @@ pub fn restore_backup(
     use crate::rbac::roles::Role;
     if session.role != Role::SystemAdmin {
         let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: session.user_id.clone(),
@@ -627,7 +627,7 @@ pub fn restore_backup(
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: session.user_id.clone(),

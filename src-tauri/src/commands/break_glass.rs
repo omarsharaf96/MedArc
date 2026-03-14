@@ -45,7 +45,7 @@ pub fn activate_break_glass(
             .conn
             .lock()
             .map_err(|e| AppError::Database(e.to_string()))?;
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -78,7 +78,7 @@ pub fn activate_break_glass(
         .map_err(|_| AppError::Authentication("User not found".to_string()))?;
 
     if let Err(e) = password::verify(&password, &password_hash) {
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -115,7 +115,7 @@ pub fn activate_break_glass(
     )?;
 
     // 6. Audit the activation (success)
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: user_id.clone(),
@@ -172,7 +172,7 @@ pub fn deactivate_break_glass(
         rusqlite::params![now, user_id.clone()],
     )?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,

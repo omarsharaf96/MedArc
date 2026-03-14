@@ -25,7 +25,7 @@ export type PtNoteType =
 
 /**
  * PT note lifecycle status.
- * Mirrors Rust string values: "draft" → "signed" → "locked".
+ * Mirrors Rust string values: "draft" -> "signed" -> "locked".
  */
 export type PtNoteStatus = "draft" | "signed" | "locked";
 
@@ -41,7 +41,7 @@ export interface InitialEvalFields {
   chiefComplaint: string | null;
   mechanismOfInjury: string | null;
   priorLevelOfFunction: string | null;
-  /** Pain NRS stored as string "0"–"10" for flexibility. */
+  /** Pain NRS stored as string "0"-"10" for flexibility. */
   painNrs: string | null;
   functionalLimitations: string | null;
   icd10Codes: string | null;
@@ -132,4 +132,94 @@ export interface PtNoteRecord {
   createdAt: string;
   updatedAt: string;
   addendumOf: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M003/S02 — Objective Measures & Outcome Scores
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Supported outcome measure types.
+ */
+export type MeasureType = "lefs" | "dash" | "ndi" | "oswestry" | "psfs" | "fabq";
+
+/**
+ * Episode phase for outcome scoring.
+ */
+export type EpisodePhase = "initial" | "mid" | "discharge";
+
+/**
+ * Input for recording an outcome score.
+ * Mirrors Rust struct `OutcomeScoreInput`.
+ */
+export interface OutcomeScoreInput {
+  patientId: string;
+  encounterId: string | null;
+  measureType: MeasureType;
+  items: number[];
+  episodePhase: EpisodePhase | null;
+}
+
+/**
+ * Outcome score record returned from the backend.
+ * Mirrors Rust struct `OutcomeScoreRecord`.
+ */
+export interface OutcomeScoreRecord {
+  scoreId: string;
+  resourceId: string;
+  patientId: string;
+  encounterId: string | null;
+  measureType: MeasureType;
+  score: number;
+  scoreSecondary: number | null;
+  severity: string | null;
+  episodePhase: EpisodePhase | null;
+  loincCode: string | null;
+  recordedAt: string;
+}
+
+/**
+ * Input for recording objective measures (ROM, MMT, ortho tests).
+ * Mirrors Rust struct `ObjectiveMeasuresInput`.
+ */
+export interface ObjectiveMeasuresInput {
+  patientId: string;
+  encounterId: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Objective measures record returned from the backend.
+ * Mirrors Rust struct `ObjectiveMeasuresRecord`.
+ */
+export interface ObjectiveMeasuresRecord {
+  resourceId: string;
+  patientId: string;
+  encounterId: string;
+  data: Record<string, unknown>;
+  recordedAt: string;
+}
+
+/**
+ * Comparison data for a single measure type (earliest vs latest).
+ * Mirrors Rust struct `OutcomeComparisonMeasure`.
+ */
+export interface OutcomeComparisonMeasure {
+  measureType: MeasureType;
+  initialScore: number | null;
+  initialDate: string | null;
+  latestScore: number | null;
+  latestDate: string | null;
+  change: number | null;
+  mcid: number | null;
+  mcidMet: boolean | null;
+}
+
+/**
+ * Full outcome comparison for a patient across all measure types.
+ * Mirrors Rust struct `OutcomeComparison`.
+ */
+export interface OutcomeComparison {
+  patientId: string;
+  measures: OutcomeComparisonMeasure[];
 }

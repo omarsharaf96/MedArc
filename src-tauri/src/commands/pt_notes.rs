@@ -301,7 +301,7 @@ pub async fn create_pt_note(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -384,7 +384,7 @@ pub async fn get_pt_note(
     let resource: serde_json::Value = serde_json::from_str(&resource_str)
         .map_err(|e| AppError::Serialization(e.to_string()))?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -485,7 +485,7 @@ pub async fn list_pt_notes(
         })
         .collect();
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -574,7 +574,7 @@ pub async fn update_pt_note(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -691,7 +691,7 @@ pub async fn cosign_pt_note(
 
     // details carries patient_id + encounter_id so S07 visit counter can JOIN
     let enc_id_display = encounter_id.as_deref().unwrap_or("none");
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -798,7 +798,7 @@ pub async fn lock_pt_note(
     let resource: serde_json::Value =
         serde_json::from_str(&resource_str).map_err(|e| AppError::Serialization(e.to_string()))?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

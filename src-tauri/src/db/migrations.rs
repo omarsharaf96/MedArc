@@ -492,6 +492,295 @@ pub static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
             CREATE INDEX IF NOT EXISTS idx_pt_note_type    ON pt_note_index(note_type);
             CREATE INDEX IF NOT EXISTS idx_pt_note_status  ON pt_note_index(status);"
         ),
+        // Migration 16: Outcome Score index table for M003/S02 — Objective Measures & Outcome Scores
+        //
+        // `outcome_score_index` stores scored outcome measures (LEFS, DASH, NDI, Oswestry,
+        // PSFS, FABQ) with their computed scores, severity classifications, and episode phases.
+        // The actual FHIR Observation JSON is stored in `fhir_resources`.
+        //
+        // `score_secondary` is used for measures with dual scores (e.g. FABQ Work subscale).
+        // `episode_phase` tracks whether a score was taken at initial, mid, or discharge.
+        // `loinc_code` maps each measure to its LOINC code for FHIR compliance.
+        M::up(
+            "CREATE TABLE IF NOT EXISTS outcome_score_index (
+                score_id        TEXT PRIMARY KEY,
+                resource_id     TEXT NOT NULL REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id      TEXT NOT NULL,
+                encounter_id    TEXT,
+                measure_type    TEXT NOT NULL CHECK(measure_type IN ('lefs','dash','ndi','oswestry','psfs','fabq')),
+                score           REAL NOT NULL,
+                score_secondary REAL,
+                severity        TEXT,
+                episode_phase   TEXT CHECK(episode_phase IN ('initial','mid','discharge')),
+                loinc_code      TEXT,
+                recorded_at     TEXT NOT NULL DEFAULT (datetime('now')),
+                created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_outcome_patient  ON outcome_score_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_outcome_measure  ON outcome_score_index(measure_type);
+            CREATE INDEX IF NOT EXISTS idx_outcome_recorded ON outcome_score_index(recorded_at);"
+        ),
+        // Migration 17: Document Center tables for M003/S04
+        //
+        // Four index tables support the Document Center feature set:
+        //   - document_category_index:  PT-specific categorized document upload
+        //   - survey_template_index:    intake survey templates (built-in + custom)
+        //   - survey_response_index:    completed survey responses per patient
+        //   - referral_index:           referring provider tracking per patient
+        //
+        // All index rows reference fhir_resources via ON DELETE CASCADE.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            -- Document category index (upgrade existing documents with PT categories)
+            CREATE TABLE IF NOT EXISTS document_category_index (
+                document_id TEXT PRIMARY KEY,
+                resource_id TEXT NOT NULL REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id TEXT NOT NULL,
+                category TEXT NOT NULL CHECK(category IN ('referral_rx','imaging','consent_forms','intake_surveys','insurance','legal','home_exercise_program','other')),
+                file_name TEXT NOT NULL,
+                mime_type TEXT,
+                file_size INTEGER,
+                sha1_hash TEXT,
+                uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_doc_cat_patient ON document_category_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_doc_cat_category ON document_category_index(category);
+
+            -- Intake survey templates
+            CREATE TABLE IF NOT EXISTS survey_template_index (
+                template_id TEXT PRIMARY KEY,
+                resource_id TEXT NOT NULL REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                field_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            -- Intake survey responses
+            CREATE TABLE IF NOT EXISTS survey_response_index (
+                response_id TEXT PRIMARY KEY,
+                resource_id TEXT NOT NULL REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                template_id TEXT NOT NULL,
+                patient_id TEXT NOT NULL,
+                completed_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_survey_resp_patient ON survey_response_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_survey_resp_template ON survey_response_index(template_id);
+
+            -- Referral tracking
+            CREATE TABLE IF NOT EXISTS referral_index (
+                referral_id TEXT PRIMARY KEY,
+                resource_id TEXT NOT NULL REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id TEXT NOT NULL,
+                referring_provider_name TEXT NOT NULL,
+                referring_provider_npi TEXT,
+                practice_name TEXT,
+                phone TEXT,
+                fax TEXT,
+                referral_date TEXT,
+                authorized_visit_count INTEGER,
+                diagnosis_icd10 TEXT,
+                linked_document_id TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_referral_patient ON referral_index(patient_id);"
+        ),
+        // Migration 18: Export log for M003/S05 — PDF Export & Report Generation
+        M::up(
+            "CREATE TABLE IF NOT EXISTS export_log (
+                export_id    TEXT PRIMARY KEY,
+                patient_id   TEXT NOT NULL,
+                export_type  TEXT NOT NULL CHECK(export_type IN ('note_pdf','progress_report','insurance_narrative','legal_report','chart_export')),
+                file_path    TEXT NOT NULL,
+                generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                generated_by TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_export_patient ON export_log(patient_id);"
+        ),
+        // Migration 19: Fax integration tables for M003/S06
+        M::up(
+            "CREATE TABLE IF NOT EXISTS fax_log (
+                fax_id TEXT PRIMARY KEY,
+                phaxio_fax_id TEXT,
+                direction TEXT NOT NULL CHECK(direction IN ('sent','received')),
+                patient_id TEXT,
+                recipient_name TEXT,
+                recipient_fax TEXT,
+                document_name TEXT,
+                file_path TEXT,
+                status TEXT NOT NULL CHECK(status IN ('queued','in_progress','success','failed')),
+                sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+                delivered_at TEXT,
+                pages INTEGER,
+                error_message TEXT,
+                retry_count INTEGER DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_fax_patient ON fax_log(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_fax_direction ON fax_log(direction);
+            CREATE INDEX IF NOT EXISTS idx_fax_status ON fax_log(status);
+
+            CREATE TABLE IF NOT EXISTS fax_contacts (
+                contact_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                organization TEXT,
+                fax_number TEXT NOT NULL,
+                phone_number TEXT,
+                contact_type TEXT NOT NULL CHECK(contact_type IN ('insurance','referring_md','attorney','other')),
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_fax_contact_type ON fax_contacts(contact_type);"
+        ),
+        // Migration 20: Authorization & Visit Tracking index table (M003/S07)
+        //
+        // Tracks insurance authorization records with visit counters:
+        //   - auth_record_index: maps Coverage FHIR resources by patient, payer, status, date range
+        //
+        // visits_used increments each time a note is co-signed and locked.
+        // status auto-transitions: active → exhausted (visits_used >= authorized_visits)
+        //                          active → expired (end_date < today)
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS auth_record_index (
+                auth_id TEXT PRIMARY KEY,
+                resource_id TEXT NOT NULL REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id TEXT NOT NULL,
+                payer_name TEXT NOT NULL,
+                payer_phone TEXT,
+                auth_number TEXT,
+                authorized_visits INTEGER NOT NULL,
+                visits_used INTEGER NOT NULL DEFAULT 0,
+                authorized_cpt_codes TEXT,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','expired','exhausted')),
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_auth_patient ON auth_record_index(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_auth_status ON auth_record_index(status);"
+        ),
+        // Migration 21: Composite indexes for common multi-column query patterns
+        M::up(
+            "CREATE INDEX IF NOT EXISTS idx_auth_patient_status ON auth_record_index(patient_id, status);
+            CREATE INDEX IF NOT EXISTS idx_doc_cat_patient_category ON document_category_index(patient_id, category);
+            CREATE INDEX IF NOT EXISTS idx_outcome_patient_measure ON outcome_score_index(patient_id, measure_type);
+            CREATE INDEX IF NOT EXISTS idx_fax_patient_direction ON fax_log(patient_id, direction);"
+        ),
+        // Migration 22: CPT Billing Engine tables (M004/S01)
+        //
+        // Three tables support the CPT billing feature set:
+        //   - cpt_fee_schedule:    per-payer fee schedules; NULL payer_id = self-pay default
+        //   - encounter_billing:   one billing header per encounter with totals and status
+        //   - billing_line_items:  individual CPT line items linked to encounter_billing
+        //
+        // Status lifecycle for encounter_billing:
+        //   draft → ready → submitted → paid
+        //
+        // billing_rule must be one of 'medicare' | 'ama' to enforce correct
+        // 8-minute rule application server-side.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS cpt_fee_schedule (
+                fee_id TEXT PRIMARY KEY,
+                payer_id TEXT,
+                cpt_code TEXT NOT NULL,
+                description TEXT,
+                allowed_amount REAL NOT NULL,
+                is_timed INTEGER NOT NULL DEFAULT 1,
+                effective_date TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_fee_payer ON cpt_fee_schedule(payer_id);
+            CREATE INDEX IF NOT EXISTS idx_fee_cpt ON cpt_fee_schedule(cpt_code);
+
+            CREATE TABLE IF NOT EXISTS encounter_billing (
+                billing_id TEXT PRIMARY KEY,
+                encounter_id TEXT NOT NULL,
+                patient_id TEXT NOT NULL,
+                payer_id TEXT,
+                billing_rule TEXT NOT NULL CHECK(billing_rule IN ('medicare','ama')),
+                total_charge REAL NOT NULL DEFAULT 0,
+                total_units INTEGER NOT NULL DEFAULT 0,
+                total_minutes INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','ready','submitted','paid')),
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_billing_encounter ON encounter_billing(encounter_id);
+            CREATE INDEX IF NOT EXISTS idx_billing_patient ON encounter_billing(patient_id);
+
+            CREATE TABLE IF NOT EXISTS billing_line_items (
+                line_id TEXT PRIMARY KEY,
+                billing_id TEXT NOT NULL REFERENCES encounter_billing(billing_id) ON DELETE CASCADE,
+                cpt_code TEXT NOT NULL,
+                modifiers TEXT,
+                minutes INTEGER NOT NULL DEFAULT 0,
+                units INTEGER NOT NULL DEFAULT 0,
+                charge REAL NOT NULL DEFAULT 0,
+                dx_pointers TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_line_billing ON billing_line_items(billing_id);"
+        ),
+        // Migration 23: HEP (Home Exercise Program) tables (M003/S02)
+        //
+        // Three tables support the HEP Builder feature:
+        //   - exercise_library:  built-in (~50) and custom exercises, organized by body region
+        //                        and category; seeded at runtime via INSERT OR IGNORE.
+        //   - hep_programs:      one row per program per patient encounter; exercises stored
+        //                        as JSON (array of ExercisePrescription).
+        //   - hep_templates:     reusable templates (built-in + user-created); exercises stored
+        //                        as JSON with default prescription values.
+        //
+        // hep_programs.resource_id references fhir_resources (FHIR CarePlan) so the program
+        // participates in the FHIR resource graph and cascades on patient delete.
+        M::up(
+            "PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS exercise_library (
+                exercise_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                body_region TEXT NOT NULL CHECK(body_region IN ('cervical','thoracic','lumbar','shoulder','elbow','wrist','hip','knee','ankle','general')),
+                category TEXT NOT NULL CHECK(category IN ('rom','strengthening','stretching','balance','functional','cardio')),
+                description TEXT,
+                instructions TEXT,
+                equipment TEXT,
+                difficulty TEXT CHECK(difficulty IN ('beginner','intermediate','advanced')),
+                is_builtin INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_exercise_region ON exercise_library(body_region);
+            CREATE INDEX IF NOT EXISTS idx_exercise_category ON exercise_library(category);
+
+            CREATE TABLE IF NOT EXISTS hep_programs (
+                program_id TEXT PRIMARY KEY,
+                resource_id TEXT NOT NULL REFERENCES fhir_resources(id) ON DELETE CASCADE,
+                patient_id TEXT NOT NULL,
+                encounter_id TEXT,
+                created_by TEXT NOT NULL,
+                exercises_json TEXT NOT NULL,
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_hep_patient ON hep_programs(patient_id);
+
+            CREATE TABLE IF NOT EXISTS hep_templates (
+                template_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                body_region TEXT,
+                condition_name TEXT,
+                exercises_json TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );"
+        ),
     ])
 });
 

@@ -154,7 +154,7 @@ pub fn login(
 
     // Check if account is active
     if !is_active {
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -175,7 +175,7 @@ pub fn login(
         if let Ok(lock_dt) = chrono::NaiveDateTime::parse_from_str(lock_time, "%Y-%m-%d %H:%M:%S") {
             let lock_utc = lock_dt.and_utc();
             if chrono::Utc::now() < lock_utc {
-                let _ = write_audit_entry(
+                write_audit_entry(
                     &conn,
                     AuditEntryInput {
                         user_id: user_id.clone(),
@@ -245,7 +245,7 @@ pub fn login(
             )?;
         }
 
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -280,7 +280,7 @@ pub fn login(
         // MFA is required -- do NOT create a full session yet.
         // Return a partial response so the frontend can prompt for TOTP code.
         // Record as a pending login (password succeeded but MFA still required).
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -324,7 +324,7 @@ pub fn login(
         rusqlite::params![session_id, user_id],
     )?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: user_id.clone(),
@@ -380,7 +380,7 @@ pub fn logout(
             "UPDATE sessions SET state = 'expired' WHERE id = ?1",
             rusqlite::params![session_id],
         )?;
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id_for_audit,
@@ -441,7 +441,7 @@ pub fn complete_login(
         .map_err(|_| AppError::Authentication("Invalid credentials".to_string()))?;
 
     if !totp_enabled {
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -466,7 +466,7 @@ pub fn complete_login(
     // Verify the TOTP code
     let valid = totp::verify_totp(&secret, &totp_code)?;
     if !valid {
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -492,7 +492,7 @@ pub fn complete_login(
         rusqlite::params![session_id, user_id],
     )?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: user_id.clone(),
