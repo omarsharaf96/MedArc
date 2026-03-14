@@ -390,7 +390,7 @@ fn build_patient_fhir(id: &str, mrn: &str, input: &PatientInput) -> serde_json::
 /// Write a failure audit row (safe — acquires its own lock).
 fn audit_denied(db: &Database, device_id: &DeviceId, user_id: &str, action: &str, reason: &str) {
     if let Ok(conn) = db.conn.lock() {
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.to_string(),
@@ -467,7 +467,7 @@ pub fn create_patient(
         > 0;
 
     if mrn_exists {
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -496,7 +496,7 @@ pub fn create_patient(
 
     match insert_result {
         Err(e) => {
-            let _ = write_audit_entry(
+            write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -531,7 +531,7 @@ pub fn create_patient(
         ],
     );
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -606,7 +606,7 @@ pub fn get_patient(
 
     match result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            let _ = write_audit_entry(
+            write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -628,7 +628,7 @@ pub fn get_patient(
         Ok((id, mrn, resource_str, version_id, last_updated, created_at)) => {
             let resource: serde_json::Value =
                 serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
-            let _ = write_audit_entry(
+            write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -701,7 +701,7 @@ pub fn update_patient(
 
     let (current_version, existing_mrn) = match version_result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            let _ = write_audit_entry(
+            write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -760,7 +760,7 @@ pub fn update_patient(
         ],
     )?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -914,7 +914,7 @@ pub fn search_patients(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -967,7 +967,7 @@ pub fn delete_patient(
     )?;
 
     if rows == 0 {
-        let _ = write_audit_entry(
+        write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id,
@@ -987,7 +987,7 @@ pub fn delete_patient(
     }
 
     // patient_index has ON DELETE CASCADE from migration 9
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1085,7 +1085,7 @@ pub fn upsert_care_team(
         new_id
     };
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1152,7 +1152,7 @@ pub fn get_care_team(
 
     match result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            let _ = write_audit_entry(
+            write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -1171,7 +1171,7 @@ pub fn get_care_team(
         Ok((id, resource_str, last_updated)) => {
             let resource: serde_json::Value =
                 serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
-            let _ = write_audit_entry(
+            write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -1280,7 +1280,7 @@ pub fn add_related_person(
         rusqlite::params![id, resource_json, now, now, now],
     )?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1351,7 +1351,7 @@ pub fn list_related_persons(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    let _ = write_audit_entry(
+    write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,

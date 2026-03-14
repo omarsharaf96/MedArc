@@ -16,6 +16,7 @@
  */
 import { useState, type FormEvent } from "react";
 import type { AppointmentInput, AppointmentRecord } from "../../types/scheduling";
+import { PatientAutocomplete } from "../shared/PatientAutocomplete";
 
 // ─── Shared style constants ───────────────────────────────────────────────────
 
@@ -213,20 +214,16 @@ export function AppointmentFormModal({
         {/* ── Create mode ──────────────────────────────────────────────── */}
         {mode === "create" && (
           <form onSubmit={handleCreate} noValidate className="space-y-4">
-            {/* Patient ID */}
+            {/* Patient — autocomplete typeahead */}
             <div>
-              <label htmlFor="appt-patient-id" className={LABEL_CLS}>
-                Patient ID *
+              <label className={LABEL_CLS}>
+                Patient *
               </label>
-              <input
-                id="appt-patient-id"
-                type="text"
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
-                className={INPUT_CLS}
-                placeholder="Patient UUID"
-                autoFocus
-                required
+              <PatientAutocomplete
+                value={patientId || null}
+                onChange={(id) => setPatientId(id ?? "")}
+                placeholder="Start typing a patient name…"
+                disabled={submitting}
               />
             </div>
 

@@ -28,7 +28,16 @@ export type Route =
   | { page: "settings" }
   | { page: "audit-log" }
   | { page: "pt-notes"; patientId: string }
-  | { page: "pt-note-detail"; patientId: string; noteType: PtNoteType; ptNoteId: string };
+  | { page: "pt-note-detail"; patientId: string; noteType: PtNoteType; ptNoteId: string }
+  | { page: "outcome-measures"; patientId: string }
+  | { page: "document-center"; patientId: string }
+  | { page: "survey-builder" }
+  | { page: "survey-kiosk"; patientId: string; templateId: string }
+  | { page: "voice-to-note"; patientId: string; noteType: string }
+  | { page: "export"; patientId: string }
+  | { page: "fax" }
+  | { page: "hep-builder"; patientId: string; encounterId?: string }
+  | { page: "billing"; patientId: string; encounterId: string };
 
 // ─── Context value type ─────────────────────────────────────────────────────
 

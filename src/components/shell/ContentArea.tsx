@@ -18,6 +18,15 @@ import { SettingsPage } from "../../pages/SettingsPage";
 import { AuditLogPage } from "../../pages/AuditLogPage";
 import { PTNotesPage } from "../../pages/PTNotesPage";
 import { PTNoteFormPage } from "../../pages/PTNoteFormPage";
+import { ObjectiveMeasuresPage } from "../../pages/ObjectiveMeasuresPage";
+import { DocumentCenterPage } from "../../pages/DocumentCenterPage";
+import { SurveyBuilderPage } from "../../pages/SurveyBuilderPage";
+import { SurveyKioskPage } from "../../pages/SurveyKioskPage";
+import { VoiceToNotePage } from "../../pages/VoiceToNotePage";
+import { ExportPage } from "../../pages/ExportPage";
+import { FaxPage } from "../../pages/FaxPage";
+import { HEPBuilderPage } from "../../pages/HEPBuilderPage";
+import { BillingPage } from "../../pages/BillingPage";
 import { useAuth } from "../../hooks/useAuth";
 
 // ─── Unknown route fallback ─────────────────────────────────────────────────
@@ -88,6 +97,72 @@ export function ContentArea() {
           patientId={currentRoute.patientId}
           noteType={currentRoute.noteType}
           ptNoteId={currentRoute.ptNoteId}
+          role={user?.role ?? ""}
+        />
+      );
+    case "outcome-measures":
+      return (
+        <ObjectiveMeasuresPage
+          patientId={currentRoute.patientId}
+          role={user?.role ?? ""}
+          userId={user?.id ?? ""}
+        />
+      );
+    case "document-center":
+      return (
+        <DocumentCenterPage
+          patientId={currentRoute.patientId}
+          role={user?.role ?? ""}
+          userId={user?.id ?? ""}
+        />
+      );
+    case "survey-builder":
+      return (
+        <SurveyBuilderPage
+          role={user?.role ?? ""}
+          userId={user?.id ?? ""}
+        />
+      );
+    case "survey-kiosk":
+      return (
+        <SurveyKioskPage
+          patientId={currentRoute.patientId}
+          templateId={currentRoute.templateId}
+        />
+      );
+    case "voice-to-note":
+      return (
+        <VoiceToNotePage
+          patientId={currentRoute.patientId}
+          noteType={currentRoute.noteType}
+          role={user?.role ?? ""}
+          userId={user?.id ?? ""}
+        />
+      );
+    case "export":
+      return (
+        <ExportPage
+          patientId={currentRoute.patientId}
+          role={user?.role ?? ""}
+          userId={user?.id ?? ""}
+        />
+      );
+    case "fax":
+      return <FaxPage />;
+    case "hep-builder":
+      return (
+        <HEPBuilderPage
+          patientId={currentRoute.patientId}
+          encounterId={currentRoute.encounterId}
+          role={user?.role ?? ""}
+          userId={user?.id ?? ""}
+        />
+      );
+    case "billing":
+      return (
+        <BillingPage
+          patientId={currentRoute.patientId}
+          encounterId={currentRoute.encounterId}
           role={user?.role ?? ""}
         />
       );

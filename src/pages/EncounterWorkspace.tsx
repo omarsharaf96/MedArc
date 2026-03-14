@@ -19,6 +19,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useEncounter } from "../hooks/useEncounter";
 import { useNav } from "../contexts/RouterContext";
 import { commands } from "../lib/tauri";
+import { AuthAlertBanner } from "../components/clinical/AuthTrackingPanel";
 import type {
   SoapInput,
   VitalsInput,
@@ -1540,6 +1541,11 @@ export function EncounterWorkspace({
   // ── Render workspace ───────────────────────────────────────────────────
   return (
     <div className="flex flex-col space-y-0 p-6">
+      {/* ── Auth tracking alert banner ──────────────────────────────────── */}
+      <div className="mb-4">
+        <AuthAlertBanner patientId={patientId} />
+      </div>
+
       {/* ── Page header ─────────────────────────────────────────────────── */}
       <div className="mb-5 flex items-center gap-3">
         <button

@@ -4,6 +4,15 @@
   "description": "Default capabilities for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "dialog:default",
+    "fs:default",
+    "fs:write-all",
+    "fs:read-all",
+    "fs:allow-mkdir",
+    "fs:allow-exists",
+    "fs:scope-download-recursive",
+    "fs:scope-home-recursive",
+    "updater:default"
   ]
 }

@@ -24,6 +24,7 @@ import { PatientFormModal } from "../components/patient/PatientFormModal";
 import { ClinicalSidebar } from "../components/clinical/ClinicalSidebar";
 import { LabResultsPanel } from "../components/clinical/LabResultsPanel";
 import { DocumentBrowser } from "../components/clinical/DocumentBrowser";
+import { AuthTrackingPanel } from "../components/clinical/AuthTrackingPanel";
 import { commands } from "../lib/tauri";
 import type { EncounterRecord, EncounterInput } from "../types/documentation";
 
@@ -453,6 +454,13 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
       <SectionCard title="Documents">
         <DocumentBrowser patientId={patientId} userId={userId} />
       </SectionCard>
+
+      {/* ── Authorization Tracking — hidden for FrontDesk ────────────────── */}
+      {role !== "FrontDesk" && (
+        <SectionCard title="Authorization Tracking">
+          <AuthTrackingPanel patientId={patientId} role={role} />
+        </SectionCard>
+      )}
 
       {/* ── Demographics section ─────────────────────────────────────────── */}
       <SectionCard title="Demographics">

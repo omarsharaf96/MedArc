@@ -6,15 +6,17 @@
  * `currentRoute.page` comparison.
  *
  * Role → visible nav items (per S01-RESEARCH RBAC matrix):
- *   FrontDesk    → Schedule
- *   NurseMa      → Patients, Schedule
+ *   FrontDesk    → Schedule, Fax
+ *   NurseMa      → Patients, Schedule, Fax
  *   BillingStaff → Schedule, Settings (read-only access enforced at page level)
- *   Provider     → Patients, Schedule, Settings
- *   SystemAdmin  → Patients, Schedule, Settings, Audit Log
+ *   Provider     → Patients, Schedule, Fax, Settings
+ *   SystemAdmin  → Patients, Schedule, Fax, Settings, Audit Log
  */
 
+import { useState, useEffect } from "react";
 import { useNav } from "../../contexts/RouterContext";
 import type { Route } from "../../contexts/RouterContext";
+import { commands } from "../../lib/tauri";
 
 // ─── Nav item definition ────────────────────────────────────────────────────
 
@@ -25,6 +27,8 @@ interface NavItem {
   page: Route["page"];
   /** Accessible icon label (text-only icons via Unicode / emoji for now). */
   icon: string;
+  /** Optional key for a dynamic badge count (e.g., "faxInbox"). */
+  badgeKey?: string;
 }
 
 // ─── Role → nav items mapping ───────────────────────────────────────────────
@@ -32,10 +36,12 @@ interface NavItem {
 const NAV_ITEMS_BY_ROLE: Record<string, NavItem[]> = {
   FrontDesk: [
     { label: "Schedule", route: { page: "schedule" }, page: "schedule", icon: "📅" },
+    { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
   ],
   NurseMa: [
     { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Schedule", route: { page: "schedule" }, page: "schedule", icon: "📅" },
+    { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
   ],
   BillingStaff: [
     { label: "Schedule", route: { page: "schedule" }, page: "schedule", icon: "📅" },
@@ -44,11 +50,13 @@ const NAV_ITEMS_BY_ROLE: Record<string, NavItem[]> = {
   Provider: [
     { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Schedule", route: { page: "schedule" }, page: "schedule", icon: "📅" },
+    { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
     { label: "Settings", route: { page: "settings" }, page: "settings", icon: "⚙️" },
   ],
   SystemAdmin: [
     { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Schedule", route: { page: "schedule" }, page: "schedule", icon: "📅" },
+    { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
     { label: "Settings", route: { page: "settings" }, page: "settings", icon: "⚙️" },
     { label: "Audit Log", route: { page: "audit-log" }, page: "audit-log", icon: "🔍" },
   ],
@@ -79,6 +87,37 @@ export function Sidebar({ role, displayName, onLogout }: SidebarProps) {
   // Unknown roles get an empty array — intentional graceful degradation.
   const navItems: NavItem[] = NAV_ITEMS_BY_ROLE[role] ?? [];
 
+  // ── Fax inbox badge count ──────────────────────────────────────────────────
+  const [faxInboxCount, setFaxInboxCount] = useState(0);
+
+  useEffect(() => {
+    // Only fetch if any nav item uses the faxInbox badge
+    const hasFaxBadge = navItems.some((item) => item.badgeKey === "faxInbox");
+    if (!hasFaxBadge) return;
+
+    let mounted = true;
+    commands
+      .pollReceivedFaxes()
+      .then((faxes) => {
+        if (mounted) {
+          const unlinked = faxes.filter((f) => f.patientId === null).length;
+          setFaxInboxCount(unlinked);
+        }
+      })
+      .catch(() => {
+        // Fax service unavailable — silently ignore badge
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [navItems]);
+
+  /** Resolve the badge count for a given badge key. */
+  function getBadge(key?: string): number | undefined {
+    if (key === "faxInbox" && faxInboxCount > 0) return faxInboxCount;
+    return undefined;
+  }
+
   return (
     <aside className="flex w-56 flex-shrink-0 flex-col border-r border-gray-200 bg-white">
       {/* App branding */}
@@ -94,6 +133,7 @@ export function Sidebar({ role, displayName, onLogout }: SidebarProps) {
           <ul className="space-y-1">
             {navItems.map((item) => {
               const isActive = currentRoute.page === item.page;
+              const badge = getBadge(item.badgeKey);
               return (
                 <li key={item.page}>
                   <button
@@ -108,7 +148,12 @@ export function Sidebar({ role, displayName, onLogout }: SidebarProps) {
                     ].join(" ")}
                   >
                     <span aria-hidden="true">{item.icon}</span>
-                    {item.label}
+                    <span className="flex-1 text-left">{item.label}</span>
+                    {badge !== undefined && (
+                      <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-semibold text-white">
+                        {badge}
+                      </span>
+                    )}
                   </button>
                 </li>
               );

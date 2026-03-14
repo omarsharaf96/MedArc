@@ -1,15 +1,16 @@
 /**
- * SettingsPage.tsx — Three-tab Settings panel: Backup | Security | Account
+ * SettingsPage.tsx — Four-tab Settings panel: Backup | Security | Fax | Account
  *
  * Replaces the S06 placeholder. Wired to real backend commands via tauri.ts.
  *
  * Tabs:
  *   - Backup:   folder picker, create backup, history table, restore (SystemAdmin only)
  *   - Security: TOTP setup/disable, Touch ID enable/disable
+ *   - Fax:      Phaxio API key/secret, practice fax number, test connection
  *   - Account:  session info (read-only), sign-out
  *
  * Observability:
- *   - backupError / mfaError / biometricError: inline red banners
+ *   - backupError / mfaError / biometricError / faxError: inline red banners
  *   - lastResult: inline success toast with file path and SHA-256 prefix
  *   - history table surfaces status / errorMessage per log entry
  */
@@ -52,7 +53,7 @@ function statusBadge(status: string): React.ReactElement {
 
 // ─── Tab type ─────────────────────────────────────────────────────────────────
 
-type Tab = "backup" | "security" | "account";
+type Tab = "backup" | "security" | "fax" | "account";
 
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
@@ -90,6 +91,16 @@ export function SettingsPage() {
   const [biometricLoading, setBiometricLoading] = useState(false);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [touchIdPassword, setTouchIdPassword] = useState("");
+
+  // ── Fax tab state ──────────────────────────────────────────────────────────
+  const [faxApiKey, setFaxApiKey] = useState("");
+  const [faxApiSecret, setFaxApiSecret] = useState("");
+  const [faxNumber, setFaxNumber] = useState("");
+  const [faxSaving, setFaxSaving] = useState(false);
+  const [faxError, setFaxError] = useState<string | null>(null);
+  const [faxSuccess, setFaxSuccess] = useState<string | null>(null);
+  const [faxTesting, setFaxTesting] = useState(false);
+  const [faxTestResult, setFaxTestResult] = useState<string | null>(null);
 
   // ── Account tab state ───────────────────────────────────────────────────────
   const [signingOut, setSigningOut] = useState(false);
@@ -218,6 +229,43 @@ export function SettingsPage() {
     }
   }, []);
 
+  const handleSaveFaxConfig = useCallback(async () => {
+    if (!faxApiKey.trim() || !faxApiSecret.trim() || !faxNumber.trim()) return;
+    setFaxSaving(true);
+    setFaxError(null);
+    setFaxSuccess(null);
+    try {
+      await commands.configurePhaxio({
+        apiKey: faxApiKey.trim(),
+        apiSecret: faxApiSecret.trim(),
+        faxNumber: faxNumber.trim(),
+      });
+      setFaxSuccess("Fax configuration saved successfully.");
+    } catch (e) {
+      setFaxError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFaxSaving(false);
+    }
+  }, [faxApiKey, faxApiSecret, faxNumber]);
+
+  const handleTestFaxConnection = useCallback(async () => {
+    setFaxTesting(true);
+    setFaxError(null);
+    setFaxTestResult(null);
+    try {
+      const result = await commands.testPhaxioConnection();
+      setFaxTestResult(
+        result.success
+          ? `Connection successful: ${result.message}`
+          : `Connection failed: ${result.message}`
+      );
+    } catch (e) {
+      setFaxError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFaxTesting(false);
+    }
+  }, []);
+
   const handleSignOut = useCallback(async () => {
     setSigningOut(true);
     try {
@@ -233,6 +281,7 @@ export function SettingsPage() {
   const tabs: { id: Tab; label: string }[] = [
     { id: "backup", label: "Backup" },
     { id: "security", label: "Security" },
+    { id: "fax", label: "Fax" },
     { id: "account", label: "Account" },
   ];
 
@@ -242,7 +291,7 @@ export function SettingsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Manage backups, security, and your account.
+          Manage backups, security, fax integration, and your account.
         </p>
       </div>
 
@@ -582,6 +631,106 @@ export function SettingsPage() {
                   )}
                 </div>
               )}
+            </section>
+          </div>
+        )}
+
+        {/* ─── FAX TAB ────────────────────────────────────────────────────────── */}
+        {activeTab === "fax" && (
+          <div className="space-y-6 max-w-2xl">
+
+            {faxError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {faxError}
+              </div>
+            )}
+            {faxSuccess && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                {faxSuccess}
+              </div>
+            )}
+
+            {/* Phaxio Configuration */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-1 text-base font-semibold text-gray-900">
+                Phaxio Integration
+              </h2>
+              <p className="mb-4 text-sm text-gray-500">
+                Enter your Phaxio API credentials to enable fax sending and receiving.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={faxApiKey}
+                    onChange={(e) => setFaxApiKey(e.target.value)}
+                    placeholder="Enter Phaxio API key..."
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    API Secret
+                  </label>
+                  <input
+                    type="password"
+                    value={faxApiSecret}
+                    onChange={(e) => setFaxApiSecret(e.target.value)}
+                    placeholder="Enter Phaxio API secret..."
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Practice Fax Number
+                  </label>
+                  <input
+                    type="tel"
+                    value={faxNumber}
+                    onChange={(e) => setFaxNumber(e.target.value)}
+                    placeholder="+1 (555) 000-0000"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSaveFaxConfig}
+                    disabled={faxSaving || !faxApiKey.trim() || !faxApiSecret.trim() || !faxNumber.trim()}
+                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {faxSaving ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTestFaxConnection}
+                    disabled={faxTesting}
+                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {faxTesting ? "Testing..." : "Test Connection"}
+                  </button>
+                </div>
+
+                {faxTestResult && (
+                  <div
+                    className={[
+                      "rounded-md border px-4 py-3 text-sm",
+                      faxTestResult.startsWith("Connection successful")
+                        ? "border-green-200 bg-green-50 text-green-800"
+                        : "border-red-200 bg-red-50 text-red-700",
+                    ].join(" ")}
+                  >
+                    {faxTestResult}
+                  </div>
+                )}
+              </div>
             </section>
           </div>
         )}
