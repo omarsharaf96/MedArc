@@ -7,10 +7,10 @@
  *
  * Role → visible nav items (per S01-RESEARCH RBAC matrix):
  *   FrontDesk    → Schedule, Fax
- *   NurseMa      → Patients, Schedule, Fax
+ *   NurseMa      → Schedule, Patients, Fax
  *   BillingStaff → Schedule, Settings (read-only access enforced at page level)
- *   Provider     → Patients, Schedule, Fax, Settings
- *   SystemAdmin  → Patients, Schedule, Fax, Settings, Audit Log
+ *   Provider     → Schedule, Patients, Fax, Settings
+ *   SystemAdmin  → Schedule, Patients, Fax, Settings, Audit Log
  */
 
 import { useState, useEffect } from "react";
@@ -39,8 +39,8 @@ const NAV_ITEMS_BY_ROLE: Record<string, NavItem[]> = {
     { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
   ],
   NurseMa: [
-    { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Schedule", route: { page: "schedule" }, page: "schedule", icon: "📅" },
+    { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
   ],
   BillingStaff: [
@@ -48,16 +48,16 @@ const NAV_ITEMS_BY_ROLE: Record<string, NavItem[]> = {
     { label: "Settings", route: { page: "settings" }, page: "settings", icon: "⚙️" },
   ],
   Provider: [
-    { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Schedule", route: { page: "schedule" }, page: "schedule", icon: "📅" },
+    { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
     { label: "Analytics", route: { page: "analytics" }, page: "analytics", icon: "📊" },
     { label: "MIPS", route: { page: "mips" }, page: "mips", icon: "🏆" },
     { label: "Settings", route: { page: "settings" }, page: "settings", icon: "⚙️" },
   ],
   SystemAdmin: [
-    { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Schedule", route: { page: "schedule" }, page: "schedule", icon: "📅" },
+    { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
     { label: "Analytics", route: { page: "analytics" }, page: "analytics", icon: "📊" },
     { label: "MIPS", route: { page: "mips" }, page: "mips", icon: "🏆" },

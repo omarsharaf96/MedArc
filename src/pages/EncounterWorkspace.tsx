@@ -72,6 +72,12 @@ function extractEncounterTypeFromResource(
   const types = resource["type"] as Array<Record<string, unknown>> | undefined;
   const typeText = types?.[0]?.["text"];
   if (typeof typeText === "string") return typeText;
+  // Fallback: check coding[0].display or coding[0].code (for pre-existing encounters without text)
+  const coding = types?.[0]?.["coding"] as Array<Record<string, unknown>> | undefined;
+  const codingDisplay = coding?.[0]?.["display"];
+  if (typeof codingDisplay === "string") return codingDisplay;
+  const codingCode = coding?.[0]?.["code"];
+  if (typeof codingCode === "string") return codingCode;
 
   const cls = resource["class"] as Record<string, unknown> | undefined;
   const code = cls?.["code"];

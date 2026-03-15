@@ -11,7 +11,7 @@
  *   - Today button: quick navigation to current date
  *   - Privacy mode: patientLabel prop converts names to initials
  *   - Auto-color: appointment cards colored by type (no manual picker)
- *   - Drag-to-reschedule: draggable cards fire onReschedule on drop
+ *   - Drag-to-reschedule: mouse-event drag (not HTML5 drag) fires onReschedule on drop
  *   - Open Encounter: InfoPopover finds/creates encounter linked to appointment
  *
  * Positioning math:
@@ -23,7 +23,7 @@
  * suffix (avoids timezone-shift bug).
  */
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { AppointmentRecord } from "../../types/scheduling";
 import { extractAppointmentDisplay } from "../../lib/fhirExtract";
 import { useNav } from "../../contexts/RouterContext";
@@ -232,6 +232,28 @@ function CalendarHeader({
   );
 }
 
+// ─── Drag state for mouse-event-based drag-to-reschedule ──────────────────────
+
+interface DragState {
+  appointmentId: string;
+  /** The Y offset within the card where the mouse grabbed (px from card top). */
+  grabOffsetY: number;
+  /** Current mouse Y relative to the column grid container (px). */
+  currentY: number;
+  /** Original card top (px). */
+  originalTopPx: number;
+  /** Original card height (px). */
+  heightPx: number;
+  /** Background color of the card. */
+  bgColor: string;
+  /** Display label for the card. */
+  label: string;
+  /** Time label for the card. */
+  timeLabel: string;
+  /** The date string of the column being dragged in. */
+  columnDateStr: string;
+}
+
 // ─── AppointmentCard ──────────────────────────────────────────────────────────
 
 interface AppointmentCardProps {
@@ -239,9 +261,26 @@ interface AppointmentCardProps {
   onClick: () => void;
   patientLabel?: (patientId: string) => string;
   draggable?: boolean;
+  onDragStart?: (
+    apptId: string,
+    grabOffsetY: number,
+    topPx: number,
+    heightPx: number,
+    bgColor: string,
+    label: string,
+    timeLabel: string,
+  ) => void;
+  isDragging?: boolean;
 }
 
-function AppointmentCard({ appt, onClick, patientLabel, draggable }: AppointmentCardProps) {
+function AppointmentCard({
+  appt,
+  onClick,
+  patientLabel,
+  draggable,
+  onDragStart,
+  isDragging,
+}: AppointmentCardProps) {
   const display = extractAppointmentDisplay(appt.resource);
 
   const startStr = display.start ?? "";
@@ -264,17 +303,50 @@ function AppointmentCard({ appt, onClick, patientLabel, draggable }: Appointment
   const label = display.apptTypeDisplay ?? display.apptType ?? "Appointment";
   const timeLabel = startStr ? formatTime(startStr) : "";
 
+  function handleMouseDown(e: React.MouseEvent) {
+    if (!draggable || !onDragStart) return;
+    e.preventDefault();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const cardRect = e.currentTarget.getBoundingClientRect();
+    const grabOffsetY = e.clientY - cardRect.top;
+
+    function onMouseMove(moveEvent: MouseEvent) {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        // Exceeded threshold — initiate drag
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+        onDragStart!(appt.id, grabOffsetY, topPx, heightPx, bgColor, label, timeLabel);
+      }
+    }
+
+    function onMouseUp() {
+      // Did not exceed threshold — treat as click
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      onClick();
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
   return (
-    <button
-      onClick={onClick}
-      draggable={draggable}
-      onDragStart={(e) => {
-        if (!draggable) return;
-        e.dataTransfer.setData("text/plain", appt.id);
-        e.dataTransfer.effectAllowed = "move";
-      }}
+    <div
+      onMouseDown={handleMouseDown}
       title={`${label} at ${timeLabel}`}
-      className={`absolute left-0.5 right-0.5 overflow-hidden rounded text-left text-xs font-medium text-white shadow-sm hover:brightness-90 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 transition-all${draggable ? " cursor-grab active:cursor-grabbing" : ""}`}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={`absolute left-0.5 right-0.5 overflow-hidden rounded text-left text-xs font-medium text-white shadow-sm hover:brightness-90 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 transition-colors select-none${draggable ? " cursor-grab active:cursor-grabbing" : ""}${isDragging ? " opacity-30" : ""}`}
       style={{
         top: `${topPx}px`,
         height: `${heightPx}px`,
@@ -282,10 +354,12 @@ function AppointmentCard({ appt, onClick, patientLabel, draggable }: Appointment
       }}
     >
       <div className="px-1 py-0.5 truncate leading-tight">
-        <span className="block truncate">{patientLabel ? patientLabel(appt.patientId) : label}</span>
+        <span className="block truncate">
+          {patientLabel ? patientLabel(appt.patientId) : label}
+        </span>
         <span className="block truncate opacity-90">{timeLabel}</span>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -342,6 +416,156 @@ function CalendarGrid({
     });
   }
 
+  // ── Mouse-event-based drag state ────────────────────────────────────────
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const columnRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Track whether we just finished a drag to prevent the click from firing
+  const justFinishedDrag = useRef(false);
+
+  const setColumnRef = useCallback(
+    (dateStr: string, el: HTMLDivElement | null) => {
+      if (el) {
+        columnRefsMap.current.set(dateStr, el);
+      } else {
+        columnRefsMap.current.delete(dateStr);
+      }
+    },
+    [],
+  );
+
+  // Handle drag start from a card
+  const handleCardDragStart = useCallback(
+    (
+      dateStr: string,
+      apptId: string,
+      grabOffsetY: number,
+      topPx: number,
+      heightPx: number,
+      bgColor: string,
+      label: string,
+      timeLabel: string,
+    ) => {
+      if (!onReschedule || !canWrite) return;
+      setDragState({
+        appointmentId: apptId,
+        grabOffsetY,
+        currentY: topPx,
+        originalTopPx: topPx,
+        heightPx,
+        bgColor,
+        label,
+        timeLabel,
+        columnDateStr: dateStr,
+      });
+    },
+    [onReschedule, canWrite],
+  );
+
+  // Global mouse move/up handlers for drag
+  useEffect(() => {
+    if (!dragState) return;
+
+    function handleMouseMove(e: MouseEvent) {
+      // Find which column the mouse is over
+      let targetDateStr = dragState!.columnDateStr;
+      for (const [dateStr, el] of columnRefsMap.current.entries()) {
+        const rect = el.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right) {
+          targetDateStr = dateStr;
+          break;
+        }
+      }
+
+      const columnEl = columnRefsMap.current.get(targetDateStr);
+      if (!columnEl) return;
+
+      const rect = columnEl.getBoundingClientRect();
+      const yInColumn = e.clientY - rect.top - dragState!.grabOffsetY;
+      // Clamp to grid bounds
+      const clampedY = Math.max(
+        0,
+        Math.min(yInColumn, totalHeightPx - dragState!.heightPx),
+      );
+
+      setDragState((prev) =>
+        prev
+          ? { ...prev, currentY: clampedY, columnDateStr: targetDateStr }
+          : null,
+      );
+    }
+
+    function handleMouseUp(e: MouseEvent) {
+      if (!dragState) return;
+
+      // Find which column the mouse is over
+      let targetDateStr = dragState.columnDateStr;
+      for (const [dateStr, el] of columnRefsMap.current.entries()) {
+        const rect = el.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right) {
+          targetDateStr = dateStr;
+          break;
+        }
+      }
+
+      const columnEl = columnRefsMap.current.get(targetDateStr);
+      if (!columnEl) {
+        setDragState(null);
+        return;
+      }
+
+      const rect = columnEl.getBoundingClientRect();
+      const yInColumn = e.clientY - rect.top - dragState.grabOffsetY;
+      const clampedY = Math.max(
+        0,
+        Math.min(yInColumn, totalHeightPx - dragState.heightPx),
+      );
+
+      // Convert Y position to time
+      const totalMinutes =
+        (clampedY / HOUR_HEIGHT_PX) * 60 + GRID_START_MIN;
+      // Round to nearest 15-minute interval
+      const rawHour = Math.floor(totalMinutes / 60);
+      const rawMinute = Math.round((totalMinutes % 60) / 15) * 15;
+      const finalMinute = rawMinute === 60 ? 0 : rawMinute;
+      const finalHour = rawMinute === 60 ? rawHour + 1 : rawHour;
+      const hh = finalHour.toString().padStart(2, "0");
+      const mm = finalMinute.toString().padStart(2, "0");
+      const newStartTime = `${targetDateStr}T${hh}:${mm}:00`;
+
+      onReschedule!(dragState.appointmentId, newStartTime);
+
+      // Set flag to prevent click from firing
+      justFinishedDrag.current = true;
+      setTimeout(() => {
+        justFinishedDrag.current = false;
+      }, 100);
+
+      setDragState(null);
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragState, onReschedule, totalHeightPx]);
+
+  // Compute preview time label for the drag ghost
+  let dragPreviewTimeLabel = "";
+  if (dragState) {
+    const totalMinutes =
+      (dragState.currentY / HOUR_HEIGHT_PX) * 60 + GRID_START_MIN;
+    const rawHour = Math.floor(totalMinutes / 60);
+    const rawMinute = Math.round((totalMinutes % 60) / 15) * 15;
+    const finalMinute = rawMinute === 60 ? 0 : rawMinute;
+    const finalHour = rawMinute === 60 ? rawHour + 1 : rawHour;
+    const suffix = finalHour >= 12 ? "PM" : "AM";
+    const displayH = finalHour % 12 === 0 ? 12 : finalHour % 12;
+    const displayM = finalMinute.toString().padStart(2, "0");
+    dragPreviewTimeLabel = `${displayH}:${displayM} ${suffix}`;
+  }
+
   return (
     <div className="flex overflow-x-auto rounded-lg border border-gray-200 bg-white">
       {/* Time gutter */}
@@ -391,10 +615,14 @@ function CalendarGrid({
 
               {/* Hour grid lines + appointment cards */}
               <div
+                ref={(el) => setColumnRef(dateStr, el)}
                 className={`relative${onSlotClick ? " cursor-pointer" : ""}`}
                 style={{ height: `${totalHeightPx}px` }}
                 onClick={(e) => {
+                  // Suppress click if we just finished a drag
+                  if (justFinishedDrag.current) return;
                   if (!onSlotClick) return;
+                  if (dragState) return;
                   // Only fire if we clicked directly on the grid, not on an appointment card
                   if (e.target !== e.currentTarget) return;
                   const rect = e.currentTarget.getBoundingClientRect();
@@ -406,29 +634,6 @@ function CalendarGrid({
                   const finalMinute = clickMinute === 60 ? 0 : clickMinute;
                   const finalHour = clickMinute === 60 ? clickHour + 1 : clickHour;
                   onSlotClick(dateStr, finalHour, finalMinute);
-                }}
-                onDragOver={(e) => {
-                  if (!onReschedule || !canWrite) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                }}
-                onDrop={(e) => {
-                  if (!onReschedule || !canWrite) return;
-                  e.preventDefault();
-                  const appointmentId = e.dataTransfer.getData("text/plain");
-                  if (!appointmentId) return;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const yOffset = e.clientY - rect.top;
-                  const totalMinutes = (yOffset / HOUR_HEIGHT_PX) * 60 + GRID_START_MIN;
-                  // Round to nearest 15-minute interval
-                  const rawHour = Math.floor(totalMinutes / 60);
-                  const rawMinute = Math.round((totalMinutes % 60) / 15) * 15;
-                  const finalMinute = rawMinute === 60 ? 0 : rawMinute;
-                  const finalHour = rawMinute === 60 ? rawHour + 1 : rawHour;
-                  const hh = finalHour.toString().padStart(2, "0");
-                  const mm = finalMinute.toString().padStart(2, "0");
-                  const newStartTime = `${dateStr}T${hh}:${mm}:00`;
-                  onReschedule(appointmentId, newStartTime);
                 }}
               >
                 {/* Hour grid lines */}
@@ -450,8 +655,32 @@ function CalendarGrid({
                     onClick={() => onCardClick(appt)}
                     patientLabel={patientLabel}
                     draggable={canWrite && !!onReschedule}
+                    onDragStart={(apptId, grabY, topPx, heightPx, bg, lbl, tl) =>
+                      handleCardDragStart(dateStr, apptId, grabY, topPx, heightPx, bg, lbl, tl)
+                    }
+                    isDragging={dragState?.appointmentId === appt.id}
                   />
                 ))}
+
+                {/* Drag ghost — rendered in the target column */}
+                {dragState && dragState.columnDateStr === dateStr && (
+                  <div
+                    className="absolute left-0.5 right-0.5 overflow-hidden rounded text-left text-xs font-medium text-white shadow-lg pointer-events-none z-30 ring-2 ring-white/60"
+                    style={{
+                      top: `${dragState.currentY}px`,
+                      height: `${dragState.heightPx}px`,
+                      backgroundColor: dragState.bgColor,
+                      opacity: 0.85,
+                    }}
+                  >
+                    <div className="px-1 py-0.5 truncate leading-tight">
+                      <span className="block truncate">{dragState.label}</span>
+                      <span className="block truncate opacity-90">
+                        {dragPreviewTimeLabel}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );

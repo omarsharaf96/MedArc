@@ -24,7 +24,7 @@ import { PatientFormModal } from "../components/patient/PatientFormModal";
 import { DocumentBrowser } from "../components/clinical/DocumentBrowser";
 import { AuthTrackingPanel } from "../components/clinical/AuthTrackingPanel";
 import { commands } from "../lib/tauri";
-import type { EncounterRecord, EncounterInput, TemplateRecord } from "../types/documentation";
+import type { EncounterRecord } from "../types/documentation";
 import type { AppointmentRecord } from "../types/scheduling";
 import { extractAppointmentDisplay } from "../lib/fhirExtract";
 
@@ -135,6 +135,12 @@ function extractEncounterTypeLabel(resource: Record<string, unknown>): string {
   const types = resource["type"] as Array<Record<string, unknown>> | undefined;
   const typeText = types?.[0]?.["text"];
   if (typeof typeText === "string") return formatEncounterType(typeText);
+  // Fallback: check coding[0].display or coding[0].code (for pre-existing encounters without text)
+  const coding = types?.[0]?.["coding"] as Array<Record<string, unknown>> | undefined;
+  const codingDisplay = coding?.[0]?.["display"];
+  if (typeof codingDisplay === "string") return formatEncounterType(codingDisplay);
+  const codingCode = coding?.[0]?.["code"];
+  if (typeof codingCode === "string") return formatEncounterType(codingCode);
   const cls = resource["class"] as Record<string, unknown> | undefined;
   const code = cls?.["code"];
   if (typeof code === "string") return formatEncounterType(code);
@@ -154,23 +160,13 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
   const [encountersError, setEncountersError] = useState<string | null>(null);
   const [encounterRefresh, setEncounterRefresh] = useState(0);
 
-  // ── Start Encounter state ─────────────────────────────────────────────
-  const [startingEncounter, setStartingEncounter] = useState(false);
-  const [startEncounterError, setStartEncounterError] = useState<string | null>(null);
+  // (Start Encounter removed — encounters are created from calendar appointments only)
 
   // ── Patient appointments state ──────────────────────────────────────
   const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
   const [appointmentsLoading, setAppointmentsLoading] = useState(true);
 
-  // ── Delete patient state ────────────────────────────────────────────
-  const [showDeletePatientConfirm, setShowDeletePatientConfirm] = useState(false);
-  const [deletingPatient, setDeletingPatient] = useState(false);
-  const [deletePatientError, setDeletePatientError] = useState<string | null>(null);
-
-  // ── Template picker modal state ─────────────────────────────────────
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
-  const [templates, setTemplates] = useState<TemplateRecord[]>([]);
-  const [templatesLoading, setTemplatesLoading] = useState(false);
+  // (Delete patient moved into PatientFormModal)
 
   // ── Fetch encounters on mount and refresh ──────────────────────────────
   useEffect(() => {
@@ -229,78 +225,10 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
     return () => { mounted = false; };
   }, [patientId]);
 
-  // ── Start Encounter handler ────────────────────────────────────────────
-  const canStartEncounter =
-    role === "Provider" || role === "NurseMa" || role === "SystemAdmin";
+  // (Start Encounter and template picker handlers removed — encounters are
+  //  created from calendar appointments only)
 
-  async function handleOpenTemplatePicker() {
-    setShowTemplatePicker(true);
-    setStartEncounterError(null);
-    if (templates.length === 0) {
-      setTemplatesLoading(true);
-      try {
-        const tpls = await commands.listTemplates(null);
-        setTemplates(tpls);
-      } catch (e) {
-        console.error("[PatientDetailPage] listTemplates failed:", e);
-      } finally {
-        setTemplatesLoading(false);
-      }
-    }
-  }
-
-  async function handleStartEncounterWithTemplate(templateId: string | null) {
-    setShowTemplatePicker(false);
-    setStartingEncounter(true);
-    setStartEncounterError(null);
-    try {
-      // If a template is selected, fetch its SOAP defaults to pre-fill
-      let soap: EncounterInput["soap"] = null;
-      if (templateId) {
-        try {
-          const tpl = await commands.getTemplate(templateId);
-          soap = tpl.defaultSoap;
-        } catch (e) {
-          console.error("[PatientDetailPage] getTemplate failed:", e);
-          // Continue without template pre-fill
-        }
-      }
-      const input: EncounterInput = {
-        patientId,
-        providerId: userId,
-        encounterDate: new Date().toISOString().slice(0, 19),
-        encounterType: "office_visit",
-        chiefComplaint: null,
-        templateId,
-        soap,
-        appointmentId: null,
-      };
-      const created = await commands.createEncounter(input);
-      navigate({ page: "encounter-workspace", patientId, encounterId: created.id });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[PatientDetailPage] createEncounter failed for patient ${patientId}:`, msg);
-      setStartEncounterError(msg);
-    } finally {
-      setStartingEncounter(false);
-    }
-  }
-
-  // ── Delete patient handler ──────────────────────────────────────────────
-  async function handleDeletePatient() {
-    setDeletingPatient(true);
-    setDeletePatientError(null);
-    try {
-      await commands.deletePatient(patientId);
-      navigate({ page: "patients" });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[PatientDetailPage] deletePatient failed for ${patientId}:`, msg);
-      setDeletePatientError(msg);
-    } finally {
-      setDeletingPatient(false);
-    }
-  }
+  // Delete patient is handled inside PatientFormModal via onDelete callback.
 
   // ── Loading state ──────────────────────────────────────────────────────
   if (loading) {
@@ -338,7 +266,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
           onClick={goBack}
           className="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
         >
-          ← Back
+          &larr; Back
         </button>
       </div>
     );
@@ -366,7 +294,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
             className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1"
             aria-label="Go back"
           >
-            ← Back
+            &larr; Back
           </button>
           <div>
             <h1 className="text-xl font-bold text-gray-900">{fullName}</h1>
@@ -380,25 +308,6 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
 
         {/* Action buttons */}
         <div className="flex items-center gap-2">
-          {/* Start Encounter — Provider, NurseMa, SystemAdmin only */}
-          {canStartEncounter && (
-            <div className="flex flex-col items-end gap-1">
-              <button
-                type="button"
-                onClick={handleOpenTemplatePicker}
-                disabled={startingEncounter}
-                className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-60"
-              >
-                {startingEncounter ? "Starting…" : "Start Encounter"}
-              </button>
-              {startEncounterError && (
-                <p className="max-w-xs text-right text-xs text-red-600">
-                  {startEncounterError}
-                </p>
-              )}
-            </div>
-          )}
-
           {/* Edit button — hidden for BillingStaff */}
           {!isBillingStaff && (
             <button
@@ -410,16 +319,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
             </button>
           )}
 
-          {/* Delete Patient — SystemAdmin only */}
-          {role === "SystemAdmin" && (
-            <button
-              type="button"
-              onClick={() => setShowDeletePatientConfirm(true)}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-            >
-              Delete Patient
-            </button>
-          )}
+          {/* Delete Patient moved into the Edit modal (PatientFormModal) */}
         </div>
       </div>
 
@@ -433,161 +333,22 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
             reload();
           }}
           onClose={() => setEditOpen(false)}
+          onDelete={
+            role === "SystemAdmin"
+              ? async () => {
+                  await commands.deletePatient(patientId);
+                  navigate({ page: "patients" });
+                }
+              : undefined
+          }
         />
-      )}
-
-      {/* Delete patient confirmation dialog */}
-      {showDeletePatientConfirm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-patient-modal-title"
-        >
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h3
-              id="delete-patient-modal-title"
-              className="text-base font-semibold text-gray-900"
-            >
-              Delete Patient
-            </h3>
-            <p className="mt-2 text-sm text-gray-600">
-              Are you sure? This cannot be undone. All patient data including encounters,
-              appointments, and documents will be permanently deleted.
-            </p>
-            {deletePatientError && (
-              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {deletePatientError}
-              </div>
-            )}
-            <div className="mt-4 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowDeletePatientConfirm(false)}
-                disabled={deletingPatient}
-                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDeletePatient()}
-                disabled={deletingPatient}
-                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-60"
-              >
-                {deletingPatient ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Template picker modal */}
-      {showTemplatePicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="mx-4 max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
-            <h2 className="mb-1 text-lg font-bold text-gray-900">
-              Start New Encounter
-            </h2>
-            <p className="mb-4 text-sm text-gray-500">
-              Choose a note template to pre-fill the encounter, or start with a blank note.
-            </p>
-
-            {templatesLoading ? (
-              <p className="py-4 text-sm text-gray-500">Loading templates...</p>
-            ) : (
-              <div className="space-y-2">
-                {/* Blank note option */}
-                <button
-                  type="button"
-                  onClick={() => void handleStartEncounterWithTemplate(null)}
-                  className="flex w-full items-start gap-3 rounded-lg border border-gray-200 p-3 text-left hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                >
-                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-gray-100 text-sm text-gray-500">
-                    +
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Blank Note</p>
-                    <p className="text-xs text-gray-500">Start with an empty SOAP note</p>
-                  </div>
-                </button>
-
-                {/* PT-specific templates first, then others */}
-                {(() => {
-                  const ptTemplates = templates.filter(t => t.specialty === "physical_therapy");
-                  const otherTemplates = templates.filter(t => t.specialty !== "physical_therapy");
-                  return (
-                    <>
-                      {ptTemplates.length > 0 && (
-                        <div className="pt-2">
-                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-indigo-600">
-                            Physical Therapy Templates
-                          </p>
-                          {ptTemplates.map((tpl) => (
-                            <button
-                              key={tpl.id}
-                              type="button"
-                              onClick={() => void handleStartEncounterWithTemplate(tpl.id)}
-                              className="flex w-full items-start gap-3 rounded-lg border border-gray-200 p-3 text-left hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-2"
-                            >
-                              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-indigo-100 text-sm text-indigo-600">
-                                PT
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">{tpl.name}</p>
-                                <p className="text-xs text-gray-500">{tpl.description}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {otherTemplates.length > 0 && (
-                        <div className="pt-2">
-                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            Other Templates
-                          </p>
-                          {otherTemplates.map((tpl) => (
-                            <button
-                              key={tpl.id}
-                              type="button"
-                              onClick={() => void handleStartEncounterWithTemplate(tpl.id)}
-                              className="flex w-full items-start gap-3 rounded-lg border border-gray-200 p-3 text-left hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-2"
-                            >
-                              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-gray-100 text-sm text-gray-500">
-                                {tpl.specialty?.charAt(0).toUpperCase() ?? "G"}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">{tpl.name}</p>
-                                <p className="text-xs text-gray-500">{tpl.description}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowTemplatePicker(false)}
-                className="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* ── Encounters section ───────────────────────────────────────────── */}
       {!isBillingStaff && (
         <SectionCard title="Encounters">
           {encountersLoading ? (
-            <p className="text-sm text-gray-500">Loading encounters…</p>
+            <p className="text-sm text-gray-500">Loading encounters...</p>
           ) : encountersError ? (
             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               <p className="font-semibold">Failed to load encounters</p>
@@ -657,7 +418,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
                               </span>
                             </span>
                             <span className="ml-3 text-xs text-indigo-500 opacity-0 group-hover:opacity-100">
-                              Open →
+                              Open &rarr;
                             </span>
                           </button>
                         </td>
@@ -674,7 +435,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
       {/* ── Appointments section (upcoming + past) ────────────────────────── */}
       <SectionCard title="Appointments">
         {appointmentsLoading ? (
-          <p className="text-sm text-gray-500">Loading appointments…</p>
+          <p className="text-sm text-gray-500">Loading appointments...</p>
         ) : appointments.length === 0 ? (
           <p className="text-sm text-gray-500">No appointments found.</p>
         ) : (() => {
@@ -920,7 +681,7 @@ function RelatedPersonTile({
         <p className="text-xs text-gray-500">{relationshipText}</p>
       )}
       {phoneStr && (
-        <p className="mt-1 text-xs text-gray-600">📞 {phoneStr}</p>
+        <p className="mt-1 text-xs text-gray-600">Phone: {phoneStr}</p>
       )}
     </div>
   );

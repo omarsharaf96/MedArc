@@ -38,6 +38,11 @@ export interface PatientFormModalProps {
   onSuccess: (patientId: string) => void;
   /** Called when the user cancels. */
   onClose: () => void;
+  /**
+   * Called when the user confirms patient deletion (SystemAdmin only).
+   * When undefined, the delete section is not shown.
+   */
+  onDelete?: () => Promise<void>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -76,6 +81,7 @@ export function PatientFormModal({
   initialDisplay,
   onSuccess,
   onClose,
+  onDelete,
 }: PatientFormModalProps) {
   const isEdit = patientId !== null;
 
@@ -122,6 +128,11 @@ export function PatientFormModal({
 
   // ── Inline validation errors ───────────────────────────────────────────
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // ── Delete patient state ────────────────────────────────────────────────
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingPatient, setDeletingPatient] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // ── Submit ─────────────────────────────────────────────────────────────
 
@@ -548,29 +559,94 @@ export function PatientFormModal({
           )}
 
           {/* ── Footer ────────────────────────────────────────────── */}
-          <div className="mt-6 flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              {submitting
-                ? isEdit
-                  ? "Saving…"
-                  : "Creating…"
-                : isEdit
-                  ? "Save Changes"
-                  : "Create Patient"}
-            </button>
+          <div className="mt-6 flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+            {/* Left side: Delete button (only in edit mode, only when onDelete provided) */}
+            <div>
+              {isEdit && onDelete && !showDeleteConfirm && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={submitting || deletingPatient}
+                  className="rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                >
+                  Delete Patient
+                </button>
+              )}
+            </div>
+
+            {/* Right side: Cancel + Save */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={submitting || deletingPatient}
+                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || deletingPatient}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                {submitting
+                  ? isEdit
+                    ? "Saving…"
+                    : "Creating…"
+                  : isEdit
+                    ? "Save Changes"
+                    : "Create Patient"}
+              </button>
+            </div>
           </div>
+
+          {/* ── Delete Patient confirmation ────────────────────────── */}
+          {isEdit && onDelete && showDeleteConfirm && (
+            <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4">
+              <h4 className="text-sm font-semibold text-red-800">Delete Patient</h4>
+              <p className="mt-1 text-sm text-red-700">
+                Are you sure? This cannot be undone. All patient data including
+                encounters, appointments, and documents will be permanently deleted.
+              </p>
+              {deleteError && (
+                <div className="mt-2 rounded-md border border-red-200 bg-white px-3 py-2 text-sm text-red-700">
+                  {deleteError}
+                </div>
+              )}
+              <div className="mt-3 flex gap-3">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setDeletingPatient(true);
+                    setDeleteError(null);
+                    try {
+                      await onDelete();
+                      // onDelete navigates away, so no cleanup needed
+                    } catch (e) {
+                      const msg = e instanceof Error ? e.message : String(e);
+                      setDeleteError(msg);
+                      setDeletingPatient(false);
+                    }
+                  }}
+                  disabled={deletingPatient}
+                  className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                >
+                  {deletingPatient ? "Deleting..." : "Confirm Delete"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteError(null);
+                  }}
+                  disabled={deletingPatient}
+                  className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </form>
       </div>
     </div>

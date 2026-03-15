@@ -23,8 +23,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
+import { useNav } from "../../contexts/RouterContext";
 import { commands } from "../../lib/tauri";
 import type { DocumentRecord } from "../../types/labs";
+import type { DocumentContentResult } from "../../types/documents";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -104,13 +106,31 @@ function filenameFromPath(path: string): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+/** Returns true if the content type is a previewable image. */
+function isImage(contentType: string): boolean {
+  return contentType.startsWith("image/");
+}
+
+/** Returns true if the content type is PDF. */
+function isPdf(contentType: string): boolean {
+  return contentType === "application/pdf";
+}
+
 export function DocumentBrowser({ patientId, userId }: DocumentBrowserProps) {
+  const { navigate } = useNav();
+
   // ── List state ──────────────────────────────────────────────────────────
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState("");
   const [refreshCounter, setRefreshCounter] = useState(0);
+
+  // ── Inline preview state ────────────────────────────────────────────────
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<DocumentContentResult | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // ── Upload flow state ───────────────────────────────────────────────────
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -155,6 +175,40 @@ export function DocumentBrowser({ patientId, userId }: DocumentBrowserProps) {
       mounted = false;
     };
   }, [fetchDocuments]);
+
+  // ── Selected document ─────────────────────────────────────────────────
+  const selectedDoc = documents.find((d) => d.id === selectedDocId) ?? null;
+
+  // ── Fetch document content when a document is selected for preview ────
+  useEffect(() => {
+    if (!selectedDocId) {
+      setPreviewContent(null);
+      setPreviewError(null);
+      return;
+    }
+    let mounted = true;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewContent(null);
+    commands
+      .getDocumentContent(selectedDocId)
+      .then((result) => {
+        if (mounted) setPreviewContent(result);
+      })
+      .catch((e) => {
+        if (mounted) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error("[DocumentBrowser] getDocumentContent failed:", msg);
+          setPreviewError(msg);
+        }
+      })
+      .finally(() => {
+        if (mounted) setPreviewLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [selectedDocId]);
 
   // ── Upload handler — triggers native NSOpenPanel ─────────────────────────
   async function handleUpload() {
@@ -302,6 +356,15 @@ export function DocumentBrowser({ patientId, userId }: DocumentBrowserProps) {
 
         <div className="flex-1" />
 
+        {/* View All in Document Center */}
+        <button
+          type="button"
+          onClick={() => navigate({ page: "document-center", patientId })}
+          className="rounded-md border border-indigo-300 bg-white px-3 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+        >
+          View All Documents
+        </button>
+
         {/* Upload button */}
         <button
           type="button"
@@ -346,7 +409,18 @@ export function DocumentBrowser({ patientId, userId }: DocumentBrowserProps) {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {documents.map((doc) => (
-                <tr key={doc.id} className="py-1">
+                <tr
+                  key={doc.id}
+                  onClick={() =>
+                    setSelectedDocId(selectedDocId === doc.id ? null : doc.id)
+                  }
+                  className={[
+                    "cursor-pointer transition-colors",
+                    selectedDocId === doc.id
+                      ? "bg-indigo-50"
+                      : "hover:bg-gray-50",
+                  ].join(" ")}
+                >
                   <td className="py-2 pr-4 font-medium text-gray-900">
                     {doc.title}
                   </td>
@@ -366,6 +440,67 @@ export function DocumentBrowser({ patientId, userId }: DocumentBrowserProps) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ── Inline preview panel ──────────────────────────────────────── */}
+      {selectedDoc && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-800 truncate">
+              {selectedDoc.title}
+            </h3>
+            <button
+              type="button"
+              onClick={() => setSelectedDocId(null)}
+              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              aria-label="Close preview"
+            >
+              &times;
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
+            {previewLoading ? (
+              <div className="flex h-48 items-center justify-center">
+                <p className="text-sm text-gray-500">Loading preview...</p>
+              </div>
+            ) : previewError ? (
+              <div className="flex h-32 flex-col items-center justify-center gap-2">
+                <p className="text-sm text-red-600">Preview unavailable</p>
+                <p className="text-xs text-gray-500">{previewError}</p>
+              </div>
+            ) : previewContent?.contentBase64 && isImage(selectedDoc.contentType) ? (
+              <div className="flex items-center justify-center">
+                <img
+                  src={`data:${selectedDoc.contentType};base64,${previewContent.contentBase64}`}
+                  alt={selectedDoc.title}
+                  className="max-h-[400px] max-w-full rounded object-contain"
+                />
+              </div>
+            ) : previewContent?.contentBase64 && isPdf(selectedDoc.contentType) ? (
+              <div className="h-[400px] w-full">
+                <iframe
+                  src={`data:application/pdf;base64,${previewContent.contentBase64}`}
+                  title={`Preview: ${selectedDoc.title}`}
+                  className="h-full w-full rounded border-0"
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2 py-8">
+                <p className="text-sm font-medium text-gray-700">
+                  {selectedDoc.title}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {selectedDoc.contentType} &middot;{" "}
+                  {formatFileSize(selectedDoc.fileSizeBytes)}
+                </p>
+                <p className="text-xs text-gray-400">
+                  Preview not available for this file type.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

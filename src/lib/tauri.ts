@@ -663,13 +663,13 @@ export const commands = {
 
   /** Create an encrypted backup of the database at the given destination directory. */
   createBackup: (destinationPath: string) =>
-    invoke<BackupResult>("create_backup", { destination_path: destinationPath }),
+    invoke<BackupResult>("create_backup", { destinationPath }),
 
   /** Restore a backup from the given source path (SystemAdmin only). */
   restoreBackup: (sourcePath: string, expectedSha256?: string | null) =>
     invoke<RestoreResult>("restore_backup", {
-      source_path: sourcePath,
-      expected_sha256: expectedSha256 ?? null,
+      sourcePath,
+      expectedSha256: expectedSha256 ?? null,
     }),
 
   /** List all backup log entries (most recent first, limit 100). */

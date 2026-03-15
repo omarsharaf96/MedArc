@@ -653,15 +653,103 @@ fn json_str(val: &serde_json::Value, key: &str) -> String {
         .to_string()
 }
 
+/// Extract encounter type label from FHIR resource.
+/// Checks type[0].text, then type[0].coding[0].display, then type[0].coding[0].code,
+/// then class.code, then falls back to the flat "encounter_type" key.
+fn extract_encounter_type_label(resource: &serde_json::Value) -> String {
+    // Check type[0].text
+    if let Some(types) = resource.get("type").and_then(|v| v.as_array()) {
+        if let Some(first_type) = types.first() {
+            if let Some(text) = first_type.get("text").and_then(|v| v.as_str()) {
+                if !text.is_empty() {
+                    return text.to_string();
+                }
+            }
+            // Check coding[0].display or coding[0].code
+            if let Some(coding) = first_type.get("coding").and_then(|v| v.as_array()) {
+                if let Some(first_coding) = coding.first() {
+                    if let Some(display) = first_coding.get("display").and_then(|v| v.as_str()) {
+                        if !display.is_empty() {
+                            return display.to_string();
+                        }
+                    }
+                    if let Some(code) = first_coding.get("code").and_then(|v| v.as_str()) {
+                        if !code.is_empty() {
+                            return code.replace('_', " ");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Fallback to class.code
+    if let Some(cls) = resource.get("class") {
+        if let Some(code) = cls.get("code").and_then(|v| v.as_str()) {
+            if !code.is_empty() {
+                return code.to_string();
+            }
+        }
+    }
+    // Legacy flat field fallback
+    json_str(resource, "encounter_type")
+}
+
+/// Extract SOAP sections from the FHIR `note` array (Annotation format).
+/// Each annotation has an extension with valueCode indicating the section
+/// (subjective/objective/assessment/plan) and a `text` field with content.
+/// Returns (subjective, objective, assessment, plan).
+fn extract_soap_from_note_array(resource: &serde_json::Value) -> (String, String, String, String) {
+    let mut subjective = String::new();
+    let mut objective = String::new();
+    let mut assessment = String::new();
+    let mut plan = String::new();
+
+    if let Some(notes) = resource.get("note").and_then(|v| v.as_array()) {
+        for item in notes {
+            let text = match item.get("text").and_then(|v| v.as_str()) {
+                Some(t) if !t.is_empty() => t,
+                _ => continue,
+            };
+            let extensions = match item.get("extension").and_then(|v| v.as_array()) {
+                Some(e) => e,
+                None => continue,
+            };
+            for ext in extensions {
+                let url = ext.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                if url == "http://medarc.local/fhir/StructureDefinition/note-section" {
+                    let section_code = ext.get("valueCode").and_then(|v| v.as_str()).unwrap_or("");
+                    match section_code {
+                        "subjective" => subjective = text.to_string(),
+                        "objective" => objective = text.to_string(),
+                        "assessment" => assessment = text.to_string(),
+                        "plan" => plan = text.to_string(),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    (subjective, objective, assessment, plan)
+}
+
 /// Render a single encounter/note onto the PDF builder.
 fn render_encounter(
     builder: &mut PdfBuilder,
     resource: &serde_json::Value,
     encounter_date: &str,
 ) {
-    let encounter_type = json_str(resource, "encounter_type");
+    let encounter_type = extract_encounter_type_label(resource);
     let status = json_str(resource, "status");
-    let chief_complaint = json_str(resource, "chief_complaint");
+
+    // Chief complaint from reasonCode[0].text (FHIR format)
+    let chief_complaint = resource.get("reasonCode")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("text"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     builder.add_section_heading(&format!(
         "Encounter: {} — {} ({})",
@@ -672,31 +760,36 @@ fn render_encounter(
         builder.add_field("Chief Complaint", &chief_complaint);
     }
 
-    // SOAP note sections
-    if let Some(soap) = resource.get("soap") {
-        if let Some(s) = soap.get("subjective").and_then(|v| v.as_str()) {
-            if !s.is_empty() {
-                builder.add_section_heading("Subjective");
-                builder.add_text_block(s);
-            }
+    // Extract SOAP sections from the FHIR note array
+    let (subjective, objective, assessment, plan) = extract_soap_from_note_array(resource);
+
+    // Check if all content is in the subjective field (single-textarea mode)
+    let has_only_subjective = !subjective.is_empty()
+        && objective.is_empty()
+        && assessment.is_empty()
+        && plan.is_empty();
+
+    if has_only_subjective {
+        // Render as a single "Clinical Note" section
+        builder.add_section_heading("Clinical Note");
+        builder.add_text_block(&subjective);
+    } else {
+        // Render as separate SOAP sections
+        if !subjective.is_empty() {
+            builder.add_section_heading("Subjective");
+            builder.add_text_block(&subjective);
         }
-        if let Some(o) = soap.get("objective").and_then(|v| v.as_str()) {
-            if !o.is_empty() {
-                builder.add_section_heading("Objective");
-                builder.add_text_block(o);
-            }
+        if !objective.is_empty() {
+            builder.add_section_heading("Objective");
+            builder.add_text_block(&objective);
         }
-        if let Some(a) = soap.get("assessment").and_then(|v| v.as_str()) {
-            if !a.is_empty() {
-                builder.add_section_heading("Assessment");
-                builder.add_text_block(a);
-            }
+        if !assessment.is_empty() {
+            builder.add_section_heading("Assessment");
+            builder.add_text_block(&assessment);
         }
-        if let Some(p) = soap.get("plan").and_then(|v| v.as_str()) {
-            if !p.is_empty() {
-                builder.add_section_heading("Plan");
-                builder.add_text_block(p);
-            }
+        if !plan.is_empty() {
+            builder.add_section_heading("Plan");
+            builder.add_text_block(&plan);
         }
     }
 }

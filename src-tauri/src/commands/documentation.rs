@@ -387,7 +387,8 @@ fn build_encounter_fhir(id: &str, input: &EncounterInput) -> serde_json::Value {
                 "system": "http://medarc.local/fhir/CodeSystem/encounter-type",
                 "code": input.encounter_type,
                 "display": input.encounter_type.replace('_', " ")
-            }]
+            }],
+            "text": input.encounter_type.replace('_', " ")
         }],
         "subject": {
             "reference": format!("Patient/{}", input.patient_id),
