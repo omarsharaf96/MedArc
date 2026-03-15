@@ -1405,14 +1405,8 @@ pub async fn update_encounter(
 
     let is_finalized = current_status == "finished";
 
-    // If the encounter is finalized, require an amendment reason for content changes
+    // If the encounter is finalized, store the previous version for audit trail
     if is_finalized && (input.soap.is_some() || input.chief_complaint.is_some()) {
-        if input.amendment_reason.as_ref().map_or(true, |r| r.trim().is_empty()) {
-            return Err(AppError::Validation(
-                "Amendment reason is required when editing a finalized encounter".to_string(),
-            ));
-        }
-
         // Store the previous version for audit trail
         let history_id = uuid::Uuid::new_v4().to_string();
         let history_resource = serde_json::json!({
@@ -1551,6 +1545,82 @@ pub async fn update_encounter(
         version_id: new_version,
         last_updated: now,
     })
+}
+
+/// Delete an encounter and its FHIR resource.
+///
+/// Removes the encounter from both `encounter_index` and `fhir_resources`.
+/// Requires: ClinicalDocumentation + Delete (Provider / SystemAdmin only).
+#[tauri::command]
+pub async fn delete_encounter(
+    encounter_id: String,
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<(), AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::ClinicalDocumentation, Action::Delete)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Fetch patient_id for audit before deleting
+    let patient_id: String = conn
+        .query_row(
+            "SELECT patient_id FROM encounter_index WHERE encounter_id = ?1",
+            rusqlite::params![encounter_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Encounter {} not found", encounter_id)))?;
+
+    // Delete from encounter_index
+    conn.execute(
+        "DELETE FROM encounter_index WHERE encounter_id = ?1",
+        rusqlite::params![encounter_id],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete from fhir_resources
+    let rows = conn.execute(
+        "DELETE FROM fhir_resources WHERE id = ?1 AND resource_type = 'Encounter'",
+        rusqlite::params![encounter_id],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    if rows == 0 {
+        write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: sess.user_id.clone(),
+                action: "documentation.encounter.delete".to_string(),
+                resource_type: "Encounter".to_string(),
+                resource_id: Some(encounter_id.clone()),
+                patient_id: Some(patient_id.clone()),
+                device_id: device_id.id().to_string(),
+                success: false,
+                details: Some("FHIR resource not found".to_string()),
+            },
+        )?;
+        return Err(AppError::NotFound(format!("Encounter {} not found in fhir_resources", encounter_id)));
+    }
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: sess.user_id.clone(),
+            action: "documentation.encounter.delete".to_string(),
+            resource_type: "Encounter".to_string(),
+            resource_id: Some(encounter_id.clone()),
+            patient_id: Some(patient_id),
+            device_id: device_id.id().to_string(),
+            success: true,
+            details: None,
+        },
+    )?;
+
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -225,15 +225,15 @@ function DateFieldInput({ field, value, onChange }: FieldInputProps) {
 /** Dispatch to the correct field renderer based on field type. */
 function SurveyFieldInput({ field, value, onChange }: FieldInputProps) {
   switch (field.fieldType) {
-    case "Text":
+    case "text":
       return <TextFieldInput field={field} value={value} onChange={onChange} />;
-    case "Number":
+    case "number":
       return <NumberFieldInput field={field} value={value} onChange={onChange} />;
-    case "YesNo":
+    case "yes_no":
       return <YesNoFieldInput field={field} value={value} onChange={onChange} />;
-    case "PainScale":
+    case "pain_scale":
       return <PainScaleFieldInput field={field} value={value} onChange={onChange} />;
-    case "Date":
+    case "date":
       return <DateFieldInput field={field} value={value} onChange={onChange} />;
     default:
       return <TextFieldInput field={field} value={value} onChange={onChange} />;

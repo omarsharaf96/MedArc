@@ -24,11 +24,11 @@ import type {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const FIELD_TYPES: { value: SurveyFieldType; label: string }[] = [
-  { value: "Text", label: "Text" },
-  { value: "Number", label: "Number" },
-  { value: "YesNo", label: "Yes / No" },
-  { value: "PainScale", label: "Pain Scale (0-10)" },
-  { value: "Date", label: "Date" },
+  { value: "text", label: "Text" },
+  { value: "number", label: "Number" },
+  { value: "yes_no", label: "Yes / No" },
+  { value: "pain_scale", label: "Pain Scale (0-10)" },
+  { value: "date", label: "Date" },
 ];
 
 // ─── Props ──────────────────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ export function SurveyBuilderPage(_props: SurveyBuilderPageProps) {
     const newField: SurveyField = {
       id: generateFieldId(),
       label: "",
-      fieldType: "Text",
+      fieldType: "text",
       required: false,
       order: fields.length,
     };

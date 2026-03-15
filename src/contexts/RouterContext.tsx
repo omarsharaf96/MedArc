@@ -1,5 +1,5 @@
 /**
- * RouterContext.tsx — State-based router for MedArc.
+ * RouterContext.tsx — State-based router for PanaceaEMR.
  *
  * Deliberate design choice: no URL-based routing (no React Router, no TanStack Router).
  * The Tauri WKWebView has no real URL bar; URL-based routers add complexity with no benefit.

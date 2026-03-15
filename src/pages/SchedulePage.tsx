@@ -10,7 +10,7 @@
  *   - Provider data: loads providers + provider appointment types for the form
  *   - Click-to-schedule: clicking empty calendar slots opens pre-filled modal
  *   - Privacy mode: toggle patient names to initials
- *   - Layout: page header → CalendarPage → FlowBoardPage → WaitlistPanel → RecallPanel
+ *   - Layout: page header → CalendarPage → Reminders
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -18,14 +18,14 @@ import { useAuth } from "../hooks/useAuth";
 import { useSchedule } from "../hooks/useSchedule";
 import { usePatientNames, toInitials } from "../hooks/usePatientNames";
 import { CalendarPage } from "../components/scheduling/CalendarPage";
-import { FlowBoardPage } from "../components/scheduling/FlowBoardPage";
-import { WaitlistPanel } from "../components/scheduling/WaitlistPanel";
-import { RecallPanel } from "../components/scheduling/RecallPanel";
 import { AppointmentFormModal } from "../components/scheduling/AppointmentFormModal";
 import type { ProviderOption } from "../components/scheduling/AppointmentFormModal";
 import { extractAppointmentDisplay } from "../lib/fhirExtract";
 import { commands } from "../lib/tauri";
-import type { AppointmentRecord, UpdateAppointmentInput, UpdateFlowStatusInput, WaitlistInput, RecallInput } from "../types/scheduling";
+import type {
+  AppointmentRecord,
+  UpdateAppointmentInput,
+} from "../types/scheduling";
 import type { ReminderLog, ReminderResult } from "../types/reminders";
 
 // ─── RBAC helper ──────────────────────────────────────────────────────────────
@@ -105,26 +105,12 @@ export function SchedulePage() {
   // Data layer — all providers, RBAC gates access
   const {
     appointments,
-    flowBoard,
-    waitlist,
-    recalls,
     loading,
     loadingAppointments,
-    loadingFlowBoard,
-    loadingWaitlist,
-    loadingRecalls,
     errorAppointments,
-    errorFlowBoard,
-    errorWaitlist,
-    errorRecalls,
     reload,
-    updateFlowStatus,
     createAppointment,
     cancelAppointment,
-    addToWaitlist,
-    dischargeWaitlist,
-    createRecall,
-    completeRecall,
   } = useSchedule(startDate, endDate, null);
 
   // Load providers and provider appointment types on mount
@@ -150,15 +136,12 @@ export function SchedulePage() {
     return () => { mounted = false; };
   }, []);
 
-  // Collect all patient IDs from appointments, flow board, waitlist, recalls
+  // Collect all patient IDs from appointments
   const allPatientIds = useMemo(() => {
     const ids = new Set<string>();
     for (const a of appointments) ids.add(a.patientId);
-    for (const f of flowBoard) ids.add(f.patientId);
-    for (const w of waitlist) ids.add(w.patientId);
-    for (const r of recalls) ids.add(r.patientId);
     return [...ids];
-  }, [appointments, flowBoard, waitlist, recalls]);
+  }, [appointments]);
 
   // Resolve patient IDs → display names
   const patientNames = usePatientNames(allPatientIds);
@@ -234,29 +217,6 @@ export function SchedulePage() {
     setEditTarget(appt);
   }
 
-  // Flow status mutation
-  async function handleUpdateStatus(input: UpdateFlowStatusInput): Promise<void> {
-    await updateFlowStatus(input);
-  }
-
-  // Waitlist mutations
-  async function handleAddToWaitlist(input: WaitlistInput): Promise<void> {
-    await addToWaitlist(input);
-  }
-
-  async function handleDischargeWaitlist(id: string, reason: string | null): Promise<void> {
-    await dischargeWaitlist(id, reason);
-  }
-
-  // Recall mutations
-  async function handleCreateRecall(input: RecallInput): Promise<void> {
-    await createRecall(input);
-  }
-
-  async function handleCompleteRecall(id: string, notes: string | null): Promise<void> {
-    await completeRecall(id, notes);
-  }
-
   // Build appointment summary string for cancel modal
   function buildAppointmentSummary(appt: AppointmentRecord): string {
     const display = extractAppointmentDisplay(appt.resource);
@@ -264,8 +224,28 @@ export function SchedulePage() {
     const time = display.start
       ? display.start.replace("T", " at ").slice(0, 19)
       : "";
-    return time ? `${type} — ${time}` : type;
+    return time ? `${type} \u2014 ${time}` : type;
   }
+
+  // ── Status update handler (Attended / Canceled / No Show) ──────────────────
+  const handleUpdateStatus = useCallback(async (appointmentId: string, status: string) => {
+    await commands.updateAppointment(appointmentId, {
+      startTime: null,
+      durationMinutes: null,
+      status,
+      reason: null,
+      notes: null,
+      providerId: null,
+      color: null,
+    });
+    reload();
+  }, [reload]);
+
+  // ── Delete appointment handler ────────────────────────────────────────────
+  const handleDeleteAppointment = useCallback(async (appointmentId: string) => {
+    await commands.deleteAppointment(appointmentId);
+    reload();
+  }, [reload]);
 
   // ── Reminder handlers ────────────────────────────────────────────────────────
 
@@ -393,80 +373,10 @@ export function SchedulePage() {
             onToday={handleToday}
             patientLabel={patientLabel}
             onReschedule={writeAllowed ? handleReschedule : undefined}
+            onUpdateStatus={writeAllowed ? handleUpdateStatus : undefined}
+            onDeleteAppointment={writeAllowed ? handleDeleteAppointment : undefined}
           />
         )}
-      </section>
-
-      {/* ── Flow Board section ────────────────────────────────────────────── */}
-      <section>
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">
-          Today's Flow Board
-        </h2>
-
-        {errorFlowBoard && (
-          <div
-            role="alert"
-            className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-          >
-            <span className="font-medium">Could not load flow board: </span>
-            {errorFlowBoard}
-          </div>
-        )}
-
-        <FlowBoardPage
-          flowBoard={flowBoard}
-          loading={loadingFlowBoard}
-          error={null}
-          canWrite={writeAllowed}
-          onUpdateStatus={handleUpdateStatus}
-          patientLabel={patientLabel}
-        />
-      </section>
-
-      {/* ── Waitlist section ──────────────────────────────────────────────── */}
-      <section>
-        {errorWaitlist && (
-          <div
-            role="alert"
-            className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-          >
-            <span className="font-medium">Could not load waitlist: </span>
-            {errorWaitlist}
-          </div>
-        )}
-
-        <WaitlistPanel
-          waitlist={waitlist}
-          loading={loadingWaitlist}
-          error={null}
-          canWrite={writeAllowed}
-          onAdd={handleAddToWaitlist}
-          onDischarge={handleDischargeWaitlist}
-          patientLabel={patientLabel}
-        />
-      </section>
-
-      {/* ── Recall Board section ──────────────────────────────────────────── */}
-      <section>
-        {errorRecalls && (
-          <div
-            role="alert"
-            className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-          >
-            <span className="font-medium">Could not load recall board: </span>
-            {errorRecalls}
-          </div>
-        )}
-
-        <RecallPanel
-          recalls={recalls}
-          loading={loadingRecalls}
-          error={null}
-          canWrite={writeAllowed}
-          onCreateRecall={handleCreateRecall}
-          onCompleteRecall={handleCompleteRecall}
-          patientLabel={patientLabel}
-        />
       </section>
 
       {/* ── Reminders Panel ──────────────────────────────────────────────── */}
@@ -507,7 +417,7 @@ export function SchedulePage() {
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {display.start
                             ? new Date(display.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                            : "—"}
+                            : "\u2014"}
                         </td>
                         <td className="px-4 py-3">
                           <span className={[

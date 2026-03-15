@@ -1,16 +1,20 @@
 /**
  * TypeScript types for intake surveys: templates, fields, responses.
  *
- * Field names use camelCase to match the Rust structs'
- * #[serde(rename_all = "camelCase")]. Option<T> in Rust maps to T | null here.
+ * These are the "rich" survey types used by SurveyBuilderPage, SurveyKioskPage,
+ * and surveyStore. They match the Rust backend's camelCase serialization.
+ *
+ * NOTE: src/types/documents.ts also exports simplified survey types used by
+ * tauri.ts command wrappers. Both are valid — documents.ts types are the
+ * denormalized index versions, while these are the full FHIR-derived versions.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Survey field types
+// Survey field types — must match Rust SurveyFieldType::as_str() values
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The supported input types for a survey field. */
-export type SurveyFieldType = "Text" | "Number" | "YesNo" | "PainScale" | "Date";
+/** The supported input types for a survey field (matches Rust backend). */
+export type SurveyFieldType = "text" | "number" | "yes_no" | "pain_scale" | "date";
 
 /** A single field definition within a survey template. */
 export interface SurveyField {

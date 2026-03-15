@@ -987,6 +987,51 @@ pub fn delete_patient(
     }
 
     // patient_index has ON DELETE CASCADE from migration 9
+
+    // Cascade: delete related encounters (index + FHIR resources)
+    let encounter_ids: Vec<String> = {
+        let mut stmt = conn.prepare(
+            "SELECT encounter_id FROM encounter_index WHERE patient_id = ?1"
+        ).map_err(|e| AppError::Database(e.to_string()))?;
+        let rows = stmt.query_map(rusqlite::params![patient_id], |row| row.get(0))
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    if !encounter_ids.is_empty() {
+        conn.execute(
+            "DELETE FROM encounter_index WHERE patient_id = ?1",
+            rusqlite::params![patient_id],
+        ).map_err(|e| AppError::Database(e.to_string()))?;
+        for eid in &encounter_ids {
+            let _ = conn.execute(
+                "DELETE FROM fhir_resources WHERE id = ?1 AND resource_type = 'Encounter'",
+                rusqlite::params![eid],
+            );
+        }
+    }
+
+    // Cascade: delete related appointments
+    let _ = conn.execute(
+        "DELETE FROM fhir_resources WHERE resource_type = 'Appointment' AND json_extract(resource, '$.participant[0].actor.reference') = ?1",
+        rusqlite::params![format!("Patient/{}", patient_id)],
+    );
+
+    // Cascade: delete related documents
+    let _ = conn.execute(
+        "DELETE FROM fhir_resources WHERE resource_type = 'DocumentReference' AND json_extract(resource, '$.subject.reference') = ?1",
+        rusqlite::params![format!("Patient/{}", patient_id)],
+    );
+
+    // Cascade: delete CareTeam and RelatedPerson resources for this patient
+    let _ = conn.execute(
+        "DELETE FROM fhir_resources WHERE resource_type = 'CareTeam' AND json_extract(resource, '$.subject.reference') = ?1",
+        rusqlite::params![format!("Patient/{}", patient_id)],
+    );
+    let _ = conn.execute(
+        "DELETE FROM fhir_resources WHERE resource_type = 'RelatedPerson' AND json_extract(resource, '$.patient.reference') = ?1",
+        rusqlite::params![format!("Patient/{}", patient_id)],
+    );
+
     write_audit_entry(
         &conn,
         AuditEntryInput {
@@ -997,7 +1042,7 @@ pub fn delete_patient(
             patient_id: Some(patient_id.clone()),
             device_id: device_id.get().to_string(),
             success: true,
-            details: None,
+            details: Some("Cascaded deletion of related encounters, appointments, documents, care team, and related persons".to_string()),
         },
     );
 

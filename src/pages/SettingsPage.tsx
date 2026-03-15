@@ -325,6 +325,21 @@ export function SettingsPage() {
   // ── Account tab state ───────────────────────────────────────────────────────
   const [signingOut, setSigningOut] = useState(false);
 
+  // Profile editing state
+  const [profileDisplayName, setProfileDisplayName] = useState(user?.displayName ?? "");
+  const [profileUsername, setProfileUsername] = useState(user?.username ?? "");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+
+  // Password change state
+  const [pwdCurrent, setPwdCurrent] = useState("");
+  const [pwdNew, setPwdNew] = useState("");
+  const [pwdConfirm, setPwdConfirm] = useState("");
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const [pwdError, setPwdError] = useState<string | null>(null);
+  const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
+
   // ── Users tab state (SystemAdmin only) ──────────────────────────────────────
   const [users, setUsers] = useState<UserListEntry[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -627,6 +642,51 @@ export function SettingsPage() {
     }
   }, [logout]);
 
+  const handleSaveProfile = useCallback(async () => {
+    setProfileSaving(true);
+    setProfileError(null);
+    setProfileSuccess(null);
+    try {
+      await commands.updateUserProfile(profileDisplayName, profileUsername);
+      setProfileSuccess("Profile updated successfully.");
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProfileSaving(false);
+    }
+  }, [profileDisplayName, profileUsername]);
+
+  const handleChangePassword = useCallback(async () => {
+    setPwdError(null);
+    setPwdSuccess(null);
+
+    if (!pwdCurrent || !pwdNew || !pwdConfirm) {
+      setPwdError("All password fields are required.");
+      return;
+    }
+    if (pwdNew.length < 12) {
+      setPwdError("New password must be at least 12 characters.");
+      return;
+    }
+    if (pwdNew !== pwdConfirm) {
+      setPwdError("New password and confirmation do not match.");
+      return;
+    }
+
+    setPwdSaving(true);
+    try {
+      await commands.changePassword(pwdCurrent, pwdNew);
+      setPwdSuccess("Password changed successfully.");
+      setPwdCurrent("");
+      setPwdNew("");
+      setPwdConfirm("");
+    } catch (e) {
+      setPwdError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPwdSaving(false);
+    }
+  }, [pwdCurrent, pwdNew, pwdConfirm]);
+
   const handleAddUser = useCallback(async () => {
     if (!newUsername.trim() || !newDisplayName.trim() || !newPassword) return;
     setAddUserLoading(true);
@@ -717,6 +777,11 @@ export function SettingsPage() {
       const selectedPath = Array.isArray(result) ? result[0] : result;
       if (!selectedPath) return;
       const bytes = await readFile(selectedPath);
+      // Validate file size (max 1MB)
+      if (bytes.length > 1024 * 1024) {
+        setExportError("Logo image must be under 1 MB.");
+        return;
+      }
       const ext = selectedPath.split(".").pop()?.toLowerCase() ?? "png";
       const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg"
         : ext === "png" ? "image/png"
@@ -740,6 +805,11 @@ export function SettingsPage() {
       const selectedPath = Array.isArray(result) ? result[0] : result;
       if (!selectedPath) return;
       const bytes = await readFile(selectedPath);
+      // Validate file size (max 1MB)
+      if (bytes.length > 1024 * 1024) {
+        setExportError("Signature image must be under 1 MB.");
+        return;
+      }
       const ext = selectedPath.split(".").pop()?.toLowerCase() ?? "png";
       const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg"
         : ext === "png" ? "image/png"
@@ -1497,7 +1567,7 @@ export function SettingsPage() {
                     type="text"
                     value={reminderPracticeName}
                     onChange={(e) => setReminderPracticeName(e.target.value)}
-                    placeholder="e.g. MedArc Physical Therapy"
+                    placeholder="e.g. PanaceaEMR Physical Therapy"
                     className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -1593,7 +1663,7 @@ export function SettingsPage() {
                     type="text"
                     value={sgFromName}
                     onChange={(e) => setSgFromName(e.target.value)}
-                    placeholder="MedArc Physical Therapy"
+                    placeholder="PanaceaEMR Physical Therapy"
                     className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -1686,7 +1756,7 @@ export function SettingsPage() {
                         type="text"
                         value={exportPracticeName}
                         onChange={(e) => setExportPracticeName(e.target.value)}
-                        placeholder="e.g. MedArc Physical Therapy"
+                        placeholder="e.g. PanaceaEMR Physical Therapy"
                         className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
@@ -1910,6 +1980,140 @@ export function SettingsPage() {
         {/* ─── ACCOUNT TAB ────────────────────────────────────────────────────── */}
         {activeTab === "account" && (
           <div className="space-y-6 max-w-xl">
+            {/* ── Profile Section ──────────────────────────────────────── */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-gray-900">
+                Profile
+              </h2>
+
+              {profileError && (
+                <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {profileError}
+                </div>
+              )}
+              {profileSuccess && (
+                <div className="mb-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                  {profileSuccess}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="profile-display-name" className="mb-1 block text-sm font-medium text-gray-700">
+                    Display Name
+                  </label>
+                  <input
+                    id="profile-display-name"
+                    type="text"
+                    value={profileDisplayName}
+                    onChange={(e) => setProfileDisplayName(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="Your display name"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="profile-username" className="mb-1 block text-sm font-medium text-gray-700">
+                    Username
+                  </label>
+                  <input
+                    id="profile-username"
+                    type="text"
+                    value={profileUsername}
+                    onChange={(e) => setProfileUsername(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="Your username"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSaveProfile}
+                  disabled={profileSaving}
+                  className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {profileSaving ? "Saving..." : "Save Profile"}
+                </button>
+              </div>
+            </section>
+
+            {/* ── Change Password Section ──────────────────────────────── */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-gray-900">
+                Change Password
+              </h2>
+
+              {pwdError && (
+                <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {pwdError}
+                </div>
+              )}
+              {pwdSuccess && (
+                <div className="mb-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                  {pwdSuccess}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="pwd-current" className="mb-1 block text-sm font-medium text-gray-700">
+                    Current Password
+                  </label>
+                  <input
+                    id="pwd-current"
+                    type="password"
+                    value={pwdCurrent}
+                    onChange={(e) => setPwdCurrent(e.target.value)}
+                    autoComplete="current-password"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="Enter current password"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="pwd-new" className="mb-1 block text-sm font-medium text-gray-700">
+                    New Password
+                  </label>
+                  <input
+                    id="pwd-new"
+                    type="password"
+                    value={pwdNew}
+                    onChange={(e) => setPwdNew(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={12}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="Min 12 characters"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="pwd-confirm" className="mb-1 block text-sm font-medium text-gray-700">
+                    Confirm New Password
+                  </label>
+                  <input
+                    id="pwd-confirm"
+                    type="password"
+                    value={pwdConfirm}
+                    onChange={(e) => setPwdConfirm(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={12}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="Repeat new password"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleChangePassword}
+                  disabled={pwdSaving}
+                  className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {pwdSaving ? "Changing..." : "Change Password"}
+                </button>
+              </div>
+            </section>
+
+            {/* ── Account Information (read-only) ─────────────────────── */}
             <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
               <h2 className="mb-4 text-base font-semibold text-gray-900">
                 Account Information
@@ -1917,16 +2121,16 @@ export function SettingsPage() {
 
               <dl className="divide-y divide-gray-100">
                 {[
-                  { label: "Display Name", value: user?.displayName ?? "—" },
-                  { label: "Role", value: user?.role ?? "—" },
-                  { label: "Session State", value: session?.state ?? "—" },
+                  { label: "Display Name", value: user?.displayName ?? "\u2014" },
+                  { label: "Role", value: user?.role ?? "\u2014" },
+                  { label: "Session State", value: session?.state ?? "\u2014" },
                   {
                     label: "Last Activity",
                     value: session?.lastActivity
                       ? new Date(session.lastActivity).toLocaleString()
                       : "Never",
                   },
-                  { label: "Session ID", value: session?.sessionId ?? "—" },
+                  { label: "Session ID", value: session?.sessionId ?? "\u2014" },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex justify-between py-3">
                     <dt className="text-sm font-medium text-gray-500">{label}</dt>
@@ -1950,7 +2154,7 @@ export function SettingsPage() {
                 disabled={signingOut}
                 className="w-full rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {signingOut ? "Signing out…" : "Sign Out"}
+                {signingOut ? "Signing out\u2026" : "Sign Out"}
               </button>
             </section>
           </div>

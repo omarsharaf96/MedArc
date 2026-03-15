@@ -126,7 +126,7 @@ export function Sidebar({ role, displayName, onLogout }: SidebarProps) {
     <aside className="flex w-56 flex-shrink-0 flex-col border-r border-gray-200 bg-white">
       {/* App branding */}
       <div className="flex h-16 items-center border-b border-gray-200 px-4">
-        <span className="text-xl font-bold text-blue-700">MedArc</span>
+        <span className="text-xl font-bold text-blue-700">PanaceaEMR</span>
       </div>
 
       {/* Navigation items */}

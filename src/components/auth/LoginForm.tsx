@@ -53,7 +53,7 @@ export default function LoginForm({
       <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-lg">
         {/* Header */}
         <div className="mb-6 text-center">
-          <h1 className="text-3xl font-bold text-gray-900">MedArc</h1>
+          <h1 className="text-3xl font-bold text-gray-900">PanaceaEMR</h1>
           <p className="mt-1 text-sm text-gray-500">
             Electronic Medical Records
           </p>

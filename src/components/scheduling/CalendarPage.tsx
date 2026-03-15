@@ -121,6 +121,10 @@ export interface CalendarPageProps {
   patientLabel?: (patientId: string) => string;
   /** Called when an appointment card is dragged to a new time slot. */
   onReschedule?: (appointmentId: string, newStartTime: string) => void;
+  /** Called when the user marks an appointment as Attended / Canceled / No Show. */
+  onUpdateStatus?: (appointmentId: string, status: string) => Promise<void>;
+  /** Called when the user confirms deletion of an appointment. */
+  onDeleteAppointment?: (appointmentId: string) => Promise<void>;
 }
 
 // ─── CalendarHeader ───────────────────────────────────────────────────────────
@@ -466,9 +470,12 @@ interface InfoPopoverProps {
   onEditAppointment: (appt: AppointmentRecord) => void;
   onCancelAppointment: (appt: AppointmentRecord) => void;
   patientLabel?: (patientId: string) => string;
+  onUpdateStatus?: (appointmentId: string, status: string) => Promise<void>;
+  onDeleteAppointment?: (appointmentId: string) => Promise<void>;
 }
 
-function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppointment, patientLabel }: InfoPopoverProps) {
+function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppointment: _onCancelAppointment, patientLabel, onUpdateStatus, onDeleteAppointment }: InfoPopoverProps) {
+  void _onCancelAppointment; // Kept in interface for backward compatibility; status buttons replace it
   const { navigate } = useNav();
   const { user } = useAuth();
   const display = extractAppointmentDisplay(appt.resource);
@@ -477,12 +484,51 @@ function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppoi
   const endLabel = display.end ? formatTime(display.end) : "—";
   const typeLabel = display.apptTypeDisplay ?? display.apptType ?? "—";
 
-  // Cancel button shown only when canWrite and appointment is "booked"
-  const showCancelBtn = canWrite && display.status === "booked";
+  // Status buttons shown when canWrite and appointment is not already in a terminal state
+  const showStatusBtns = canWrite && display.status !== "cancelled" && display.status !== "fulfilled" && display.status !== "noshow";
 
   // State for "Open Encounter" button
   const [openingEncounter, setOpeningEncounter] = useState(false);
   const [encounterError, setEncounterError] = useState<string | null>(null);
+
+  // State for status update
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
+  // State for delete confirmation
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleStatusUpdate(status: string) {
+    if (!onUpdateStatus) return;
+    setUpdatingStatus(true);
+    setStatusError(null);
+    try {
+      await onUpdateStatus(appt.id, status);
+      onClose();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatusError(msg);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!onDeleteAppointment) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDeleteAppointment(appt.id);
+      onClose();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setDeleteError(msg);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   /**
    * Find or create an encounter linked to this appointment, then navigate to it.
@@ -611,6 +657,14 @@ function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppoi
           <p className="mt-2 text-sm text-red-600">{encounterError}</p>
         )}
 
+        {/* Status / delete errors */}
+        {statusError && (
+          <p className="mt-2 text-sm text-red-600">{statusError}</p>
+        )}
+        {deleteError && (
+          <p className="mt-2 text-sm text-red-600">{deleteError}</p>
+        )}
+
         {/* Action buttons */}
         <div className="mt-5 flex flex-col gap-2">
           {/* Open encounter */}
@@ -635,17 +689,65 @@ function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppoi
             </button>
           )}
 
-          {/* Cancel appointment — write-gated, booked-only */}
-          {showCancelBtn && (
-            <button
-              onClick={() => {
-                onClose();
-                onCancelAppointment(appt);
-              }}
-              className="w-full rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-            >
-              Cancel Appointment
-            </button>
+          {/* Status buttons — Attended / Canceled / No Show */}
+          {showStatusBtns && onUpdateStatus && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => void handleStatusUpdate("fulfilled")}
+                disabled={updatingStatus}
+                className="flex-1 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-60"
+              >
+                Attended
+              </button>
+              <button
+                onClick={() => void handleStatusUpdate("cancelled")}
+                disabled={updatingStatus}
+                className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-60"
+              >
+                Canceled
+              </button>
+              <button
+                onClick={() => void handleStatusUpdate("noshow")}
+                disabled={updatingStatus}
+                className="flex-1 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:opacity-60"
+              >
+                No Show
+              </button>
+            </div>
+          )}
+
+          {/* Delete appointment — with confirmation */}
+          {canWrite && onDeleteAppointment && (
+            <>
+              {!confirmingDelete ? (
+                <button
+                  onClick={() => setConfirmingDelete(true)}
+                  className="w-full rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                >
+                  Delete Appointment
+                </button>
+              ) : (
+                <div className="rounded-lg border border-red-300 bg-red-50 p-3">
+                  <p className="text-sm text-red-800 mb-2">Are you sure? This permanently deletes the appointment.</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => void handleDelete()}
+                      disabled={deleting}
+                      className="flex-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {deleting ? "Deleting..." : "Confirm Delete"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmingDelete(false)}
+                      disabled={deleting}
+                      className="flex-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -670,6 +772,8 @@ export function CalendarPage({
   onToday,
   patientLabel,
   onReschedule,
+  onUpdateStatus,
+  onDeleteAppointment,
 }: CalendarPageProps) {
   const [selectedCard, setSelectedCard] = useState<AppointmentRecord | null>(null);
 
@@ -710,6 +814,8 @@ export function CalendarPage({
           onEditAppointment={onEditAppointment}
           onCancelAppointment={onCancelAppointment}
           patientLabel={patientLabel}
+          onUpdateStatus={onUpdateStatus}
+          onDeleteAppointment={onDeleteAppointment}
         />
       )}
     </div>

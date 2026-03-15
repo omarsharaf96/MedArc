@@ -552,15 +552,19 @@ fn log_export(
 }
 
 /// Generate a temp file path for the PDF output.
+/// Uses ~/Library/Application Support/com.medarc.emr/exports to keep PHI
+/// out of world-readable /tmp.
 fn temp_pdf_path(prefix: &str) -> Result<String, AppError> {
-    let dir = std::env::temp_dir().join("medarc-exports");
-    std::fs::create_dir_all(&dir).map_err(|e| AppError::Io(e))?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let base = std::path::PathBuf::from(home)
+        .join("Library/Application Support/com.medarc.emr/exports");
+    std::fs::create_dir_all(&base).map_err(|e| AppError::Io(e))?;
     let filename = format!(
         "{}-{}.pdf",
         prefix,
         chrono::Utc::now().format("%Y%m%dT%H%M%SZ")
     );
-    Ok(dir.join(filename).to_string_lossy().into_owned())
+    Ok(base.join(filename).to_string_lossy().into_owned())
 }
 
 /// Load encounters for a patient, optionally filtered by date range.

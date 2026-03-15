@@ -21,8 +21,6 @@ import {
   type InsuranceDisplay,
 } from "../lib/fhirExtract";
 import { PatientFormModal } from "../components/patient/PatientFormModal";
-import { ClinicalSidebar } from "../components/clinical/ClinicalSidebar";
-import { LabResultsPanel } from "../components/clinical/LabResultsPanel";
 import { DocumentBrowser } from "../components/clinical/DocumentBrowser";
 import { AuthTrackingPanel } from "../components/clinical/AuthTrackingPanel";
 import { commands } from "../lib/tauri";
@@ -145,7 +143,7 @@ function extractEncounterTypeLabel(resource: Record<string, unknown>): string {
 
 export function PatientDetailPage({ patientId, role, userId }: PatientDetailPageProps) {
   const { goBack, navigate } = useNav();
-  const { patient, careTeam, relatedPersons, loading, error, reload } =
+  const { patient, relatedPersons, loading, error, reload } =
     usePatient(patientId);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -163,6 +161,11 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
   // ── Patient appointments state ──────────────────────────────────────
   const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
   const [appointmentsLoading, setAppointmentsLoading] = useState(true);
+
+  // ── Delete patient state ────────────────────────────────────────────
+  const [showDeletePatientConfirm, setShowDeletePatientConfirm] = useState(false);
+  const [deletingPatient, setDeletingPatient] = useState(false);
+  const [deletePatientError, setDeletePatientError] = useState<string | null>(null);
 
   // ── Template picker modal state ─────────────────────────────────────
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
@@ -283,6 +286,22 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
     }
   }
 
+  // ── Delete patient handler ──────────────────────────────────────────────
+  async function handleDeletePatient() {
+    setDeletingPatient(true);
+    setDeletePatientError(null);
+    try {
+      await commands.deletePatient(patientId);
+      navigate({ page: "patients" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[PatientDetailPage] deletePatient failed for ${patientId}:`, msg);
+      setDeletePatientError(msg);
+    } finally {
+      setDeletingPatient(false);
+    }
+  }
+
   // ── Loading state ──────────────────────────────────────────────────────
   if (loading) {
     return <LoadingSkeleton />;
@@ -390,6 +409,17 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
               Edit
             </button>
           )}
+
+          {/* Delete Patient — SystemAdmin only */}
+          {role === "SystemAdmin" && (
+            <button
+              type="button"
+              onClick={() => setShowDeletePatientConfirm(true)}
+              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+            >
+              Delete Patient
+            </button>
+          )}
         </div>
       </div>
 
@@ -404,6 +434,52 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
           }}
           onClose={() => setEditOpen(false)}
         />
+      )}
+
+      {/* Delete patient confirmation dialog */}
+      {showDeletePatientConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-patient-modal-title"
+        >
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h3
+              id="delete-patient-modal-title"
+              className="text-base font-semibold text-gray-900"
+            >
+              Delete Patient
+            </h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Are you sure? This cannot be undone. All patient data including encounters,
+              appointments, and documents will be permanently deleted.
+            </p>
+            {deletePatientError && (
+              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {deletePatientError}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeletePatientConfirm(false)}
+                disabled={deletingPatient}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeletePatient()}
+                disabled={deletingPatient}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-60"
+              >
+                {deletingPatient ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Template picker modal */}
@@ -681,20 +757,6 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
         })()}
       </SectionCard>
 
-      {/* ── Clinical Data — Provider / NurseMa / SystemAdmin only ────────── */}
-      {role !== "BillingStaff" && role !== "FrontDesk" && (
-        <SectionCard title="Clinical Data">
-          <ClinicalSidebar patientId={patientId} role={role} />
-        </SectionCard>
-      )}
-
-      {/* ── Lab Results — hidden for FrontDesk ───────────────────────────── */}
-      {role !== "FrontDesk" && (
-        <SectionCard title="Lab Results">
-          <LabResultsPanel patientId={patientId} userId={userId} role={role} />
-        </SectionCard>
-      )}
-
       {/* ── Documents — visible to all authenticated roles ────────────────── */}
       <SectionCard title="Documents">
         <DocumentBrowser patientId={patientId} userId={userId} />
@@ -801,17 +863,6 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
         </SectionCard>
       )}
 
-      {/* ── Care Team section — hidden for BillingStaff ──────────────────── */}
-      {!isBillingStaff && (
-        <SectionCard title="Care Team">
-          {careTeam === null ? (
-            <p className="text-sm text-gray-500">No care team assigned.</p>
-          ) : (
-            <CareTeamDisplay resource={careTeam.resource} />
-          )}
-        </SectionCard>
-      )}
-
       {/* ── Related Persons section — hidden for BillingStaff ────────────── */}
       {!isBillingStaff && (
         <SectionCard title="Related Persons">
@@ -826,62 +877,6 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
           )}
         </SectionCard>
       )}
-    </div>
-  );
-}
-
-// ─── Care Team display ────────────────────────────────────────────────────────
-
-function CareTeamDisplay({
-  resource,
-}: {
-  resource: Record<string, unknown>;
-}) {
-  const participants = resource["participant"] as
-    | Array<Record<string, unknown>>
-    | undefined;
-
-  if (!participants || participants.length === 0) {
-    return (
-      <p className="text-sm text-gray-500">No care team members recorded.</p>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {participants.map((p, i) => {
-        const member = p["member"] as Record<string, unknown> | undefined;
-        const role = p["role"] as Array<Record<string, unknown>> | undefined;
-        const note = p["note"] as Array<Record<string, unknown>> | undefined;
-
-        const memberDisplay =
-          typeof member?.["display"] === "string" ? member["display"] : null;
-        const roleText =
-          role?.[0]?.["text"] !== undefined
-            ? String(role[0]["text"])
-            : null;
-        const noteText =
-          note?.[0]?.["text"] !== undefined
-            ? String(note[0]["text"])
-            : null;
-
-        return (
-          <div
-            key={i}
-            className="rounded-md border border-gray-100 bg-gray-50 p-3"
-          >
-            <p className="text-sm font-medium text-gray-900">
-              {memberDisplay ?? "—"}
-            </p>
-            {roleText && (
-              <p className="text-xs text-gray-500">{roleText}</p>
-            )}
-            {noteText && (
-              <p className="mt-1 text-xs text-gray-600 italic">{noteText}</p>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }

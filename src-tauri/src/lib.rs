@@ -112,6 +112,7 @@ pub fn run() {
             commands::scheduling::list_appointments,
             commands::scheduling::update_appointment,
             commands::scheduling::cancel_appointment,
+            commands::scheduling::delete_appointment,
             commands::scheduling::search_open_slots,
             commands::scheduling::update_flow_status,
             commands::scheduling::get_flow_board,
@@ -129,6 +130,7 @@ pub fn run() {
             commands::documentation::get_encounter,
             commands::documentation::list_encounters,
             commands::documentation::update_encounter,
+            commands::documentation::delete_encounter,
             commands::documentation::record_vitals,
             commands::documentation::list_vitals,
             commands::documentation::save_ros,
@@ -311,6 +313,8 @@ pub fn run() {
             // User Management
             commands::auth::list_users,
             commands::auth::deactivate_user,
+            commands::auth::update_user_profile,
+            commands::auth::change_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -758,3 +758,134 @@ pub fn deactivate_user(
 
     Ok(())
 }
+
+/// Update the current user's display name and/or username.
+///
+/// Requires an active session. Updates are applied to the currently
+/// authenticated user only.
+#[tauri::command]
+pub fn update_user_profile(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+    display_name: String,
+    username: String,
+) -> Result<UserResponse, AppError> {
+    let (user_id, role) = session.get_current_user()?;
+
+    if display_name.trim().is_empty() {
+        return Err(AppError::Validation(
+            "Display name cannot be empty".to_string(),
+        ));
+    }
+    if username.trim().is_empty() {
+        return Err(AppError::Validation(
+            "Username cannot be empty".to_string(),
+        ));
+    }
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    conn.execute(
+        "UPDATE users SET display_name = ?1, username = ?2, updated_at = datetime('now') WHERE id = ?3",
+        rusqlite::params![display_name.trim(), username.trim(), user_id],
+    )
+    .map_err(|e| {
+        if e.to_string().contains("UNIQUE constraint failed: users.username") {
+            AppError::Validation(format!("Username '{}' is already taken", username.trim()))
+        } else {
+            AppError::Database(e.to_string())
+        }
+    })?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: user_id.clone(),
+            action: "auth.update_user_profile".to_string(),
+            resource_type: "users".to_string(),
+            resource_id: Some(user_id.clone()),
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some(format!(
+                "updated display_name='{}', username='{}'",
+                display_name.trim(),
+                username.trim()
+            )),
+        },
+    );
+
+    Ok(UserResponse {
+        id: user_id,
+        username: username.trim().to_string(),
+        display_name: display_name.trim().to_string(),
+        role,
+    })
+}
+
+/// Change the current user's password.
+///
+/// Requires the current (old) password to be verified first.
+/// New password must be at least 12 characters.
+#[tauri::command]
+pub fn change_password(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+    current_password: String,
+    new_password: String,
+) -> Result<(), AppError> {
+    let (user_id, _role) = session.get_current_user()?;
+
+    // Validate new password length
+    if new_password.len() < 12 {
+        return Err(AppError::Validation(
+            "New password must be at least 12 characters".to_string(),
+        ));
+    }
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Fetch current password hash
+    let current_hash: String = conn
+        .query_row(
+            "SELECT password_hash FROM users WHERE id = ?1",
+            rusqlite::params![user_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::NotFound("User not found".to_string()))?;
+
+    // Verify current password
+    password::verify(&current_password, &current_hash)?;
+
+    // Hash the new password and update
+    let new_hash = password::hash_password(&new_password)?;
+
+    conn.execute(
+        "UPDATE users SET password_hash = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![new_hash, user_id],
+    )?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: user_id.clone(),
+            action: "auth.change_password".to_string(),
+            resource_type: "users".to_string(),
+            resource_id: Some(user_id),
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some("Password changed successfully".to_string()),
+        },
+    );
+
+    Ok(())
+}

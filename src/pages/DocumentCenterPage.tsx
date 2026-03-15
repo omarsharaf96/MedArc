@@ -428,13 +428,14 @@ export function DocumentCenterPage({
       });
       if (!destination) return;
 
-      // Decode base64 to bytes
-      const binaryStr = atob(previewContent.contentBase64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
+      // Decode base64 to bytes safely
+      try {
+        const binaryStr = atob(previewContent.contentBase64);
+        const bytes = Uint8Array.from(binaryStr, (c) => c.charCodeAt(0));
+        await writeFile(destination, bytes);
+      } catch (decodeErr) {
+        throw new Error("Failed to decode document content. The file may be corrupted.");
       }
-      await writeFile(destination, bytes);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[DocumentCenterPage] download failed:", msg);

@@ -495,6 +495,10 @@ export const commands = {
   cancelAppointment: (appointmentId: string, reason?: string | null) =>
     invoke<AppointmentRecord>("cancel_appointment", { appointmentId, reason: reason ?? null }),
 
+  /** Hard-delete an appointment (SystemAdmin / FrontDesk only). */
+  deleteAppointment: (appointmentId: string) =>
+    invoke<void>("delete_appointment", { appointmentId }),
+
   /** Search for open appointment slots within a date range for a provider. */
   searchOpenSlots: (startDate: string, endDate: string, providerId: string, apptType?: string | null, durationMinutes?: number | null) =>
     invoke<Record<string, unknown>[]>("search_open_slots", { startDate, endDate, providerId, apptType: apptType ?? null, durationMinutes: durationMinutes ?? null }),
@@ -560,6 +564,10 @@ export const commands = {
   /** Update an existing encounter (status, SOAP note, chief complaint). */
   updateEncounter: (encounterId: string, input: UpdateEncounterInput) =>
     invoke<EncounterRecord>("update_encounter", { encounterId, input }),
+
+  /** Delete an encounter by ID. */
+  deleteEncounter: (encounterId: string) =>
+    invoke<void>("delete_encounter", { encounterId }),
 
   /** Record a vitals observation set for a patient encounter. */
   recordVitals: (input: VitalsInput) =>
@@ -1486,4 +1494,21 @@ export const commands = {
   /** List all communication log entries for a WC case. */
   listWcCommunications: (caseId: string) =>
     invoke<WcCommunicationRecord[]>("list_wc_communications", { caseId }),
+
+  // ─── User Profile ────────────────────────────────────────────────────
+
+  /**
+   * Update the current user's display name and username.
+   * Returns the updated user record.
+   */
+  updateUserProfile: (displayName: string, username: string) =>
+    invoke<UserResponse>("update_user_profile", { displayName, username }),
+
+  /**
+   * Change the current user's password.
+   * Requires the current password for verification.
+   * New password must be at least 12 characters.
+   */
+  changePassword: (currentPassword: string, newPassword: string) =>
+    invoke<void>("change_password", { currentPassword, newPassword }),
 };

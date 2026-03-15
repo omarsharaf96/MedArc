@@ -788,7 +788,7 @@ export function VoiceToNotePage({
         // Check for microphone permission denial specifically
         if (msg.toLowerCase().includes("permission") || msg.toLowerCase().includes("denied")) {
           setRecordingError(
-            "Microphone access was denied. Go to System Settings → Privacy & Security → Microphone and allow MedArc, then try again."
+            "Microphone access was denied. Go to System Settings → Privacy & Security → Microphone and allow PanaceaEMR, then try again."
           );
         } else {
           setRecordingError(msg);

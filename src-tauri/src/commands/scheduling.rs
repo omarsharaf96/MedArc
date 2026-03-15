@@ -937,6 +937,73 @@ pub async fn cancel_appointment(
     })
 }
 
+/// Hard-delete an appointment from the database.
+///
+/// Removes the appointment from fhir_resources, appointment_index, and flow_board_index.
+///
+/// Requires: AppointmentScheduling + Delete (SystemAdmin and FrontDesk only per RBAC matrix)
+#[tauri::command]
+pub async fn delete_appointment(
+    appointment_id: String,
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<(), AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Delete)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Look up patient_id for audit before deleting
+    let patient_id: String = conn
+        .query_row(
+            "SELECT patient_id FROM appointment_index WHERE appointment_id = ?1",
+            rusqlite::params![appointment_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Appointment {} not found", appointment_id)))?;
+
+    // Delete from flow_board_index
+    conn.execute(
+        "DELETE FROM flow_board_index WHERE appointment_id = ?1",
+        rusqlite::params![appointment_id],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete from appointment_index
+    conn.execute(
+        "DELETE FROM appointment_index WHERE appointment_id = ?1",
+        rusqlite::params![appointment_id],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete from fhir_resources
+    conn.execute(
+        "DELETE FROM fhir_resources WHERE id = ?1 AND resource_type = 'Appointment'",
+        rusqlite::params![appointment_id],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: sess.user_id.clone(),
+            action: "scheduling.appointment.delete".to_string(),
+            resource_type: "Appointment".to_string(),
+            resource_id: Some(appointment_id.clone()),
+            patient_id: Some(patient_id),
+            device_id: device_id.id().to_string(),
+            success: true,
+            details: None,
+        },
+    )?;
+
+    Ok(())
+}
+
 /// Search for open appointment slots (SCHD-04).
 ///
 /// Returns 30-minute blocks in the date range that are NOT occupied by a booked appointment

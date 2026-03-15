@@ -143,9 +143,6 @@ function NoteEditor({
   const [finalizing, setFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
 
-  // ── Amendment state ───────────────────────────────────────────────
-  const [amendmentReason, setAmendmentReason] = useState("");
-
   // ── Template picker state ─────────────────────────────────────────
   const [loadingTemplate, setLoadingTemplate] = useState(false);
 
@@ -176,10 +173,6 @@ function NoteEditor({
 
   // ── Save Note ─────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
-    if (isAmending && !amendmentReason.trim()) {
-      setSoapSaveError("Amendment reason is required when editing a finalized encounter.");
-      return;
-    }
     setSavingSoap(true);
     setSoapSaveError(null);
     try {
@@ -190,7 +183,7 @@ function NoteEditor({
         assessment: null,
         plan: null,
       };
-      await saveSoap(soap, isAmending ? amendmentReason : null);
+      await saveSoap(soap, isAmending ? "Amended" : null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setSoapSaveError(msg);
@@ -198,7 +191,7 @@ function NoteEditor({
     } finally {
       setSavingSoap(false);
     }
-  }, [saveSoap, noteContent, isAmending, amendmentReason]);
+  }, [saveSoap, noteContent, isAmending]);
 
   // ── Finalize Encounter ────────────────────────────────────────────
   const handleFinalize = useCallback(async () => {
@@ -235,22 +228,9 @@ function NoteEditor({
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
           <p className="font-medium text-amber-800">Amendment Mode</p>
           <p className="mt-0.5 text-amber-700">
-            You are amending a finalized encounter. An amendment reason is required.
+            You are amending a finalized encounter.
             The previous version will be preserved for audit trail.
           </p>
-          <div className="mt-2">
-            <label className="mb-1 block text-xs font-medium text-amber-800" htmlFor="amendment-reason">
-              Amendment Reason (required)
-            </label>
-            <textarea
-              id="amendment-reason"
-              className="w-full rounded-md border border-amber-300 px-3 py-2 text-sm shadow-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-              rows={2}
-              value={amendmentReason}
-              onChange={(e) => setAmendmentReason(e.target.value)}
-              placeholder="Describe why this finalized encounter is being amended..."
-            />
-          </div>
         </div>
       )}
 
@@ -438,7 +418,7 @@ export function EncounterWorkspace({
   role,
   userId: _userId,
 }: EncounterWorkspaceProps) {
-  const { goBack } = useNav();
+  const { goBack, navigate } = useNav();
   const {
     encounter,
     loading,
@@ -473,6 +453,27 @@ export function EncounterWorkspace({
   /** True when the encounter was originally finalized (even if currently open for amendment). */
   const encounterWasFinalized = encounter?.resource?.["status"] === "finished";
 
+  // ── Delete encounter state ──────────────────────────────────────────
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleDeleteEncounter = useCallback(async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await commands.deleteEncounter(encounterId);
+      navigate({ page: "patient-detail", patientId });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[EncounterWorkspace] deleteEncounter failed:", msg);
+      setDeleteError(msg);
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  }, [encounterId, patientId, navigate]);
+
   // ── Export to PDF state ──────────────────────────────────────────────
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportPdfError, setExportPdfError] = useState<string | null>(null);
@@ -495,16 +496,18 @@ export function EncounterWorkspace({
     setExportPdfSuccess(null);
     try {
       const result = await commands.generateEncounterNotePdf(encounterId);
+      // Extract just the filename for a cleaner save dialog
+      const fileName = result.filePath.split("/").pop() ?? "encounter-note.pdf";
       const destination = await save({
         title: "Save Encounter Note PDF",
-        defaultPath: result.filePath,
+        defaultPath: fileName,
         filters: [{ name: "PDF Documents", extensions: ["pdf"] }],
       });
       if (destination) {
         await copyFile(result.filePath, destination);
         setExportPdfSuccess(`PDF saved to ${destination}`);
       } else {
-        setExportPdfSuccess(`PDF generated at ${result.filePath}`);
+        setExportPdfSuccess(`PDF generated successfully`);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -681,7 +684,7 @@ export function EncounterWorkspace({
           )}
         </div>
 
-        {/* ── Export / Fax action buttons ────────────────────────────── */}
+        {/* ── Export / Fax / Delete action buttons ────────────────────── */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -701,6 +704,16 @@ export function EncounterWorkspace({
           >
             Fax Note
           </button>
+          {(role === "Provider" || role === "SystemAdmin") && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              aria-label="Delete encounter"
+              className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+            >
+              Delete Encounter
+            </button>
+          )}
         </div>
       </div>
 
@@ -873,6 +886,51 @@ export function EncounterWorkspace({
                   {faxing ? "Sending..." : "Send Fax"}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation dialog ──────────────────────────────────── */}
+      {showDeleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-encounter-modal-title"
+        >
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h3
+              id="delete-encounter-modal-title"
+              className="text-base font-semibold text-gray-900"
+            >
+              Delete Encounter
+            </h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Are you sure you want to delete this encounter? This action cannot be undone.
+            </p>
+            {deleteError && (
+              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {deleteError}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteEncounter()}
+                disabled={deleting}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-60"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
             </div>
           </div>
         </div>

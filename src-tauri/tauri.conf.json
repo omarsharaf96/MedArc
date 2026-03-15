@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegram/nicegram-tauri/refs/heads/main/crates/tauri-utils/schema.json",
-  "productName": "MedArc",
+  "productName": "PanaceaEMR",
   "version": "0.1.0",
   "identifier": "com.medarc.emr",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "MedArc",
+        "title": "PanaceaEMR",
         "width": 1280,
         "height": 800
       }
@@ -39,7 +39,7 @@
       "signingIdentity": null,
       "minimumSystemVersion": "12.0"
     },
-    "publisher": "MedArc"
+    "publisher": "PanaceaEMR"
   },
   "plugins": {
     "updater": {

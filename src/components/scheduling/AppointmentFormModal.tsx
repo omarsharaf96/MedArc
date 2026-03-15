@@ -49,8 +49,8 @@ function colorForApptType(apptType: string): string {
 // ─── Fallback appointment type options ───────────────────────────────────────
 
 const FALLBACK_APPT_TYPE_OPTIONS = [
-  { value: "initial_pt_evaluation", label: "Initial PT Evaluation" },
   { value: "pt_treatment", label: "PT Treatment" },
+  { value: "initial_pt_evaluation", label: "Initial PT Evaluation" },
 ];
 
 // ─── Duration options ─────────────────────────────────────────────────────────
