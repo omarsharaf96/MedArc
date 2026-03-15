@@ -1610,6 +1610,115 @@ pub fn fax_encounter_note(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Export Settings (Letterhead + Signature configuration)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Export settings stored as JSON in app_settings under key "export_settings".
+/// Contains letterhead and signature configuration for PDF exports.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSettings {
+    /// Practice name for letterhead.
+    pub practice_name: Option<String>,
+    /// Practice address for letterhead.
+    pub practice_address: Option<String>,
+    /// Practice phone number for letterhead.
+    pub practice_phone: Option<String>,
+    /// Practice logo as base64-encoded image data.
+    pub practice_logo_base64: Option<String>,
+    /// Provider signature image as base64-encoded image data.
+    pub signature_image_base64: Option<String>,
+    /// Provider name/credentials line (e.g. "Omar Safwat Sharaf, PT, DPT").
+    pub provider_name_credentials: Option<String>,
+    /// Provider license number.
+    pub license_number: Option<String>,
+}
+
+/// Retrieve export settings (letterhead + signature) from app_settings.
+///
+/// Returns the stored ExportSettings or an empty default if not yet configured.
+/// Requires PdfExport::Read permission.
+#[tauri::command]
+pub async fn get_export_settings(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+) -> Result<ExportSettings, AppError> {
+    let _sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(_sess.role, Resource::PdfExport, Action::Read)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let json_str: String = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'export_settings'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let settings: ExportSettings =
+        serde_json::from_str(&json_str).unwrap_or_else(|_| ExportSettings {
+            practice_name: None,
+            practice_address: None,
+            practice_phone: None,
+            practice_logo_base64: None,
+            signature_image_base64: None,
+            provider_name_credentials: None,
+            license_number: None,
+        });
+
+    Ok(settings)
+}
+
+/// Save export settings (letterhead + signature) to app_settings.
+///
+/// Overwrites any existing export_settings value.
+/// Requires PdfExport::Update permission (SystemAdmin or Provider).
+#[tauri::command]
+pub async fn set_export_settings(
+    settings: ExportSettings,
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<ExportSettings, AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::PdfExport, Action::Update)?;
+
+    let json_str = serde_json::to_string(&settings)
+        .map_err(|e| AppError::Serialization(e.to_string()))?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('export_settings', ?1, datetime('now'))",
+        rusqlite::params![json_str],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: sess.user_id.clone(),
+            action: "pdf_export.export_settings.update".to_string(),
+            resource_type: "AppSettings".to_string(),
+            resource_id: Some("export_settings".to_string()),
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some("Export settings (letterhead/signature) updated".to_string()),
+        },
+    )?;
+
+    Ok(settings)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Unit tests
 // ─────────────────────────────────────────────────────────────────────────────
 

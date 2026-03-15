@@ -1,13 +1,16 @@
 /**
- * SettingsPage.tsx — Four-tab Settings panel: Backup | Security | Fax | Account
+ * SettingsPage.tsx — Multi-tab Settings panel: Backup | Security | Fax | Reminders | Export | Account | Users
  *
  * Replaces the S06 placeholder. Wired to real backend commands via tauri.ts.
  *
  * Tabs:
- *   - Backup:   folder picker, create backup, history table, restore (SystemAdmin only)
- *   - Security: TOTP setup/disable, Touch ID enable/disable
- *   - Fax:      Phaxio API key/secret, practice fax number, test connection
- *   - Account:  session info (read-only), sign-out
+ *   - Backup:    folder picker, create backup, history table, restore (SystemAdmin only)
+ *   - Security:  TOTP setup/disable, Touch ID enable/disable
+ *   - Fax:       Phaxio API key/secret, practice fax number, test connection
+ *   - Reminders: Twilio/SendGrid config, reminder intervals (SystemAdmin only)
+ *   - Export:    letterhead (name, address, phone, logo) + signature (image, credentials, license)
+ *   - Account:   session info (read-only), sign-out
+ *   - Users:     user management (SystemAdmin only)
  *
  * Observability:
  *   - backupError / mfaError / biometricError / faxError: inline red banners
@@ -17,6 +20,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { readFile } from "@tauri-apps/plugin-fs";
 import { commands } from "../lib/tauri";
 import { useAuth } from "../hooks/useAuth";
 import MfaSetup from "../components/auth/MfaSetup";
@@ -24,6 +28,7 @@ import type { BackupResult, BackupLogEntry } from "../types/backup";
 import type { BiometricStatus } from "../types/auth";
 import type { UserListEntry } from "../types/mips";
 import type { ReminderConfigRecord, ReminderConfigInput } from "../types/reminders";
+import type { ExportSettings } from "../types/export";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,7 +83,7 @@ function roleBadge(role: string): React.ReactElement {
 
 // ─── Tab type ─────────────────────────────────────────────────────────────────
 
-type Tab = "backup" | "security" | "fax" | "reminders" | "account" | "users";
+type Tab = "backup" | "security" | "fax" | "reminders" | "export" | "account" | "users";
 
 // ─── Provider Appointment Types Section ────────────────────────────────────────
 
@@ -333,6 +338,19 @@ export function SettingsPage() {
   const [addUserLoading, setAddUserLoading] = useState(false);
   const [addUserSuccess, setAddUserSuccess] = useState<string | null>(null);
 
+  // ── Export tab state ────────────────────────────────────────────────────────
+  const [exportPracticeName, setExportPracticeName] = useState("");
+  const [exportPracticeAddress, setExportPracticeAddress] = useState("");
+  const [exportPracticePhone, setExportPracticePhone] = useState("");
+  const [exportPracticeLogoBase64, setExportPracticeLogoBase64] = useState<string | null>(null);
+  const [exportSignatureBase64, setExportSignatureBase64] = useState<string | null>(null);
+  const [exportProviderCredentials, setExportProviderCredentials] = useState("");
+  const [exportLicenseNumber, setExportLicenseNumber] = useState("");
+  const [exportSaving, setExportSaving] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+
   // ── Users: load when SystemAdmin opens the Users tab ────────────────────────
   useEffect(() => {
     if (user?.role !== "SystemAdmin") return;
@@ -395,6 +413,27 @@ export function SettingsPage() {
         setSgFromEmail(cfg.sendgridFromEmail ?? "");
       })
       .catch(() => { /* not yet configured — silently ignore */ });
+    return () => { mounted = false; };
+  }, [activeTab]);
+
+  // ── Export: load settings when tab becomes active ────────────────────────────
+  useEffect(() => {
+    if (activeTab !== "export") return;
+    let mounted = true;
+    setExportLoading(true);
+    commands.getExportSettings()
+      .then((settings) => {
+        if (!mounted) return;
+        setExportPracticeName(settings.practiceName ?? "");
+        setExportPracticeAddress(settings.practiceAddress ?? "");
+        setExportPracticePhone(settings.practicePhone ?? "");
+        setExportPracticeLogoBase64(settings.practiceLogoBase64 ?? null);
+        setExportSignatureBase64(settings.signatureImageBase64 ?? null);
+        setExportProviderCredentials(settings.providerNameCredentials ?? "");
+        setExportLicenseNumber(settings.licenseNumber ?? "");
+      })
+      .catch(() => { /* not yet configured — silently ignore */ })
+      .finally(() => { if (mounted) setExportLoading(false); });
     return () => { mounted = false; };
   }, [activeTab]);
 
@@ -626,6 +665,94 @@ export function SettingsPage() {
     }
   }, []);
 
+  // ── Export settings handlers ─────────────────────────────────────────────────
+
+  /**
+   * Base64-encode a Uint8Array in 8 KB chunks using btoa.
+   * Chunked to avoid stack overflow from String.fromCharCode spread on large arrays.
+   */
+  function bytesToBase64(bytes: Uint8Array): string {
+    const CHUNK = 8192;
+    let result = "";
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      result += btoa(String.fromCharCode(...bytes.subarray(i, i + CHUNK)));
+    }
+    return result;
+  }
+
+  const handleSaveExportSettings = useCallback(async () => {
+    setExportSaving(true);
+    setExportError(null);
+    setExportSuccess(null);
+    try {
+      const settings: ExportSettings = {
+        practiceName: exportPracticeName.trim() || null,
+        practiceAddress: exportPracticeAddress.trim() || null,
+        practicePhone: exportPracticePhone.trim() || null,
+        practiceLogoBase64: exportPracticeLogoBase64,
+        signatureImageBase64: exportSignatureBase64,
+        providerNameCredentials: exportProviderCredentials.trim() || null,
+        licenseNumber: exportLicenseNumber.trim() || null,
+      };
+      await commands.setExportSettings(settings);
+      setExportSuccess("Export settings saved successfully.");
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExportSaving(false);
+    }
+  }, [
+    exportPracticeName, exportPracticeAddress, exportPracticePhone,
+    exportPracticeLogoBase64, exportSignatureBase64,
+    exportProviderCredentials, exportLicenseNumber,
+  ]);
+
+  const handlePickLogo = useCallback(async () => {
+    try {
+      const result = await open({
+        multiple: false,
+        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
+      });
+      if (result === null) return;
+      const selectedPath = Array.isArray(result) ? result[0] : result;
+      if (!selectedPath) return;
+      const bytes = await readFile(selectedPath);
+      const ext = selectedPath.split(".").pop()?.toLowerCase() ?? "png";
+      const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg"
+        : ext === "png" ? "image/png"
+        : ext === "gif" ? "image/gif"
+        : ext === "webp" ? "image/webp"
+        : "image/png";
+      const base64 = `data:${mime};base64,${bytesToBase64(bytes)}`;
+      setExportPracticeLogoBase64(base64);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const handlePickSignature = useCallback(async () => {
+    try {
+      const result = await open({
+        multiple: false,
+        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
+      });
+      if (result === null) return;
+      const selectedPath = Array.isArray(result) ? result[0] : result;
+      if (!selectedPath) return;
+      const bytes = await readFile(selectedPath);
+      const ext = selectedPath.split(".").pop()?.toLowerCase() ?? "png";
+      const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg"
+        : ext === "png" ? "image/png"
+        : ext === "gif" ? "image/gif"
+        : ext === "webp" ? "image/webp"
+        : "image/png";
+      const base64 = `data:${mime};base64,${bytesToBase64(bytes)}`;
+      setExportSignatureBase64(base64);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   const tabs: { id: Tab; label: string; adminOnly?: boolean }[] = [
@@ -633,6 +760,7 @@ export function SettingsPage() {
     { id: "security", label: "Security" },
     { id: "fax", label: "Fax" },
     { id: "reminders", label: "Reminders", adminOnly: true },
+    { id: "export", label: "Export" },
     { id: "account", label: "Account" },
     { id: "users", label: "Users", adminOnly: true },
   ];
@@ -1517,6 +1645,264 @@ export function SettingsPage() {
               <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700">
                 {reminderTestResult}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── EXPORT TAB ──────────────────────────────────────────────────────── */}
+        {activeTab === "export" && (
+          <div className="space-y-6 max-w-3xl">
+
+            {exportError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {exportError}
+              </div>
+            )}
+            {exportSuccess && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                {exportSuccess}
+              </div>
+            )}
+
+            {exportLoading ? (
+              <p className="text-sm text-gray-500">Loading export settings...</p>
+            ) : (
+              <>
+                {/* Letterhead Settings */}
+                <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <h2 className="mb-1 text-base font-semibold text-gray-900">
+                    Letterhead Settings
+                  </h2>
+                  <p className="mb-4 text-sm text-gray-500">
+                    Configure your practice letterhead for PDF exports and reports.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Practice Name
+                      </label>
+                      <input
+                        type="text"
+                        value={exportPracticeName}
+                        onChange={(e) => setExportPracticeName(e.target.value)}
+                        placeholder="e.g. MedArc Physical Therapy"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Practice Address
+                      </label>
+                      <input
+                        type="text"
+                        value={exportPracticeAddress}
+                        onChange={(e) => setExportPracticeAddress(e.target.value)}
+                        placeholder="e.g. 123 Main St, Suite 100, City, ST 12345"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Practice Phone
+                      </label>
+                      <input
+                        type="tel"
+                        value={exportPracticePhone}
+                        onChange={(e) => setExportPracticePhone(e.target.value)}
+                        placeholder="e.g. (555) 123-4567"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Practice Logo
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handlePickLogo}
+                          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                        >
+                          {exportPracticeLogoBase64 ? "Change Logo" : "Upload Logo"}
+                        </button>
+                        {exportPracticeLogoBase64 && (
+                          <button
+                            type="button"
+                            onClick={() => setExportPracticeLogoBase64(null)}
+                            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      {exportPracticeLogoBase64 && (
+                        <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 inline-block">
+                          <img
+                            src={exportPracticeLogoBase64}
+                            alt="Practice logo"
+                            className="max-h-20 max-w-[200px] object-contain"
+                          />
+                        </div>
+                      )}
+                      <p className="mt-1 text-xs text-gray-400">
+                        Accepted formats: PNG, JPG, GIF, WebP. Recommended: 300px wide, transparent background.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Signature Settings */}
+                <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <h2 className="mb-1 text-base font-semibold text-gray-900">
+                    Signature Settings
+                  </h2>
+                  <p className="mb-4 text-sm text-gray-500">
+                    Configure provider signature details for PDF exports and clinical documents.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Provider Name &amp; Credentials
+                      </label>
+                      <input
+                        type="text"
+                        value={exportProviderCredentials}
+                        onChange={(e) => setExportProviderCredentials(e.target.value)}
+                        placeholder="e.g. Omar Safwat Sharaf, PT, DPT"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        License Number
+                      </label>
+                      <input
+                        type="text"
+                        value={exportLicenseNumber}
+                        onChange={(e) => setExportLicenseNumber(e.target.value)}
+                        placeholder="e.g. PT-12345"
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Signature Image
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handlePickSignature}
+                          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                        >
+                          {exportSignatureBase64 ? "Change Signature" : "Upload Signature"}
+                        </button>
+                        {exportSignatureBase64 && (
+                          <button
+                            type="button"
+                            onClick={() => setExportSignatureBase64(null)}
+                            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      {exportSignatureBase64 && (
+                        <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 inline-block">
+                          <img
+                            src={exportSignatureBase64}
+                            alt="Provider signature"
+                            className="max-h-16 max-w-[200px] object-contain"
+                          />
+                        </div>
+                      )}
+                      <p className="mt-1 text-xs text-gray-400">
+                        Upload a scanned or digital signature image. PNG with transparent background recommended.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Letterhead Preview */}
+                <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <h2 className="mb-4 text-base font-semibold text-gray-900">
+                    Letterhead Preview
+                  </h2>
+                  <div className="rounded-lg border border-gray-300 bg-white p-6 shadow-inner" style={{ minHeight: "200px" }}>
+                    {/* Letterhead area */}
+                    <div className="border-b-2 border-gray-800 pb-4 mb-4">
+                      <div className="flex items-start gap-4">
+                        {exportPracticeLogoBase64 && (
+                          <img
+                            src={exportPracticeLogoBase64}
+                            alt="Logo preview"
+                            className="h-14 w-auto object-contain"
+                          />
+                        )}
+                        <div className="flex-1">
+                          <div className="text-lg font-bold text-gray-900">
+                            {exportPracticeName || "Practice Name"}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {exportPracticeAddress || "Practice Address"}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {exportPracticePhone || "Phone Number"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Body placeholder */}
+                    <div className="space-y-2 mb-8">
+                      <div className="h-3 w-full rounded bg-gray-100" />
+                      <div className="h-3 w-5/6 rounded bg-gray-100" />
+                      <div className="h-3 w-4/5 rounded bg-gray-100" />
+                      <div className="h-3 w-full rounded bg-gray-100" />
+                      <div className="h-3 w-3/4 rounded bg-gray-100" />
+                    </div>
+
+                    {/* Signature area */}
+                    <div className="border-t border-gray-200 pt-4">
+                      {exportSignatureBase64 ? (
+                        <img
+                          src={exportSignatureBase64}
+                          alt="Signature preview"
+                          className="h-10 w-auto object-contain mb-1"
+                        />
+                      ) : (
+                        <div className="mb-1 w-48 border-b border-gray-400" style={{ height: "40px" }} />
+                      )}
+                      <div className="text-sm font-medium text-gray-900">
+                        {exportProviderCredentials || "Provider Name, Credentials"}
+                      </div>
+                      {exportLicenseNumber && (
+                        <div className="text-xs text-gray-500">
+                          License: {exportLicenseNumber}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Save button */}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSaveExportSettings}
+                    disabled={exportSaving}
+                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {exportSaving ? "Saving..." : "Save Export Settings"}
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}

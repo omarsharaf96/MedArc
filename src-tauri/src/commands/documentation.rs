@@ -61,6 +61,8 @@ pub struct EncounterInput {
     pub template_id: Option<String>,
     /// SOAP note sections.
     pub soap: Option<SoapInput>,
+    /// Optional appointment ID that this encounter is linked to.
+    pub appointment_id: Option<String>,
 }
 
 /// Structured SOAP note sections.
@@ -408,11 +410,25 @@ fn build_encounter_fhir(id: &str, input: &EncounterInput) -> serde_json::Value {
         }]);
     }
 
-    if let Some(ref template_id) = input.template_id {
-        resource["extension"] = serde_json::json!([{
-            "url": "http://medarc.local/fhir/StructureDefinition/encounter-template",
-            "valueId": template_id
-        }]);
+    {
+        let mut extensions = Vec::<serde_json::Value>::new();
+        if let Some(ref template_id) = input.template_id {
+            extensions.push(serde_json::json!({
+                "url": "http://medarc.local/fhir/StructureDefinition/encounter-template",
+                "valueId": template_id
+            }));
+        }
+        if let Some(ref appointment_id) = input.appointment_id {
+            extensions.push(serde_json::json!({
+                "url": "http://medarc.local/fhir/StructureDefinition/encounter-appointment",
+                "valueReference": {
+                    "reference": format!("Appointment/{}", appointment_id)
+                }
+            }));
+        }
+        if !extensions.is_empty() {
+            resource["extension"] = serde_json::json!(extensions);
+        }
     }
 
     if let Some(ref soap) = input.soap {
@@ -2623,6 +2639,7 @@ mod tests {
                 assessment: Some("Streptococcal pharyngitis — ICD-10: J02.0".to_string()),
                 plan: Some("Amoxicillin 500mg TID x 10d. Follow-up PRN.".to_string()),
             }),
+            appointment_id: None,
         };
 
         let fhir = build_encounter_fhir("enc-001", &input);
@@ -2663,6 +2680,7 @@ mod tests {
             chief_complaint: None,
             template_id: None,
             soap: None,
+            appointment_id: None,
         });
         assert_eq!(telehealth["class"]["code"], "VR");
 
@@ -2674,6 +2692,7 @@ mod tests {
             chief_complaint: None,
             template_id: None,
             soap: None,
+            appointment_id: None,
         });
         assert_eq!(urgent["class"]["code"], "EMER");
 
@@ -2685,6 +2704,7 @@ mod tests {
             chief_complaint: None,
             template_id: None,
             soap: None,
+            appointment_id: None,
         });
         assert_eq!(office["class"]["code"], "AMB");
     }

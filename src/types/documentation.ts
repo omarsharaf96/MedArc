@@ -53,6 +53,8 @@ export interface EncounterInput {
   templateId: string | null;
   /** SOAP note sections. */
   soap: SoapInput | null;
+  /** Optional appointment ID that this encounter is linked to. */
+  appointmentId: string | null;
 }
 
 /** Encounter record returned to callers. */

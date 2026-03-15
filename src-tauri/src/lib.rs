@@ -215,6 +215,8 @@ pub fn run() {
             commands::pdf_export::generate_chart_export,
             commands::pdf_export::generate_encounter_note_pdf,
             commands::pdf_export::fax_encounter_note,
+            commands::pdf_export::get_export_settings,
+            commands::pdf_export::set_export_settings,
             // M003/S07 — Authorization & Visit Tracking
             commands::auth_tracking::create_auth_record,
             commands::auth_tracking::get_auth_record,

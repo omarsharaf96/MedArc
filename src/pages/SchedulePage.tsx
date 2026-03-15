@@ -201,6 +201,24 @@ export function SchedulePage() {
     setCreateOpen(true);
   }
 
+  // Drag-to-reschedule handler — updates appointment start time
+  const handleReschedule = useCallback(async (appointmentId: string, newStartTime: string) => {
+    try {
+      await commands.updateAppointment(appointmentId, {
+        startTime: newStartTime,
+        durationMinutes: null,
+        status: null,
+        reason: null,
+        notes: null,
+        providerId: null,
+        color: null,
+      });
+      reload();
+    } catch (err) {
+      console.error("Failed to reschedule appointment:", err);
+    }
+  }, [reload]);
+
   // Appointment card click — CalendarPage manages popover internally
   function handleCardClick(_appt: AppointmentRecord) {
     // CalendarPage owns popover state; SchedulePage listens for cancel action
@@ -374,6 +392,7 @@ export function SchedulePage() {
             onSlotClick={writeAllowed ? handleSlotClick : undefined}
             onToday={handleToday}
             patientLabel={patientLabel}
+            onReschedule={writeAllowed ? handleReschedule : undefined}
           />
         )}
       </section>

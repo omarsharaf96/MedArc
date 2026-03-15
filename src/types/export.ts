@@ -21,6 +21,24 @@ export interface ExportLogEntry {
   generatedBy: string;
 }
 
+/** Export settings for letterhead and signature configuration. */
+export interface ExportSettings {
+  /** Practice name for letterhead. */
+  practiceName: string | null;
+  /** Practice address for letterhead. */
+  practiceAddress: string | null;
+  /** Practice phone number for letterhead. */
+  practicePhone: string | null;
+  /** Practice logo as base64-encoded image data. */
+  practiceLogoBase64: string | null;
+  /** Provider signature image as base64-encoded image data. */
+  signatureImageBase64: string | null;
+  /** Provider name/credentials line (e.g. "Omar Safwat Sharaf, PT, DPT"). */
+  providerNameCredentials: string | null;
+  /** Provider license number. */
+  licenseNumber: string | null;
+}
+
 /** Input for the fax-encounter-note workflow. */
 export interface FaxEncounterNoteInput {
   /** The encounter ID whose note to fax. */

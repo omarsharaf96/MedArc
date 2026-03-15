@@ -10,6 +10,9 @@
  *   - Click-to-schedule: clicking an empty time slot fires onSlotClick
  *   - Today button: quick navigation to current date
  *   - Privacy mode: patientLabel prop converts names to initials
+ *   - Auto-color: appointment cards colored by type (no manual picker)
+ *   - Drag-to-reschedule: draggable cards fire onReschedule on drop
+ *   - Open Encounter: InfoPopover finds/creates encounter linked to appointment
  *
  * Positioning math:
  *   - Time gutter rows: 60px per hour, 08:00 = 480 minutes offset from midnight
@@ -24,6 +27,8 @@ import { useState } from "react";
 import type { AppointmentRecord } from "../../types/scheduling";
 import { extractAppointmentDisplay } from "../../lib/fhirExtract";
 import { useNav } from "../../contexts/RouterContext";
+import { useAuth } from "../../hooks/useAuth";
+import { commands } from "../../lib/tauri";
 
 // ─── Date / time helpers ──────────────────────────────────────────────────────
 
@@ -74,6 +79,14 @@ export function startMinuteOfDay(datetimeStr: string): number {
   return h * 60 + m;
 }
 
+// ─── Auto-color mapping by appointment type ──────────────────────────────────
+
+/** Automatic color assignment per appointment type (matches AppointmentFormModal). */
+const APPT_TYPE_COLOR_MAP: Record<string, string> = {
+  initial_pt_evaluation: "#22C55E", // green
+  pt_treatment: "#3B82F6",         // blue
+};
+
 // ─── Calendar layout constants ────────────────────────────────────────────────
 
 /** Visible hour range — 08:00 through 18:00 (10 hours × 60px = 600px). */
@@ -106,6 +119,8 @@ export interface CalendarPageProps {
   onToday?: () => void;
   /** Resolves a patientId to a display label (name or initials in privacy mode). */
   patientLabel?: (patientId: string) => string;
+  /** Called when an appointment card is dragged to a new time slot. */
+  onReschedule?: (appointmentId: string, newStartTime: string) => void;
 }
 
 // ─── CalendarHeader ───────────────────────────────────────────────────────────
@@ -219,9 +234,10 @@ interface AppointmentCardProps {
   appt: AppointmentRecord;
   onClick: () => void;
   patientLabel?: (patientId: string) => string;
+  draggable?: boolean;
 }
 
-function AppointmentCard({ appt, onClick, patientLabel }: AppointmentCardProps) {
+function AppointmentCard({ appt, onClick, patientLabel, draggable }: AppointmentCardProps) {
   const display = extractAppointmentDisplay(appt.resource);
 
   const startStr = display.start ?? "";
@@ -236,15 +252,25 @@ function AppointmentCard({ appt, onClick, patientLabel }: AppointmentCardProps) 
   const topPx = (clampedStart - GRID_START_MIN) * (HOUR_HEIGHT_PX / 60);
   const heightPx = visibleDuration * (HOUR_HEIGHT_PX / 60);
 
-  const bgColor = display.color ?? "#4A90E2";
+  // Use type-based auto-color; fall back to stored color, then default blue
+  const bgColor =
+    (display.apptType && APPT_TYPE_COLOR_MAP[display.apptType]) ??
+    display.color ??
+    "#3B82F6";
   const label = display.apptTypeDisplay ?? display.apptType ?? "Appointment";
   const timeLabel = startStr ? formatTime(startStr) : "";
 
   return (
     <button
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={(e) => {
+        if (!draggable) return;
+        e.dataTransfer.setData("text/plain", appt.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
       title={`${label} at ${timeLabel}`}
-      className="absolute left-0.5 right-0.5 overflow-hidden rounded text-left text-xs font-medium text-white shadow-sm hover:brightness-90 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 transition-all"
+      className={`absolute left-0.5 right-0.5 overflow-hidden rounded text-left text-xs font-medium text-white shadow-sm hover:brightness-90 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 transition-all${draggable ? " cursor-grab active:cursor-grabbing" : ""}`}
       style={{
         top: `${topPx}px`,
         height: `${heightPx}px`,
@@ -268,6 +294,8 @@ interface CalendarGridProps {
   onCardClick: (appt: AppointmentRecord) => void;
   onSlotClick?: (date: string, hour: number, minute: number) => void;
   patientLabel?: (patientId: string) => string;
+  onReschedule?: (appointmentId: string, newStartTime: string) => void;
+  canWrite?: boolean;
 }
 
 function CalendarGrid({
@@ -277,6 +305,8 @@ function CalendarGrid({
   onCardClick,
   onSlotClick,
   patientLabel,
+  onReschedule,
+  canWrite,
 }: CalendarGridProps) {
   const hours = Array.from(
     { length: END_HOUR - START_HOUR },
@@ -373,6 +403,29 @@ function CalendarGrid({
                   const finalHour = clickMinute === 60 ? clickHour + 1 : clickHour;
                   onSlotClick(dateStr, finalHour, finalMinute);
                 }}
+                onDragOver={(e) => {
+                  if (!onReschedule || !canWrite) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(e) => {
+                  if (!onReschedule || !canWrite) return;
+                  e.preventDefault();
+                  const appointmentId = e.dataTransfer.getData("text/plain");
+                  if (!appointmentId) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const yOffset = e.clientY - rect.top;
+                  const totalMinutes = (yOffset / HOUR_HEIGHT_PX) * 60 + GRID_START_MIN;
+                  // Round to nearest 15-minute interval
+                  const rawHour = Math.floor(totalMinutes / 60);
+                  const rawMinute = Math.round((totalMinutes % 60) / 15) * 15;
+                  const finalMinute = rawMinute === 60 ? 0 : rawMinute;
+                  const finalHour = rawMinute === 60 ? rawHour + 1 : rawHour;
+                  const hh = finalHour.toString().padStart(2, "0");
+                  const mm = finalMinute.toString().padStart(2, "0");
+                  const newStartTime = `${dateStr}T${hh}:${mm}:00`;
+                  onReschedule(appointmentId, newStartTime);
+                }}
               >
                 {/* Hour grid lines */}
                 {hours.map((h) => (
@@ -392,6 +445,7 @@ function CalendarGrid({
                     appt={appt}
                     onClick={() => onCardClick(appt)}
                     patientLabel={patientLabel}
+                    draggable={canWrite && !!onReschedule}
                   />
                 ))}
               </div>
@@ -416,6 +470,7 @@ interface InfoPopoverProps {
 
 function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppointment, patientLabel }: InfoPopoverProps) {
   const { navigate } = useNav();
+  const { user } = useAuth();
   const display = extractAppointmentDisplay(appt.resource);
 
   const startLabel = display.start ? formatTime(display.start) : "—";
@@ -424,6 +479,72 @@ function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppoi
 
   // Cancel button shown only when canWrite and appointment is "booked"
   const showCancelBtn = canWrite && display.status === "booked";
+
+  // State for "Open Encounter" button
+  const [openingEncounter, setOpeningEncounter] = useState(false);
+  const [encounterError, setEncounterError] = useState<string | null>(null);
+
+  /**
+   * Find or create an encounter linked to this appointment, then navigate to it.
+   * Searches existing encounters for a FHIR extension with the appointment reference.
+   * If none found, creates a new encounter linked to the appointment.
+   */
+  async function handleOpenEncounter() {
+    setOpeningEncounter(true);
+    setEncounterError(null);
+    try {
+      // List all encounters for this patient
+      const encounters = await commands.listEncounters(appt.patientId);
+      const appointmentRef = `Appointment/${appt.id}`;
+
+      // Search for an encounter linked to this appointment via FHIR extension
+      const linkedEncounter = encounters.find((enc) => {
+        const extensions = enc.resource?.["extension"];
+        if (!Array.isArray(extensions)) return false;
+        return extensions.some(
+          (ext: Record<string, unknown>) =>
+            ext["url"] === "http://medarc.local/fhir/StructureDefinition/encounter-appointment" &&
+            (ext["valueReference"] as Record<string, unknown> | undefined)?.["reference"] === appointmentRef,
+        );
+      });
+
+      if (linkedEncounter) {
+        // Encounter exists — navigate to it
+        onClose();
+        navigate({
+          page: "encounter-workspace",
+          patientId: appt.patientId,
+          encounterId: linkedEncounter.id,
+        });
+      } else {
+        // No encounter yet — create one linked to this appointment
+        const encounterDate = display.start ?? new Date().toISOString().slice(0, 19);
+        const encounterType = display.apptType ?? "office_visit";
+        const created = await commands.createEncounter({
+          patientId: appt.patientId,
+          providerId: user?.id ?? appt.providerId,
+          encounterDate,
+          encounterType,
+          chiefComplaint: display.reason ?? null,
+          templateId: null,
+          soap: null,
+          appointmentId: appt.id,
+        });
+        onClose();
+        navigate({
+          page: "encounter-workspace",
+          patientId: appt.patientId,
+          encounterId: created.id,
+        });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[CalendarPage] handleOpenEncounter failed:", msg);
+      setEncounterError(msg);
+    } finally {
+      setOpeningEncounter(false);
+    }
+  }
 
   return (
     /* Backdrop */
@@ -485,17 +606,20 @@ function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppoi
           </div>
         </dl>
 
+        {/* Encounter error */}
+        {encounterError && (
+          <p className="mt-2 text-sm text-red-600">{encounterError}</p>
+        )}
+
         {/* Action buttons */}
         <div className="mt-5 flex flex-col gap-2">
-          {/* Go to chart */}
+          {/* Open encounter */}
           <button
-            onClick={() => {
-              onClose();
-              navigate({ page: "patient-detail", patientId: appt.patientId });
-            }}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            onClick={() => void handleOpenEncounter()}
+            disabled={openingEncounter}
+            className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-60"
           >
-            Go to Chart
+            {openingEncounter ? "Opening..." : "Open Encounter"}
           </button>
 
           {/* Edit appointment — write-gated, not cancelled/fulfilled */}
@@ -545,6 +669,7 @@ export function CalendarPage({
   onSlotClick,
   onToday,
   patientLabel,
+  onReschedule,
 }: CalendarPageProps) {
   const [selectedCard, setSelectedCard] = useState<AppointmentRecord | null>(null);
 
@@ -574,6 +699,8 @@ export function CalendarPage({
         onCardClick={handleCardClick}
         onSlotClick={onSlotClick}
         patientLabel={patientLabel}
+        onReschedule={onReschedule}
+        canWrite={canWrite}
       />
       {selectedCard && (
         <InfoPopover

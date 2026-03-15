@@ -67,12 +67,8 @@ const LABEL_CLS = "mb-1 block text-sm font-medium text-gray-700";
 // ─── Appointment type options (same as AppointmentFormModal) ──────────────────
 
 const APPT_TYPE_OPTIONS = [
-  { value: "new_patient", label: "New Patient" },
-  { value: "follow_up", label: "Follow Up" },
-  { value: "procedure", label: "Procedure" },
-  { value: "telehealth", label: "Telehealth" },
-  { value: "annual_wellness", label: "Annual Wellness" },
-  { value: "urgent", label: "Urgent" },
+  { value: "initial_pt_evaluation", label: "Initial PT Evaluation" },
+  { value: "pt_treatment", label: "PT Treatment" },
 ];
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -105,7 +101,7 @@ export function WaitlistPanel({
 
   // Form fields
   const [patientId, setPatientId] = useState("");
-  const [apptType, setApptType] = useState("follow_up");
+  const [apptType, setApptType] = useState("pt_treatment");
   const [preferredDate, setPreferredDate] = useState("");
   const [priority, setPriority] = useState(3);
   const [reason, setReason] = useState("");
@@ -153,7 +149,7 @@ export function WaitlistPanel({
       });
       // Reset form
       setPatientId("");
-      setApptType("follow_up");
+      setApptType("pt_treatment");
       setPreferredDate("");
       setPriority(3);
       setReason("");

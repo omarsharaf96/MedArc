@@ -31,29 +31,26 @@ const INPUT_CLS =
   "w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
 const LABEL_CLS = "mb-1 block text-sm font-medium text-gray-700";
 
-// ─── Color palette ────────────────────────────────────────────────────────────
+// ─── Auto-color mapping by appointment type ──────────────────────────────────
 
-/** Fixed 6-swatch color palette — no <input type="color"> per design constraints. */
-const COLOR_PALETTE: { hex: string; name: string }[] = [
-  { hex: "#4A90E2", name: "Blue" },
-  { hex: "#50C878", name: "Green" },
-  { hex: "#FF6B6B", name: "Red" },
-  { hex: "#FFD700", name: "Yellow" },
-  { hex: "#9B59B6", name: "Purple" },
-  { hex: "#FF8C00", name: "Orange" },
-];
+/** Automatic color assignment per appointment type — no manual color picker. */
+const APPT_TYPE_COLOR_MAP: Record<string, string> = {
+  initial_pt_evaluation: "#22C55E", // green
+  pt_treatment: "#3B82F6",         // blue
+};
 
-const DEFAULT_COLOR = "#4A90E2";
+const DEFAULT_COLOR = "#3B82F6";
+
+/** Resolve the auto-color for a given appointment type string. */
+function colorForApptType(apptType: string): string {
+  return APPT_TYPE_COLOR_MAP[apptType] ?? DEFAULT_COLOR;
+}
 
 // ─── Fallback appointment type options ───────────────────────────────────────
 
 const FALLBACK_APPT_TYPE_OPTIONS = [
-  { value: "new_patient", label: "New Patient" },
-  { value: "follow_up", label: "Follow Up" },
-  { value: "procedure", label: "Procedure" },
-  { value: "telehealth", label: "Telehealth" },
-  { value: "annual_wellness", label: "Annual Wellness" },
-  { value: "urgent", label: "Urgent" },
+  { value: "initial_pt_evaluation", label: "Initial PT Evaluation" },
+  { value: "pt_treatment", label: "PT Treatment" },
 ];
 
 // ─── Duration options ─────────────────────────────────────────────────────────
@@ -129,7 +126,9 @@ export function AppointmentFormModal({
   const [notes, setNotes] = useState(editData?.notes ?? "");
   const [recurrence, setRecurrence] = useState("");
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
-  const [color, setColor] = useState(editData?.color ?? DEFAULT_COLOR);
+  const [color, setColor] = useState(
+    editData?.color ?? colorForApptType(editData?.apptType ?? ""),
+  );
 
   // Inline field error for recurrenceEndDate
   const [recurrenceEndDateError, setRecurrenceEndDateError] = useState<string | null>(null);
@@ -161,7 +160,9 @@ export function AppointmentFormModal({
     if (apptTypeOptions.length > 0) {
       const currentStillValid = apptTypeOptions.some((o) => o.value === apptType);
       if (!currentStillValid || !apptType) {
-        setApptType(apptTypeOptions[0].value);
+        const newType = apptTypeOptions[0].value;
+        setApptType(newType);
+        setColor(colorForApptType(newType));
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -402,7 +403,10 @@ export function AppointmentFormModal({
               <select
                 id="appt-type"
                 value={apptType}
-                onChange={(e) => setApptType(e.target.value)}
+                onChange={(e) => {
+                  setApptType(e.target.value);
+                  setColor(colorForApptType(e.target.value));
+                }}
                 className={INPUT_CLS}
               >
                 {apptTypeOptions.map((opt) => (
@@ -490,27 +494,7 @@ export function AppointmentFormModal({
               </div>
             )}
 
-            {/* Color palette */}
-            <div>
-              <span className={LABEL_CLS}>Color</span>
-              <div className="flex gap-2 mt-1">
-                {COLOR_PALETTE.map((swatch) => (
-                  <button
-                    key={swatch.hex}
-                    type="button"
-                    onClick={() => setColor(swatch.hex)}
-                    title={swatch.name}
-                    aria-label={`Select ${swatch.name}`}
-                    className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 ${
-                      color === swatch.hex
-                        ? "border-gray-800 scale-110"
-                        : "border-transparent"
-                    }`}
-                    style={{ backgroundColor: swatch.hex }}
-                  />
-                ))}
-              </div>
-            </div>
+            {/* Color auto-assigned based on appointment type — no manual picker */}
 
             {/* Submit error */}
             {submitError && (

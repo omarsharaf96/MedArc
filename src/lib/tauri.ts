@@ -120,7 +120,7 @@ import type {
   LlmSettingsInput,
 } from "../types/ai";
 
-import type { PdfExportResult, FaxEncounterNoteInput, FaxEncounterNoteResult } from "../types/export";
+import type { PdfExportResult, ExportSettings, FaxEncounterNoteInput, FaxEncounterNoteResult } from "../types/export";
 
 import type {
   FaxRecord,
@@ -811,6 +811,14 @@ export const commands = {
   /** Generate a PDF of an encounter note and immediately fax it via Phaxio. */
   faxEncounterNote: (input: FaxEncounterNoteInput) =>
     invoke<FaxEncounterNoteResult>("fax_encounter_note", { input }),
+
+  /** Retrieve export settings (letterhead + signature) from app_settings. */
+  getExportSettings: () =>
+    invoke<ExportSettings>("get_export_settings"),
+
+  /** Save export settings (letterhead + signature) to app_settings. */
+  setExportSettings: (settings: ExportSettings) =>
+    invoke<ExportSettings>("set_export_settings", { settings }),
 
   // ─── M003/S04 — Document Center commands ──────────────────────────
 

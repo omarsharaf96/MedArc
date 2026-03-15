@@ -41,8 +41,7 @@ export type Route =
   | { page: "claims"; patientId?: string }
   | { page: "remittance" }
   | { page: "analytics" }
-  | { page: "mips" }
-  | { page: "workers-comp"; patientId?: string; caseId?: string };
+  | { page: "mips" };
 
 // ─── Context value type ─────────────────────────────────────────────────────
 

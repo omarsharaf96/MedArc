@@ -270,6 +270,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
         chiefComplaint: null,
         templateId,
         soap,
+        appointmentId: null,
       };
       const created = await commands.createEncounter(input);
       navigate({ page: "encounter-workspace", patientId, encounterId: created.id });

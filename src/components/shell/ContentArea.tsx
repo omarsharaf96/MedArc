@@ -30,7 +30,6 @@ import { ClaimsPage } from "../../pages/ClaimsPage";
 import { RemittancePage } from "../../pages/RemittancePage";
 import { AnalyticsDashboardPage } from "../../pages/AnalyticsDashboardPage";
 import { MIPSDashboardPage } from "../../pages/MIPSDashboardPage";
-import { WorkersCompPage } from "../../pages/WorkersCompPage";
 import { useAuth } from "../../hooks/useAuth";
 
 // ─── Unknown route fallback ─────────────────────────────────────────────────
@@ -171,14 +170,6 @@ export function ContentArea() {
       return <AnalyticsDashboardPage role={user?.role ?? ""} />;
     case "mips":
       return <MIPSDashboardPage role={user?.role ?? ""} />;
-    case "workers-comp":
-      return (
-        <WorkersCompPage
-          patientId={currentRoute.patientId}
-          caseId={currentRoute.caseId}
-          role={user?.role ?? ""}
-        />
-      );
     default: {
       // Exhaustiveness guard: TypeScript will warn if a Route variant is unhandled.
       // Cast to string so we can display the unknown page value at runtime.
