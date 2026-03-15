@@ -25,11 +25,12 @@
  *   - btoa chunking (8 KB) avoids stack overflow on large files
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { readFile } from "@tauri-apps/plugin-fs";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { readFile, writeFile } from "@tauri-apps/plugin-fs";
 import { useNav } from "../contexts/RouterContext";
 import { commands } from "../lib/tauri";
 import type { DocumentRecord } from "../types/labs";
+import type { DocumentContentResult } from "../types/documents";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -163,8 +164,17 @@ export function DocumentCenterPage({
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
+  // ── Date filter state ──────────────────────────────────────────────────
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
   // ── Selection / preview state ────────────────────────────────────────────
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+
+  // ── Document content for preview ────────────────────────────────────────
+  const [previewContent, setPreviewContent] = useState<DocumentContentResult | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // ── Upload flow state ────────────────────────────────────────────────────
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -223,10 +233,17 @@ export function DocumentCenterPage({
     return counts;
   }, [documents]);
 
-  // ── Sorted documents ──────────────────────────────────────────────────
+  // ── Filtered + sorted documents ─────────────────────────────────────────
   const sortedDocuments = useMemo(() => {
-    const sorted = [...documents];
-    sorted.sort((a, b) => {
+    let filtered = [...documents];
+    // Apply date filter
+    if (dateFrom) {
+      filtered = filtered.filter((d) => formatDate(d.uploadedAt) >= dateFrom);
+    }
+    if (dateTo) {
+      filtered = filtered.filter((d) => formatDate(d.uploadedAt) <= dateTo);
+    }
+    filtered.sort((a, b) => {
       let cmp = 0;
       if (sortField === "date") {
         cmp = a.uploadedAt.localeCompare(b.uploadedAt);
@@ -235,14 +252,45 @@ export function DocumentCenterPage({
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
-    return sorted;
-  }, [documents, sortField, sortDir]);
+    return filtered;
+  }, [documents, sortField, sortDir, dateFrom, dateTo]);
 
   // ── Selected document ─────────────────────────────────────────────────
   const selectedDoc = useMemo(
     () => documents.find((d) => d.id === selectedDocId) ?? null,
     [documents, selectedDocId],
   );
+
+  // ── Fetch document content when a document is selected for preview ────
+  useEffect(() => {
+    if (!selectedDocId) {
+      setPreviewContent(null);
+      setPreviewError(null);
+      return;
+    }
+    let mounted = true;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewContent(null);
+    commands
+      .getDocumentContent(selectedDocId)
+      .then((result) => {
+        if (mounted) setPreviewContent(result);
+      })
+      .catch((e) => {
+        if (mounted) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error("[DocumentCenterPage] getDocumentContent failed:", msg);
+          setPreviewError(msg);
+        }
+      })
+      .finally(() => {
+        if (mounted) setPreviewLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [selectedDocId]);
 
   // ── Sort toggle handler ───────────────────────────────────────────────
   function handleSortToggle(field: SortField) {
@@ -369,6 +417,31 @@ export function DocumentCenterPage({
     setUploadError(null);
   }
 
+  // ── Download document ─────────────────────────────────────────────────
+  async function handleDownload() {
+    if (!previewContent?.contentBase64 || !selectedDoc) return;
+    try {
+      const destination = await save({
+        title: "Save Document",
+        defaultPath: selectedDoc.title,
+        filters: [{ name: "All Files", extensions: ["*"] }],
+      });
+      if (!destination) return;
+
+      // Decode base64 to bytes
+      const binaryStr = atob(previewContent.contentBase64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      await writeFile(destination, bytes);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[DocumentCenterPage] download failed:", msg);
+      setError("Download failed: " + msg);
+    }
+  }
+
   // ── Delete document ───────────────────────────────────────────────────
   async function handleDelete(docId: string) {
     try {
@@ -468,6 +541,51 @@ export function DocumentCenterPage({
               </li>
             ))}
           </ul>
+
+          {/* ── Date range filter ─────────────────────────────────────── */}
+          <div className="mt-6 border-t border-gray-200 pt-4">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Date Range
+            </h2>
+            <div className="space-y-2">
+              <div>
+                <label htmlFor="date-from" className="mb-0.5 block text-xs text-gray-500">
+                  From
+                </label>
+                <input
+                  id="date-from"
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="date-to" className="mb-0.5 block text-xs text-gray-500">
+                  To
+                </label>
+                <input
+                  id="date-to"
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              {(dateFrom || dateTo) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-800"
+                >
+                  Clear dates
+                </button>
+              )}
+            </div>
+          </div>
         </aside>
 
         {/* ── Main area: document list ──────────────────────────────────── */}
@@ -652,20 +770,64 @@ export function DocumentCenterPage({
 
             {/* Preview content */}
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
-              {isImage(selectedDoc.contentType) ? (
-                <div className="flex items-center justify-center">
-                  <p className="text-sm text-gray-500">
-                    Image preview requires downloading the file content.
-                  </p>
+              {previewLoading ? (
+                <div className="flex h-64 items-center justify-center">
+                  <p className="text-sm text-gray-500">Loading preview...</p>
                 </div>
-              ) : isPdf(selectedDoc.contentType) ? (
-                <div className="flex h-96 items-center justify-center">
-                  <p className="text-sm text-gray-500">
-                    PDF preview requires downloading the file content.
+              ) : previewError ? (
+                <div className="flex h-32 flex-col items-center justify-center gap-2">
+                  <p className="text-sm text-red-600">Preview unavailable</p>
+                  <p className="text-xs text-gray-500">{previewError}</p>
+                </div>
+              ) : previewContent?.contentBase64 && isImage(selectedDoc.contentType) ? (
+                /* Image preview */
+                <div className="flex items-center justify-center">
+                  <img
+                    src={`data:${selectedDoc.contentType};base64,${previewContent.contentBase64}`}
+                    alt={selectedDoc.title}
+                    className="max-h-[500px] max-w-full rounded object-contain"
+                  />
+                </div>
+              ) : previewContent?.contentBase64 && isPdf(selectedDoc.contentType) ? (
+                /* PDF preview via iframe */
+                <div className="h-[500px] w-full">
+                  <iframe
+                    src={`data:application/pdf;base64,${previewContent.contentBase64}`}
+                    title={`Preview: ${selectedDoc.title}`}
+                    className="h-full w-full rounded border-0"
+                  />
+                </div>
+              ) : previewContent && !previewContent.contentBase64 ? (
+                /* Content not stored (pre-content-storage document) */
+                <div className="flex flex-col items-center justify-center gap-3 py-8">
+                  <div className="rounded-lg bg-gray-200 p-4">
+                    <svg
+                      className="h-8 w-8 text-gray-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+                      />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-medium text-gray-700">
+                    {selectedDoc.title}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Preview not available for this document.
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {selectedDoc.contentType} &middot;{" "}
+                    {formatFileSize(selectedDoc.fileSizeBytes)}
                   </p>
                 </div>
               ) : (
-                /* Other file types: info card */
+                /* Other file types with content: info card + download */
                 <div className="flex flex-col items-center justify-center gap-3 py-8">
                   <div className="rounded-lg bg-gray-200 p-4">
                     <svg
@@ -689,9 +851,31 @@ export function DocumentCenterPage({
                     {selectedDoc.contentType} &middot;{" "}
                     {formatFileSize(selectedDoc.fileSizeBytes)}
                   </p>
+                  {previewContent?.contentBase64 && (
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className="mt-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                    >
+                      Download
+                    </button>
+                  )}
                 </div>
               )}
             </div>
+
+            {/* Download button for all previewable types too */}
+            {previewContent?.contentBase64 && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className="w-full rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                >
+                  Download File
+                </button>
+              </div>
+            )}
           </aside>
         )}
       </div>

@@ -22,7 +22,7 @@ pub mod mips_reporting;
 pub mod objective_measures;
 pub mod patient;
 pub mod pdf_export;
-pub mod pt_notes;
+// pub mod pt_notes; // DEPRECATED — PT notes are now handled through encounters/documentation
 pub mod reminders;
 pub mod scheduling;
 pub mod session;

@@ -26,7 +26,9 @@ import { LabResultsPanel } from "../components/clinical/LabResultsPanel";
 import { DocumentBrowser } from "../components/clinical/DocumentBrowser";
 import { AuthTrackingPanel } from "../components/clinical/AuthTrackingPanel";
 import { commands } from "../lib/tauri";
-import type { EncounterRecord, EncounterInput } from "../types/documentation";
+import type { EncounterRecord, EncounterInput, TemplateRecord } from "../types/documentation";
+import type { AppointmentRecord } from "../types/scheduling";
+import { extractAppointmentDisplay } from "../lib/fhirExtract";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -158,6 +160,15 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
   const [startingEncounter, setStartingEncounter] = useState(false);
   const [startEncounterError, setStartEncounterError] = useState<string | null>(null);
 
+  // ── Patient appointments state ──────────────────────────────────────
+  const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(true);
+
+  // ── Template picker modal state ─────────────────────────────────────
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [templates, setTemplates] = useState<TemplateRecord[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+
   // ── Fetch encounters on mount and refresh ──────────────────────────────
   useEffect(() => {
     let mounted = true;
@@ -186,22 +197,79 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
     };
   }, [patientId, encounterRefresh]);
 
+  // ── Fetch patient appointments (past + upcoming) ───────────────────────
+  useEffect(() => {
+    let mounted = true;
+    setAppointmentsLoading(true);
+
+    // Fetch a wide range: 2 years back + 1 year ahead
+    const now = new Date();
+    const pastDate = new Date(now);
+    pastDate.setFullYear(now.getFullYear() - 2);
+    const futureDate = new Date(now);
+    futureDate.setFullYear(now.getFullYear() + 1);
+    const startStr = pastDate.toLocaleDateString("sv");
+    const endStr = futureDate.toLocaleDateString("sv");
+
+    commands
+      .listAppointments(startStr, endStr, patientId, null)
+      .then((result) => {
+        if (mounted) setAppointments(result);
+      })
+      .catch(() => {
+        if (mounted) setAppointments([]);
+      })
+      .finally(() => {
+        if (mounted) setAppointmentsLoading(false);
+      });
+
+    return () => { mounted = false; };
+  }, [patientId]);
+
   // ── Start Encounter handler ────────────────────────────────────────────
   const canStartEncounter =
     role === "Provider" || role === "NurseMa" || role === "SystemAdmin";
 
-  async function handleStartEncounter() {
+  async function handleOpenTemplatePicker() {
+    setShowTemplatePicker(true);
+    setStartEncounterError(null);
+    if (templates.length === 0) {
+      setTemplatesLoading(true);
+      try {
+        const tpls = await commands.listTemplates(null);
+        setTemplates(tpls);
+      } catch (e) {
+        console.error("[PatientDetailPage] listTemplates failed:", e);
+      } finally {
+        setTemplatesLoading(false);
+      }
+    }
+  }
+
+  async function handleStartEncounterWithTemplate(templateId: string | null) {
+    setShowTemplatePicker(false);
     setStartingEncounter(true);
     setStartEncounterError(null);
     try {
+      // If a template is selected, fetch its SOAP defaults to pre-fill
+      let soap: EncounterInput["soap"] = null;
+      if (templateId) {
+        try {
+          const tpl = await commands.getTemplate(templateId);
+          soap = tpl.defaultSoap;
+        } catch (e) {
+          console.error("[PatientDetailPage] getTemplate failed:", e);
+          // Continue without template pre-fill
+        }
+      }
       const input: EncounterInput = {
         patientId,
         providerId: userId,
         encounterDate: new Date().toISOString().slice(0, 19),
         encounterType: "office_visit",
         chiefComplaint: null,
-        templateId: null,
-        soap: null,
+        templateId,
+        soap,
       };
       const created = await commands.createEncounter(input);
       navigate({ page: "encounter-workspace", patientId, encounterId: created.id });
@@ -297,7 +365,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
             <div className="flex flex-col items-end gap-1">
               <button
                 type="button"
-                onClick={handleStartEncounter}
+                onClick={handleOpenTemplatePicker}
                 disabled={startingEncounter}
                 className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-60"
               >
@@ -309,17 +377,6 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
                 </p>
               )}
             </div>
-          )}
-
-          {/* PT Notes — Provider and SystemAdmin only */}
-          {(role === "Provider" || role === "SystemAdmin") && (
-            <button
-              type="button"
-              onClick={() => navigate({ page: "pt-notes", patientId })}
-              className="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
-            >
-              PT Notes
-            </button>
           )}
 
           {/* Edit button — hidden for BillingStaff */}
@@ -346,6 +403,107 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
           }}
           onClose={() => setEditOpen(false)}
         />
+      )}
+
+      {/* Template picker modal */}
+      {showTemplatePicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="mx-4 max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+            <h2 className="mb-1 text-lg font-bold text-gray-900">
+              Start New Encounter
+            </h2>
+            <p className="mb-4 text-sm text-gray-500">
+              Choose a note template to pre-fill the encounter, or start with a blank note.
+            </p>
+
+            {templatesLoading ? (
+              <p className="py-4 text-sm text-gray-500">Loading templates...</p>
+            ) : (
+              <div className="space-y-2">
+                {/* Blank note option */}
+                <button
+                  type="button"
+                  onClick={() => void handleStartEncounterWithTemplate(null)}
+                  className="flex w-full items-start gap-3 rounded-lg border border-gray-200 p-3 text-left hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                >
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-gray-100 text-sm text-gray-500">
+                    +
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Blank Note</p>
+                    <p className="text-xs text-gray-500">Start with an empty SOAP note</p>
+                  </div>
+                </button>
+
+                {/* PT-specific templates first, then others */}
+                {(() => {
+                  const ptTemplates = templates.filter(t => t.specialty === "physical_therapy");
+                  const otherTemplates = templates.filter(t => t.specialty !== "physical_therapy");
+                  return (
+                    <>
+                      {ptTemplates.length > 0 && (
+                        <div className="pt-2">
+                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                            Physical Therapy Templates
+                          </p>
+                          {ptTemplates.map((tpl) => (
+                            <button
+                              key={tpl.id}
+                              type="button"
+                              onClick={() => void handleStartEncounterWithTemplate(tpl.id)}
+                              className="flex w-full items-start gap-3 rounded-lg border border-gray-200 p-3 text-left hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-2"
+                            >
+                              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-indigo-100 text-sm text-indigo-600">
+                                PT
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">{tpl.name}</p>
+                                <p className="text-xs text-gray-500">{tpl.description}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {otherTemplates.length > 0 && (
+                        <div className="pt-2">
+                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Other Templates
+                          </p>
+                          {otherTemplates.map((tpl) => (
+                            <button
+                              key={tpl.id}
+                              type="button"
+                              onClick={() => void handleStartEncounterWithTemplate(tpl.id)}
+                              className="flex w-full items-start gap-3 rounded-lg border border-gray-200 p-3 text-left hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-2"
+                            >
+                              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-gray-100 text-sm text-gray-500">
+                                {tpl.specialty?.charAt(0).toUpperCase() ?? "G"}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">{tpl.name}</p>
+                                <p className="text-xs text-gray-500">{tpl.description}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowTemplatePicker(false)}
+                className="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Encounters section ───────────────────────────────────────────── */}
@@ -435,6 +593,92 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
           )}
         </SectionCard>
       )}
+
+      {/* ── Appointments section (upcoming + past) ────────────────────────── */}
+      <SectionCard title="Appointments">
+        {appointmentsLoading ? (
+          <p className="text-sm text-gray-500">Loading appointments…</p>
+        ) : appointments.length === 0 ? (
+          <p className="text-sm text-gray-500">No appointments found.</p>
+        ) : (() => {
+          const now = new Date();
+          const upcoming = appointments.filter((a) => {
+            const d = extractAppointmentDisplay(a.resource);
+            return d.start && new Date(d.start) >= now && d.status !== "cancelled";
+          });
+          const past = appointments.filter((a) => {
+            const d = extractAppointmentDisplay(a.resource);
+            return !d.start || new Date(d.start) < now || d.status === "cancelled";
+          });
+
+          const renderRow = (appt: AppointmentRecord) => {
+            const d = extractAppointmentDisplay(appt.resource);
+            const dateStr = d.start
+              ? new Date(d.start).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+              : "—";
+            const timeStr = d.start
+              ? new Date(d.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+              : "";
+            const typeLabel = d.apptTypeDisplay ?? d.apptType ?? "—";
+            const status = d.status ?? "booked";
+            return (
+              <tr key={appt.id} className="border-t border-gray-50">
+                <td className="py-2 pr-3 text-gray-700">{dateStr}</td>
+                <td className="py-2 pr-3 text-gray-600">{timeStr}</td>
+                <td className="py-2 pr-3 text-gray-900">{typeLabel}</td>
+                <td className="py-2">
+                  <span className={[
+                    "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
+                    status === "fulfilled" ? "bg-green-100 text-green-800" :
+                    status === "cancelled" ? "bg-red-100 text-red-800" :
+                    status === "noshow" ? "bg-orange-100 text-orange-800" :
+                    "bg-blue-100 text-blue-800",
+                  ].join(" ")}>
+                    {status}
+                  </span>
+                </td>
+              </tr>
+            );
+          };
+
+          return (
+            <div className="space-y-4">
+              {upcoming.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Upcoming</h3>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs font-medium uppercase tracking-wide text-gray-400">
+                        <th className="pb-1 pr-3">Date</th>
+                        <th className="pb-1 pr-3">Time</th>
+                        <th className="pb-1 pr-3">Type</th>
+                        <th className="pb-1">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>{upcoming.map(renderRow)}</tbody>
+                  </table>
+                </div>
+              )}
+              {past.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Past</h3>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs font-medium uppercase tracking-wide text-gray-400">
+                        <th className="pb-1 pr-3">Date</th>
+                        <th className="pb-1 pr-3">Time</th>
+                        <th className="pb-1 pr-3">Type</th>
+                        <th className="pb-1">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>{past.map(renderRow)}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </SectionCard>
 
       {/* ── Clinical Data — Provider / NurseMa / SystemAdmin only ────────── */}
       {role !== "BillingStaff" && role !== "FrontDesk" && (

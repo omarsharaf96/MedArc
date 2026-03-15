@@ -73,6 +73,8 @@ export interface UpdateEncounterInput {
   soap: SoapInput | null;
   /** Updated chief complaint. */
   chiefComplaint: string | null;
+  /** Amendment reason — required when editing a finalized encounter. */
+  amendmentReason: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

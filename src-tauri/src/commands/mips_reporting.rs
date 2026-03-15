@@ -213,7 +213,7 @@ fn compute_measure_182(
     let denominator: i64 = conn.query_row(
         "SELECT COUNT(DISTINCT patient_id) FROM outcome_score_index
          WHERE episode_phase = 'discharge'
-           AND scored_at BETWEEN ?1 AND ?2",
+           AND recorded_at BETWEEN ?1 AND ?2",
         rusqlite::params![year_start, year_end],
         |row| row.get(0),
     )?;
@@ -225,9 +225,9 @@ fn compute_measure_182(
          INNER JOIN outcome_score_index i
            ON i.patient_id = d.patient_id
           AND i.episode_phase = 'initial'
-          AND i.scored_at BETWEEN ?1 AND ?2
+          AND i.recorded_at BETWEEN ?1 AND ?2
          WHERE d.episode_phase = 'discharge'
-           AND d.scored_at BETWEEN ?1 AND ?2",
+           AND d.recorded_at BETWEEN ?1 AND ?2",
         rusqlite::params![year_start, year_end],
         |row| row.get(0),
     )?;
@@ -268,10 +268,10 @@ fn compute_functional_status_measure(
                ON i.patient_id = d.patient_id
               AND i.episode_phase = 'initial'
               AND i.measure_type = ?3
-              AND i.scored_at BETWEEN ?1 AND ?2
+              AND i.recorded_at BETWEEN ?1 AND ?2
              WHERE d.episode_phase = 'discharge'
                AND d.measure_type = ?3
-               AND d.scored_at BETWEEN ?1 AND ?2",
+               AND d.recorded_at BETWEEN ?1 AND ?2",
             rusqlite::params![year_start, year_end, mt],
             |row| row.get(0),
         )?;
@@ -287,10 +287,10 @@ fn compute_functional_status_measure(
                    ON i.patient_id = d.patient_id
                   AND i.episode_phase = 'initial'
                   AND i.measure_type = ?3
-                  AND i.scored_at BETWEEN ?1 AND ?2
+                  AND i.recorded_at BETWEEN ?1 AND ?2
                  WHERE d.episode_phase = 'discharge'
                    AND d.measure_type = ?3
-                   AND d.scored_at BETWEEN ?1 AND ?2
+                   AND d.recorded_at BETWEEN ?1 AND ?2
                    AND (d.score - i.score) >= 9.0",
                 rusqlite::params![year_start, year_end, mt],
                 |row| row.get(0),
@@ -310,10 +310,10 @@ fn compute_functional_status_measure(
                    ON i.patient_id = d.patient_id
                   AND i.episode_phase = 'initial'
                   AND i.measure_type = ?3
-                  AND i.scored_at BETWEEN ?1 AND ?2
+                  AND i.recorded_at BETWEEN ?1 AND ?2
                  WHERE d.episode_phase = 'discharge'
                    AND d.measure_type = ?3
-                   AND d.scored_at BETWEEN ?1 AND ?2
+                   AND d.recorded_at BETWEEN ?1 AND ?2
                    AND (i.score - d.score) >= ?4",
                 rusqlite::params![year_start, year_end, mt, mcid],
                 |row| row.get(0),
@@ -562,12 +562,12 @@ pub fn get_mips_eligible_patients(
                         SELECT 1 FROM outcome_score_index i2
                         WHERE i2.patient_id = o.patient_id
                           AND i2.episode_phase = 'initial'
-                          AND i2.scored_at BETWEEN ?1 AND ?2
+                          AND i2.recorded_at BETWEEN ?1 AND ?2
                     ) as in_numerator
                  FROM outcome_score_index o
                  LEFT JOIN patient_index pi ON pi.patient_id = o.patient_id
                  WHERE o.episode_phase = 'discharge'
-                   AND o.scored_at BETWEEN ?1 AND ?2",
+                   AND o.recorded_at BETWEEN ?1 AND ?2",
             )?;
             let rows = stmt.query_map(rusqlite::params![year_start, year_end], |row| {
                 Ok(EligiblePatient {

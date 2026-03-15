@@ -537,6 +537,108 @@ pub fn check_first_run(db: State<'_, Database>) -> Result<bool, AppError> {
     Ok(count == 0)
 }
 
+// ─── Dev-only bypass ─────────────────────────────────────────────────────────
+//
+// This command is ONLY compiled into debug builds (`cargo build` / `tauri dev`).
+// The `#[cfg(not(debug_assertions))]` branch ensures the bypass is completely
+// absent from any release binary — it is not just disabled at runtime, it is
+// not present in the compiled artefact at all.
+//
+// The dev user (username: "dev", role: SystemAdmin) is auto-created on first
+// use and then logged in, exactly like a normal login, so session timeout and
+// all other session management still applies.
+
+/// Skip the login form and authenticate as a pre-configured dev user.
+///
+/// Available in debug builds only. Returns Err in release builds.
+#[tauri::command]
+pub fn dev_bypass_login(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<LoginResponse, AppError> {
+    // Guard: completely reject the call in release builds.
+    #[cfg(not(debug_assertions))]
+    return Err(AppError::Validation(
+        "Dev bypass not available in production".to_string(),
+    ));
+
+    #[cfg(debug_assertions)]
+    {
+        const DEV_USERNAME: &str = "dev";
+        const DEV_DISPLAY_NAME: &str = "Dev Admin";
+        const DEV_ROLE: &str = "SystemAdmin";
+        const DEV_PASSWORD: &str = "devpassword123!";
+
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+        // Look up (or create) the dev user.
+        let existing: Option<(String, String)> = conn
+            .query_row(
+                "SELECT id, role FROM users WHERE username = ?1",
+                rusqlite::params![DEV_USERNAME],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .ok();
+
+        let (user_id, role) = if let Some((id, r)) = existing {
+            (id, r)
+        } else {
+            // Auto-create the dev user so the database is never left in an
+            // inconsistent state when running from a fresh install.
+            let password_hash = password::hash_password(DEV_PASSWORD)?;
+            let new_id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, display_name, role) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![new_id, DEV_USERNAME, password_hash, DEV_DISPLAY_NAME, DEV_ROLE],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+            (new_id, DEV_ROLE.to_string())
+        };
+
+        // Create a full session — identical path to a successful normal login.
+        let session_id = session.login(&user_id, &role)?;
+
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, state, last_activity) VALUES (?1, ?2, 'active', datetime('now'))",
+            rusqlite::params![session_id, user_id],
+        )?;
+
+        write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: user_id.clone(),
+                action: "auth.dev_bypass_login".to_string(),
+                resource_type: "auth".to_string(),
+                resource_id: None,
+                patient_id: None,
+                device_id: device_id.get().to_string(),
+                success: true,
+                details: Some("Dev bypass login used".to_string()),
+            },
+        );
+
+        let session_info = session.get_state();
+
+        Ok(LoginResponse {
+            user: UserResponse {
+                id: user_id,
+                username: DEV_USERNAME.to_string(),
+                display_name: DEV_DISPLAY_NAME.to_string(),
+                role,
+            },
+            session: session_info,
+            mfa_required: false,
+            pending_user_id: None,
+        })
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Extended user response that includes is_active status, for user management.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

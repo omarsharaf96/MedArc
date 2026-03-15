@@ -84,6 +84,7 @@ export interface WaitlistPanelProps {
   canWrite: boolean;
   onAdd: (input: WaitlistInput) => Promise<void>;
   onDischarge: (id: string, reason: string | null) => Promise<void>;
+  patientLabel?: (patientId: string) => string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -95,6 +96,7 @@ export function WaitlistPanel({
   canWrite,
   onAdd,
   onDischarge,
+  patientLabel,
 }: WaitlistPanelProps) {
   // ── Add form toggle + state ─────────────────────────────────────────────
   const [addOpen, setAddOpen] = useState(false);
@@ -392,7 +394,7 @@ export function WaitlistPanel({
                 {/* Main info */}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gray-900">
-                    {record.patientId}
+                    {patientLabel ? patientLabel(record.patientId) : record.patientId}
                   </p>
                   <p className="text-xs text-gray-500">
                     {apptTypeRaw} · {preferredDateDisplay}

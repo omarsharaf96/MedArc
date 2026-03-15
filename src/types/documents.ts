@@ -123,6 +123,20 @@ export interface ReferralInput {
   notes: string | null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Document Content Retrieval
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Result of retrieving document content for inline preview. */
+export interface DocumentContentResult {
+  documentId: string;
+  mimeType: string;
+  /** Base64-encoded file content. Null if unavailable (pre-content-storage documents). */
+  contentBase64: string | null;
+  fileName: string;
+  fileSize: number;
+}
+
 /** Referral record returned from the backend. */
 export interface ReferralRecord {
   referralId: string;

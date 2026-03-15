@@ -16,8 +16,7 @@ import { EncounterWorkspace } from "../../pages/EncounterWorkspace";
 import { SchedulePage } from "../../pages/SchedulePage";
 import { SettingsPage } from "../../pages/SettingsPage";
 import { AuditLogPage } from "../../pages/AuditLogPage";
-import { PTNotesPage } from "../../pages/PTNotesPage";
-import { PTNoteFormPage } from "../../pages/PTNoteFormPage";
+// PT Notes pages removed — PT notes are now handled through encounters/documentation
 import { ObjectiveMeasuresPage } from "../../pages/ObjectiveMeasuresPage";
 import { DocumentCenterPage } from "../../pages/DocumentCenterPage";
 import { SurveyBuilderPage } from "../../pages/SurveyBuilderPage";
@@ -89,22 +88,10 @@ export function ContentArea() {
       return <SettingsPage />;
     case "audit-log":
       return <AuditLogPage />;
+    // PT Notes routes removed — PT notes are now handled through encounters/documentation
     case "pt-notes":
-      return (
-        <PTNotesPage
-          patientId={currentRoute.patientId}
-          role={user?.role ?? ""}
-        />
-      );
     case "pt-note-detail":
-      return (
-        <PTNoteFormPage
-          patientId={currentRoute.patientId}
-          noteType={currentRoute.noteType}
-          ptNoteId={currentRoute.ptNoteId}
-          role={user?.role ?? ""}
-        />
-      );
+      return <UnknownPage page="PT Notes (removed — use Encounters instead)" />;
     case "outcome-measures":
       return (
         <ObjectiveMeasuresPage

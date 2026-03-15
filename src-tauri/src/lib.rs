@@ -121,6 +121,9 @@ pub fn run() {
             commands::scheduling::create_recall,
             commands::scheduling::list_recalls,
             commands::scheduling::complete_recall,
+            commands::scheduling::get_provider_appointment_types,
+            commands::scheduling::set_provider_appointment_types,
+            commands::scheduling::list_providers,
             // S07 — Clinical Documentation
             commands::documentation::create_encounter,
             commands::documentation::get_encounter,
@@ -153,13 +156,7 @@ pub fn run() {
             commands::backup::create_backup,
             commands::backup::restore_backup,
             commands::backup::list_backups,
-            // M003/S01 — PT Note Templates
-            commands::pt_notes::create_pt_note,
-            commands::pt_notes::get_pt_note,
-            commands::pt_notes::list_pt_notes,
-            commands::pt_notes::update_pt_note,
-            commands::pt_notes::cosign_pt_note,
-            commands::pt_notes::lock_pt_note,
+            // M003/S01 — PT Notes removed (redundant with encounters/documentation)
             // M003/S02 — Objective Measures & Outcome Scores
             commands::objective_measures::record_objective_measures,
             commands::objective_measures::get_objective_measures,
@@ -183,6 +180,7 @@ pub fn run() {
             commands::document_center::get_referral,
             commands::document_center::list_referrals,
             commands::document_center::update_referral,
+            commands::document_center::get_document_content,
             // M003/S03 — Audio Capture & Transcription
             commands::audio_capture::start_audio_recording,
             commands::audio_capture::stop_audio_recording,
@@ -215,6 +213,8 @@ pub fn run() {
             commands::pdf_export::generate_insurance_narrative,
             commands::pdf_export::generate_legal_report,
             commands::pdf_export::generate_chart_export,
+            commands::pdf_export::generate_encounter_note_pdf,
+            commands::pdf_export::fax_encounter_note,
             // M003/S07 — Authorization & Visit Tracking
             commands::auth_tracking::create_auth_record,
             commands::auth_tracking::get_auth_record,

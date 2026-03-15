@@ -18,6 +18,8 @@ export interface AuthState {
 /** Return type of the useAuth hook. */
 export interface UseAuthReturn extends AuthState {
   login: (username: string, password: string) => Promise<void>;
+  /** Dev-only: authenticate as the built-in dev user without entering credentials. */
+  devBypass: (response: import("../types/auth").LoginResponse) => void;
   register: (
     username: string,
     password: string,
@@ -94,6 +96,26 @@ export function useAuth(): UseAuthReturn {
   const isLocked = session?.state === "locked";
 
   const clearError = useCallback(() => setError(null), []);
+
+  /**
+   * Dev-only: accept a LoginResponse that was already obtained by the
+   * LoginForm (which called commands.devBypassLogin() directly) and apply
+   * it to auth state, exactly as a normal login success would.
+   *
+   * Keeping the Tauri call inside the component avoids an additional round-trip
+   * and lets the component handle the loading/error state for the bypass button.
+   */
+  const devBypass = useCallback(
+    (response: import("../types/auth").LoginResponse) => {
+      setUser(response.user);
+      setSession(response.session);
+      setPendingMfaUserId(null);
+      setMfaRequired(false);
+      setFirstRun(false);
+      setError(null);
+    },
+    [],
+  );
 
   const login = useCallback(async (username: string, password: string) => {
     setError(null);
@@ -220,6 +242,7 @@ export function useAuth(): UseAuthReturn {
     mfaRequired,
     firstRun,
     login,
+    devBypass,
     register,
     logout,
     unlock,

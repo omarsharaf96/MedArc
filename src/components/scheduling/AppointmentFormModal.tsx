@@ -5,6 +5,13 @@
  *   - "create": full form for scheduling a new appointment with optional recurrence
  *   - "cancel": single reason field to cancel an existing appointment
  *
+ * Provider-aware appointment types:
+ *   - Accepts `providers` list and `providerAppointmentTypes` mapping
+ *   - When a provider is selected, the appointment type dropdown shows only
+ *     that provider's configured types
+ *   - Falls back to the generic APPT_TYPE_OPTIONS when no provider-specific
+ *     types are configured
+ *
  * Follows the AllergyFormModal pattern:
  *   - fixed inset-0 bg-black/40 z-50 overlay
  *   - submitError rendered inline above the submit button
@@ -14,7 +21,7 @@
  *   - submitError visible in UI without DevTools
  *   - React DevTools → AppointmentFormModal state: submitting, submitError
  */
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import type { AppointmentInput, AppointmentRecord } from "../../types/scheduling";
 import { PatientAutocomplete } from "../shared/PatientAutocomplete";
 
@@ -38,9 +45,9 @@ const COLOR_PALETTE: { hex: string; name: string }[] = [
 
 const DEFAULT_COLOR = "#4A90E2";
 
-// ─── Appointment type options ─────────────────────────────────────────────────
+// ─── Fallback appointment type options ───────────────────────────────────────
 
-const APPT_TYPE_OPTIONS = [
+const FALLBACK_APPT_TYPE_OPTIONS = [
   { value: "new_patient", label: "New Patient" },
   { value: "follow_up", label: "Follow Up" },
   { value: "procedure", label: "Procedure" },
@@ -53,18 +60,43 @@ const APPT_TYPE_OPTIONS = [
 
 const DURATION_OPTIONS = [5, 10, 15, 20, 30, 45, 60];
 
+// ─── Provider type ───────────────────────────────────────────────────────────
+
+export interface ProviderOption {
+  id: string;
+  displayName: string;
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 export interface AppointmentFormModalProps {
-  mode: "create" | "cancel";
-  /** ID of the appointment being cancelled (cancel mode only). */
+  mode: "create" | "edit" | "cancel";
+  /** ID of the appointment being edited or cancelled. */
   appointmentId?: string;
   /** Human-readable summary shown above the cancel reason field. */
   appointmentSummary?: string;
+  /** Existing appointment data for edit mode pre-fill. */
+  editData?: {
+    patientId: string;
+    providerId: string;
+    startTime: string;
+    durationMinutes: number;
+    apptType: string;
+    color: string | null;
+    reason: string | null;
+    notes: string | null;
+  };
   onSubmitCreate: (input: AppointmentInput) => Promise<AppointmentRecord[]>;
+  onSubmitEdit?: (id: string, input: import("../../types/scheduling").UpdateAppointmentInput) => Promise<AppointmentRecord>;
   onSubmitCancel: (id: string, reason: string | null) => Promise<AppointmentRecord>;
   onClose: () => void;
   canWrite: boolean;
+  /** List of available providers for the provider selector. */
+  providers?: ProviderOption[];
+  /** Map of provider ID to their allowed appointment type strings. */
+  providerAppointmentTypes?: Record<string, string[]>;
+  /** Pre-fill the start time (ISO datetime-local string, e.g. "2026-04-01T09:00"). */
+  initialStartTime?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -73,21 +105,31 @@ export function AppointmentFormModal({
   mode,
   appointmentId,
   appointmentSummary,
+  editData,
   onSubmitCreate,
+  onSubmitEdit,
   onSubmitCancel,
   onClose,
   canWrite,
+  providers,
+  providerAppointmentTypes,
+  initialStartTime,
 }: AppointmentFormModalProps) {
-  // ── Create-mode form state ──────────────────────────────────────────────
-  const [patientId, setPatientId] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [durationMinutes, setDurationMinutes] = useState(30);
-  const [apptType, setApptType] = useState("follow_up");
-  const [reason, setReason] = useState("");
-  const [notes, setNotes] = useState("");
+  // ── Create/Edit form state (pre-filled from editData in edit mode) ─────
+  const [patientId, setPatientId] = useState(editData?.patientId ?? "");
+  const [providerId, setProviderId] = useState(editData?.providerId ?? "");
+  const [startTime, setStartTime] = useState(
+    editData?.startTime
+      ? editData.startTime.slice(0, 16) // trim seconds for datetime-local input
+      : (initialStartTime ?? ""),
+  );
+  const [durationMinutes, setDurationMinutes] = useState(editData?.durationMinutes ?? 30);
+  const [apptType, setApptType] = useState(editData?.apptType ?? "");
+  const [reason, setReason] = useState(editData?.reason ?? "");
+  const [notes, setNotes] = useState(editData?.notes ?? "");
   const [recurrence, setRecurrence] = useState("");
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
-  const [color, setColor] = useState(DEFAULT_COLOR);
+  const [color, setColor] = useState(editData?.color ?? DEFAULT_COLOR);
 
   // Inline field error for recurrenceEndDate
   const [recurrenceEndDateError, setRecurrenceEndDateError] = useState<string | null>(null);
@@ -99,6 +141,32 @@ export function AppointmentFormModal({
   // ── Cancel-mode form state ──────────────────────────────────────────────
   const [cancelReason, setCancelReason] = useState("");
 
+  // ── Derived appointment type options ────────────────────────────────────
+
+  const apptTypeOptions: { value: string; label: string }[] = (() => {
+    if (providerId && providerAppointmentTypes) {
+      const providerTypes = providerAppointmentTypes[providerId];
+      if (providerTypes && providerTypes.length > 0) {
+        return providerTypes.map((t) => ({
+          value: t,
+          label: t,
+        }));
+      }
+    }
+    return FALLBACK_APPT_TYPE_OPTIONS;
+  })();
+
+  // When provider changes, reset apptType to first available option for that provider
+  useEffect(() => {
+    if (apptTypeOptions.length > 0) {
+      const currentStillValid = apptTypeOptions.some((o) => o.value === apptType);
+      if (!currentStillValid || !apptType) {
+        setApptType(apptTypeOptions[0].value);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerId]);
+
   // ── Handlers ───────────────────────────────────────────────────────────
 
   async function handleCreate(e: FormEvent) {
@@ -109,6 +177,10 @@ export function AppointmentFormModal({
     }
     if (!startTime) {
       setSubmitError("Start time is required.");
+      return;
+    }
+    if (providers && providers.length > 0 && !providerId) {
+      setSubmitError("Please select a provider.");
       return;
     }
 
@@ -145,7 +217,7 @@ export function AppointmentFormModal({
     try {
       const input: AppointmentInput = {
         patientId: patientId.trim(),
-        providerId: "", // Provider is derived server-side from the authenticated session
+        providerId: providerId,
         startTime: normalizedStart,
         durationMinutes,
         apptType,
@@ -156,6 +228,45 @@ export function AppointmentFormModal({
         notes: notes.trim() || null,
       };
       await onSubmitCreate(input);
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSubmitError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!appointmentId || !onSubmitEdit) {
+      setSubmitError("Missing appointment ID or edit handler.");
+      return;
+    }
+    if (!startTime) {
+      setSubmitError("Start time is required.");
+      return;
+    }
+
+    let normalizedStart = startTime;
+    const timePart = startTime.split("T")[1] ?? "";
+    const timeSections = timePart.split(":");
+    if (timeSections.length === 2) {
+      normalizedStart = startTime + ":00";
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onSubmitEdit(appointmentId, {
+        startTime: normalizedStart,
+        durationMinutes,
+        status: null,
+        reason: reason.trim() || null,
+        notes: notes.trim() || null,
+        providerId: providerId || null,
+        color: color || null,
+      });
       onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -198,7 +309,7 @@ export function AppointmentFormModal({
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold text-gray-900">
-            {mode === "create" ? "New Appointment" : "Cancel Appointment"}
+            {mode === "create" ? "New Appointment" : mode === "edit" ? "Edit Appointment" : "Cancel Appointment"}
           </h2>
           <button
             type="button"
@@ -211,10 +322,10 @@ export function AppointmentFormModal({
           </button>
         </div>
 
-        {/* ── Create mode ──────────────────────────────────────────────── */}
-        {mode === "create" && (
-          <form onSubmit={handleCreate} noValidate className="space-y-4">
-            {/* Patient — autocomplete typeahead */}
+        {/* ── Create / Edit mode ──────────────────────────────────────── */}
+        {(mode === "create" || mode === "edit") && (
+          <form onSubmit={mode === "edit" ? handleEdit : handleCreate} noValidate className="space-y-4">
+            {/* Patient — autocomplete typeahead (read-only in edit mode) */}
             <div>
               <label className={LABEL_CLS}>
                 Patient *
@@ -222,10 +333,32 @@ export function AppointmentFormModal({
               <PatientAutocomplete
                 value={patientId || null}
                 onChange={(id) => setPatientId(id ?? "")}
-                placeholder="Start typing a patient name…"
-                disabled={submitting}
+                placeholder="Start typing a patient name..."
+                disabled={submitting || mode === "edit"}
               />
             </div>
+
+            {/* Provider selector */}
+            {providers && providers.length > 0 && (
+              <div>
+                <label htmlFor="appt-provider" className={LABEL_CLS}>
+                  Provider *
+                </label>
+                <select
+                  id="appt-provider"
+                  value={providerId}
+                  onChange={(e) => setProviderId(e.target.value)}
+                  className={INPUT_CLS}
+                >
+                  <option value="">Select a provider...</option>
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.displayName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Start time */}
             <div>
@@ -272,7 +405,7 @@ export function AppointmentFormModal({
                 onChange={(e) => setApptType(e.target.value)}
                 className={INPUT_CLS}
               >
-                {APPT_TYPE_OPTIONS.map((opt) => (
+                {apptTypeOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -402,7 +535,9 @@ export function AppointmentFormModal({
                 disabled={submitting}
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
-                {submitting ? "Creating…" : "Create Appointment"}
+                {submitting
+                  ? (mode === "edit" ? "Saving..." : "Creating...")
+                  : (mode === "edit" ? "Save Changes" : "Create Appointment")}
               </button>
             </div>
           </form>
@@ -460,7 +595,7 @@ export function AppointmentFormModal({
                 disabled={submitting}
                 className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
               >
-                {submitting ? "Cancelling…" : "Cancel Appointment"}
+                {submitting ? "Cancelling..." : "Cancel Appointment"}
               </button>
             </div>
           </form>

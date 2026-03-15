@@ -19,6 +19,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useEncounter } from "../hooks/useEncounter";
 import { useNav } from "../contexts/RouterContext";
 import { commands } from "../lib/tauri";
+import { save } from "@tauri-apps/plugin-dialog";
+import { copyFile } from "@tauri-apps/plugin-fs";
 import { AuthAlertBanner } from "../components/clinical/AuthTrackingPanel";
 import { TherapyCapBanner } from "../components/clinical/TherapyCapBanner";
 import type {
@@ -31,6 +33,7 @@ import type {
   PhysicalExamInput,
   PhysicalExamRecord,
 } from "../types/documentation";
+import type { FaxContact } from "../types/fax";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -127,9 +130,10 @@ interface SoapTabProps {
   role: string;
   soapState: SoapInput;
   setSoapState: (s: SoapInput) => void;
-  saveSoap: (soap: SoapInput) => Promise<void>;
+  saveSoap: (soap: SoapInput, amendmentReason?: string | null) => Promise<void>;
   finalizeEncounter: (soap: SoapInput) => Promise<void>;
   isFinalized: boolean;
+  isAmending: boolean;
   templates: import("../types/documentation").TemplateRecord[];
 }
 
@@ -141,6 +145,7 @@ function SoapTab({
   saveSoap,
   finalizeEncounter,
   isFinalized,
+  isAmending,
   templates,
 }: SoapTabProps) {
   // ── Template picker state ──────────────────────────────────────────────
@@ -155,9 +160,13 @@ function SoapTab({
   const [finalizing, setFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
 
+  // ── Amendment state ───────────────────────────────────────────────────
+  const [amendmentReason, setAmendmentReason] = useState("");
+
   // RBAC: NurseMa and BillingStaff get read-only mode
+  // When amending, the form should be editable
   const isReadOnly =
-    isFinalized || role === "NurseMa" || role === "BillingStaff";
+    (isFinalized && !isAmending) || role === "NurseMa" || role === "BillingStaff";
 
   // ── Template picker onChange ───────────────────────────────────────────
   const handleTemplateChange = useCallback(
@@ -202,10 +211,15 @@ function SoapTab({
 
   // ── Save Note ─────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
+    // If amending, require amendment reason
+    if (isAmending && !amendmentReason.trim()) {
+      setSoapSaveError("Amendment reason is required when editing a finalized encounter.");
+      return;
+    }
     setSavingSoap(true);
     setSoapSaveError(null);
     try {
-      await saveSoap(soapState);
+      await saveSoap(soapState, isAmending ? amendmentReason : null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setSoapSaveError(msg);
@@ -213,7 +227,7 @@ function SoapTab({
     } finally {
       setSavingSoap(false);
     }
-  }, [saveSoap, soapState]);
+  }, [saveSoap, soapState, isAmending, amendmentReason]);
 
   // ── Finalize Encounter ────────────────────────────────────────────────
   const handleFinalize = useCallback(async () => {
@@ -238,15 +252,38 @@ function SoapTab({
   return (
     <div className="space-y-5">
       {/* ── Finalized badge ────────────────────────────────────────────── */}
-      {isFinalized && (
+      {isFinalized && !isAmending && (
         <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
-          <span className="text-base">✓</span>
-          <span>Finalized — this encounter is read-only</span>
+          <span>Finalized — click "Amend Encounter" in the header to make changes</span>
+        </div>
+      )}
+
+      {/* ── Amendment mode notice ─────────────────────────────────────── */}
+      {isAmending && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+          <p className="font-medium text-amber-800">Amendment Mode</p>
+          <p className="mt-0.5 text-amber-700">
+            You are amending a finalized encounter. An amendment reason is required.
+            The previous version will be preserved for audit trail.
+          </p>
+          <div className="mt-2">
+            <label className="mb-1 block text-xs font-medium text-amber-800" htmlFor="amendment-reason">
+              Amendment Reason (required)
+            </label>
+            <textarea
+              id="amendment-reason"
+              className="w-full rounded-md border border-amber-300 px-3 py-2 text-sm shadow-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              rows={2}
+              value={amendmentReason}
+              onChange={(e) => setAmendmentReason(e.target.value)}
+              placeholder="Describe why this finalized encounter is being amended..."
+            />
+          </div>
         </div>
       )}
 
       {/* ── Role read-only notice ─────────────────────────────────────── */}
-      {!isFinalized && (role === "NurseMa" || role === "BillingStaff") && (
+      {!isFinalized && !isAmending && (role === "NurseMa" || role === "BillingStaff") && (
         <p className="text-xs text-gray-400 italic">Read-only for your role</p>
       )}
 
@@ -386,25 +423,36 @@ function SoapTab({
       {/* ── Action buttons ────────────────────────────────────────────────── */}
       {!isReadOnly && (
         <div className="flex flex-wrap items-center gap-3 pt-1">
-          {/* Save Note */}
+          {/* Save Note / Save Amendment */}
           <button
             type="button"
             onClick={() => void handleSave()}
             disabled={savingSoap || finalizing}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60"
+            className={[
+              "rounded-md px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-60",
+              isAmending
+                ? "bg-amber-600 text-white hover:bg-amber-700 focus:ring-amber-500"
+                : "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500",
+            ].join(" ")}
           >
-            {savingSoap ? "Saving…" : "Save Note"}
+            {savingSoap
+              ? "Saving…"
+              : isAmending
+                ? "Save Amendment"
+                : "Save Note"}
           </button>
 
-          {/* Finalize Encounter — destructive amber styling */}
-          <button
-            type="button"
-            onClick={() => void handleFinalize()}
-            disabled={savingSoap || finalizing}
-            className="rounded-md border-2 border-amber-500 bg-white px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 disabled:opacity-60"
-          >
-            {finalizing ? "Finalizing…" : "Finalize Encounter"}
-          </button>
+          {/* Finalize Encounter — hidden when amending */}
+          {!isAmending && (
+            <button
+              type="button"
+              onClick={() => void handleFinalize()}
+              disabled={savingSoap || finalizing}
+              className="rounded-md border-2 border-amber-500 bg-white px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 disabled:opacity-60"
+            >
+              {finalizing ? "Finalizing…" : "Finalize Encounter"}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1485,6 +1533,7 @@ export function EncounterWorkspace({
     saveSoap,
     finalizeEncounter,
     isFinalized,
+    reopenForAmendment,
     latestVitals,
     saveVitals,
     rosRecord,
@@ -1497,6 +1546,120 @@ export function EncounterWorkspace({
   });
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("soap");
+
+  // ── Amendment state ──────────────────────────────────────────────────
+  const [isAmending, setIsAmending] = useState(false);
+  /** True when the encounter was originally finalized (even if currently open for amendment). */
+  const encounterWasFinalized = encounter?.resource?.["status"] === "finished";
+
+  // ── Export to PDF state ──────────────────────────────────────────────────
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportPdfError, setExportPdfError] = useState<string | null>(null);
+  const [exportPdfSuccess, setExportPdfSuccess] = useState<string | null>(null);
+
+  // ── Fax Note state ──────────────────────────────────────────────────────
+  const [showFaxModal, setShowFaxModal] = useState(false);
+  const [faxContacts, setFaxContacts] = useState<FaxContact[]>([]);
+  const [faxContactsLoading, setFaxContactsLoading] = useState(false);
+  const [faxRecipientName, setFaxRecipientName] = useState("");
+  const [faxRecipientNumber, setFaxRecipientNumber] = useState("");
+  const [faxing, setFaxing] = useState(false);
+  const [faxError, setFaxError] = useState<string | null>(null);
+  const [faxSuccess, setFaxSuccess] = useState<string | null>(null);
+
+  // ── Export to PDF handler ───────────────────────────────────────────────
+  const handleExportPdf = useCallback(async () => {
+    setExportingPdf(true);
+    setExportPdfError(null);
+    setExportPdfSuccess(null);
+    try {
+      const result = await commands.generateEncounterNotePdf(encounterId);
+
+      // Open save dialog to let user choose destination
+      const destination = await save({
+        title: "Save Encounter Note PDF",
+        defaultPath: result.filePath,
+        filters: [{ name: "PDF Documents", extensions: ["pdf"] }],
+      });
+
+      if (destination) {
+        await copyFile(result.filePath, destination);
+        setExportPdfSuccess(`PDF saved to ${destination}`);
+      } else {
+        // User cancelled save dialog — still generated successfully
+        setExportPdfSuccess(`PDF generated at ${result.filePath}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[EncounterWorkspace] exportPdf failed:", msg);
+      setExportPdfError(msg);
+    } finally {
+      setExportingPdf(false);
+    }
+  }, [encounterId]);
+
+  // ── Fax Note: open modal ────────────────────────────────────────────────
+  const handleOpenFaxModal = useCallback(async () => {
+    setShowFaxModal(true);
+    setFaxError(null);
+    setFaxSuccess(null);
+    setFaxRecipientName("");
+    setFaxRecipientNumber("");
+    setFaxContactsLoading(true);
+    try {
+      const contacts = await commands.listFaxContacts(null);
+      setFaxContacts(contacts);
+    } catch (e) {
+      console.error("[EncounterWorkspace] listFaxContacts failed:", e instanceof Error ? e.message : String(e));
+      setFaxContacts([]);
+    } finally {
+      setFaxContactsLoading(false);
+    }
+  }, []);
+
+  // ── Fax Note: select contact from list ──────────────────────────────────
+  const handleSelectFaxContact = useCallback((contact: FaxContact) => {
+    setFaxRecipientName(contact.name);
+    setFaxRecipientNumber(contact.faxNumber);
+  }, []);
+
+  // ── Fax Note: send ──────────────────────────────────────────────────────
+  const handleSendFax = useCallback(async () => {
+    if (!faxRecipientName.trim() || !faxRecipientNumber.trim()) {
+      setFaxError("Recipient name and fax number are required.");
+      return;
+    }
+    setFaxing(true);
+    setFaxError(null);
+    setFaxSuccess(null);
+    try {
+      const result = await commands.faxEncounterNote({
+        encounterId,
+        recipientFax: faxRecipientNumber.trim(),
+        recipientName: faxRecipientName.trim(),
+        patientId,
+      });
+      if (result.status === "failed") {
+        setFaxError("Fax queuing failed. Check Phaxio configuration.");
+      } else {
+        setFaxSuccess(`Fax queued successfully (ID: ${result.faxId})`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[EncounterWorkspace] faxEncounterNote failed:", msg);
+      setFaxError(msg);
+    } finally {
+      setFaxing(false);
+    }
+  }, [encounterId, patientId, faxRecipientName, faxRecipientNumber]);
+
+  // Clear success messages after a delay
+  useEffect(() => {
+    if (exportPdfSuccess) {
+      const t = setTimeout(() => setExportPdfSuccess(null), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [exportPdfSuccess]);
 
   // ── Loading state ──────────────────────────────────────────────────────
   if (loading) {
@@ -1574,11 +1737,64 @@ export function EncounterWorkspace({
           {/* Finalized badge in header */}
           {isFinalized && (
             <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">
-              ✓ Finalized
+              Finalized
             </span>
           )}
+          {/* Amending badge */}
+          {!isFinalized && isAmending && encounterWasFinalized && (
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+              Amending
+            </span>
+          )}
+          {/* Amend button — visible when finalized */}
+          {isFinalized && (role === "Provider" || role === "SystemAdmin") && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsAmending(true);
+                reopenForAmendment();
+              }}
+              className="ml-2 rounded-md border border-amber-400 bg-white px-3 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1"
+            >
+              Amend Encounter
+            </button>
+          )}
+        </div>
+
+        {/* ── Export / Fax action buttons ────────────────────────────── */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleExportPdf()}
+            disabled={exportingPdf}
+            aria-label="Export encounter note to PDF"
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 disabled:opacity-60"
+          >
+            {exportingPdf ? "Exporting..." : "Export to PDF"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleOpenFaxModal()}
+            disabled={faxing}
+            aria-label="Fax encounter note"
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 disabled:opacity-60"
+          >
+            Fax Note
+          </button>
         </div>
       </div>
+
+      {/* ── Export/Fax status messages ──────────────────────────────────── */}
+      {exportPdfError && (
+        <div className="mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Export failed: {exportPdfError}
+        </div>
+      )}
+      {exportPdfSuccess && (
+        <div className="mb-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+          {exportPdfSuccess}
+        </div>
+      )}
 
       {/* ── Tab bar ──────────────────────────────────────────────────────── */}
       <div className="flex gap-1 border-b border-gray-200 pb-0">
@@ -1619,6 +1835,7 @@ export function EncounterWorkspace({
             saveSoap={saveSoap}
             finalizeEncounter={finalizeEncounter}
             isFinalized={isFinalized}
+            isAmending={isAmending}
             templates={templates}
           />
         )}
@@ -1629,7 +1846,7 @@ export function EncounterWorkspace({
             role={role}
             latestVitals={latestVitals}
             saveVitals={saveVitals}
-            isFinalized={isFinalized}
+            isFinalized={isFinalized && !isAmending}
           />
         )}
         {activeTab === "ros" && (
@@ -1639,7 +1856,7 @@ export function EncounterWorkspace({
             role={role}
             rosRecord={rosRecord}
             saveRos={saveRos}
-            isFinalized={isFinalized}
+            isFinalized={isFinalized && !isAmending}
           />
         )}
         {activeTab === "exam" && (
@@ -1647,11 +1864,147 @@ export function EncounterWorkspace({
             patientId={patientId}
             encounterId={encounterId}
             physicalExamRecord={physicalExamRecord}
-            isReadOnly={isFinalized}
+            isReadOnly={isFinalized && !isAmending}
             onSave={savePhysicalExam}
           />
         )}
       </div>
+
+      {/* ── Fax Note modal ──────────────────────────────────────────────── */}
+      {showFaxModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fax-note-modal-title"
+        >
+          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3
+                id="fax-note-modal-title"
+                className="text-base font-semibold text-gray-900"
+              >
+                Fax Encounter Note
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowFaxModal(false)}
+                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                aria-label="Close fax modal"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Contact picker */}
+            {faxContactsLoading ? (
+              <p className="mb-4 text-sm text-gray-500">Loading contacts...</p>
+            ) : faxContacts.length > 0 ? (
+              <div className="mb-4">
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Select from contacts
+                </label>
+                <select
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  defaultValue=""
+                  onChange={(e) => {
+                    const contact = faxContacts.find(
+                      (c) => c.contactId === e.target.value,
+                    );
+                    if (contact) handleSelectFaxContact(contact);
+                  }}
+                >
+                  <option value="">-- Select a contact --</option>
+                  {faxContacts.map((c) => (
+                    <option key={c.contactId} value={c.contactId}>
+                      {c.name}
+                      {c.organization ? ` (${c.organization})` : ""} -{" "}
+                      {c.faxNumber}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            <div className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+              Or enter manually
+            </div>
+
+            {/* Manual entry */}
+            <div className="mb-4">
+              <label
+                htmlFor="fax-recipient-name"
+                className="mb-1 block text-sm font-medium text-gray-700"
+              >
+                Recipient Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="fax-recipient-name"
+                type="text"
+                value={faxRecipientName}
+                onChange={(e) => setFaxRecipientName(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="Dr. John Smith"
+              />
+            </div>
+
+            <div className="mb-4">
+              <label
+                htmlFor="fax-recipient-number"
+                className="mb-1 block text-sm font-medium text-gray-700"
+              >
+                Fax Number <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="fax-recipient-number"
+                type="tel"
+                value={faxRecipientNumber}
+                onChange={(e) => setFaxRecipientNumber(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="+15551234567"
+              />
+            </div>
+
+            {/* Error / success */}
+            {faxError && (
+              <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {faxError}
+              </div>
+            )}
+            {faxSuccess && (
+              <div className="mb-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                {faxSuccess}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowFaxModal(false)}
+                disabled={faxing}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-60"
+              >
+                {faxSuccess ? "Close" : "Cancel"}
+              </button>
+              {!faxSuccess && (
+                <button
+                  type="button"
+                  onClick={() => void handleSendFax()}
+                  disabled={
+                    faxing ||
+                    !faxRecipientName.trim() ||
+                    !faxRecipientNumber.trim()
+                  }
+                  className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60"
+                >
+                  {faxing ? "Sending..." : "Send Fax"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

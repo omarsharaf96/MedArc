@@ -99,6 +99,10 @@ pub struct UpdateEncounterInput {
     pub soap: Option<SoapInput>,
     /// Updated chief complaint.
     pub chief_complaint: Option<String>,
+    /// Amendment reason — required when editing a finalized ("finished") encounter.
+    /// When provided on a finalized encounter, the previous version is stored
+    /// for audit trail and an amendment audit entry is logged.
+    pub amendment_reason: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1008,6 +1012,103 @@ fn built_in_templates() -> Vec<TemplateRecord> {
             default_exam_sections: vec!["general".to_string()],
             ros_systems: vec!["constitutional".to_string()],
         },
+        // ── PT-specific note templates ───────────────────────────────────────
+        TemplateRecord {
+            id: "tpl_pt_initial_eval".to_string(),
+            name: "PT Initial Evaluation".to_string(),
+            specialty: "physical_therapy".to_string(),
+            description: "Physical therapy initial evaluation with chief complaint, HPI, PMH, ROS, physical exam, assessment, and plan".to_string(),
+            default_soap: SoapInput {
+                subjective: Some("CHIEF COMPLAINT:\n[Enter patient's primary complaint]\n\nHISTORY OF PRESENT ILLNESS:\nOnset: _  Mechanism of injury: _  Location: _  Duration: _\nCharacter: _  Severity (NRS 0-10): _/10\nAggravating factors: _  Relieving factors: _\nPrior treatment: _  Imaging: _\n\nPAST MEDICAL HISTORY:\n[Enter relevant medical history, surgical history, medications]\n\nREVIEW OF SYSTEMS:\nConstitutional: _\nMusculoskeletal: _\nNeurological: _\nCardiovascular: _\nPsychological: _".to_string()),
+                objective: Some("PHYSICAL EXAMINATION:\nObservation/Posture: _\nPalpation: _\nRange of Motion:\n  Cervical: _  Thoracic: _  Lumbar: _\n  Upper extremity: _  Lower extremity: _\nStrength (MMT):\n  _\nSpecial Tests:\n  _\nNeurological Screen: Sensation: _  Reflexes: _  Balance: _\nFunctional Assessment: _\nGait Analysis: _".to_string()),
+                assessment: Some("ASSESSMENT:\nPrimary diagnosis: [ICD-10: ]\nSecondary diagnosis: [ICD-10: ]\nFunctional limitations: _\nPrior level of function: _\nRehabilitation potential: [ Excellent / Good / Fair / Poor ]\n\nSHORT-TERM GOALS (2-4 weeks):\n1. _\n2. _\n\nLONG-TERM GOALS (discharge):\n1. _\n2. _".to_string()),
+                plan: Some("PLAN:\nFrequency/Duration: _ x/week for _ weeks\nTreatment to include:\n  - Therapeutic exercise\n  - Manual therapy\n  - Neuromuscular re-education\n  - Modalities: _\n  - Patient education\n\nHome Exercise Program: [ Provided / To be provided ]\nReferring physician: _\nCPT codes: _".to_string()),
+            },
+            default_exam_sections: vec![
+                "general".to_string(), "musculoskeletal".to_string(), "neurological".to_string(),
+                "extremities".to_string(),
+            ],
+            ros_systems: vec![
+                "constitutional".to_string(), "musculoskeletal".to_string(),
+                "neurological".to_string(), "cardiovascular".to_string(),
+                "psychiatric".to_string(),
+            ],
+        },
+        TemplateRecord {
+            id: "tpl_pt_treatment_note".to_string(),
+            name: "PT Treatment Note".to_string(),
+            specialty: "physical_therapy".to_string(),
+            description: "Physical therapy daily treatment note with subjective, objective, treatment provided, patient response, and plan".to_string(),
+            default_soap: SoapInput {
+                subjective: Some("SUBJECTIVE (Patient Report):\nPatient reports: _\nPain level today (NRS 0-10): _/10  (previous visit: _/10)\nHEP compliance: [ Good / Fair / Poor ]\nChanges since last visit: _\nNew complaints: _\nSleep: _  Activity level: _".to_string()),
+                objective: Some("OBJECTIVE (Measurements & Observations):\nVital signs: See vitals section\nObservation: _\nPalpation: _\nROM changes: _\nStrength changes: _\nFunctional status: _\nGait/Balance: _".to_string()),
+                assessment: Some("TREATMENT PROVIDED:\nTherapeutic exercise: _  (__ min)\nManual therapy: _  (__ min)\nNeuromuscular re-education: _  (__ min)\nModalities: _  (__ min)\nGait training: _  (__ min)\nTotal treatment time: __ minutes\n\nPATIENT RESPONSE:\nTolerance: [ Good / Fair / Poor ]\nResponse to treatment: _\nProgress toward goals: _".to_string()),
+                plan: Some("PLAN / NEXT VISIT:\nContinue current POC: [ Yes / Modify ]\nModifications: _\nHEP updates: _\nNext visit: _\nAnticipated discharge: _".to_string()),
+            },
+            default_exam_sections: vec![
+                "general".to_string(), "musculoskeletal".to_string(),
+            ],
+            ros_systems: vec![
+                "constitutional".to_string(), "musculoskeletal".to_string(),
+            ],
+        },
+        TemplateRecord {
+            id: "tpl_pt_progress_note".to_string(),
+            name: "PT Progress Note (SOAP)".to_string(),
+            specialty: "physical_therapy".to_string(),
+            description: "Standard SOAP progress note for physical therapy".to_string(),
+            default_soap: SoapInput {
+                subjective: Some("SUBJECTIVE:\nPatient reports: _\nCurrent pain level (NRS 0-10): _/10\nFunctional changes: _\nHEP compliance: [ Good / Fair / Poor ]\nBarriers to progress: _".to_string()),
+                objective: Some("OBJECTIVE:\nVital signs: See vitals section\nROM: _\nStrength (MMT): _\nSpecial tests: _\nFunctional measures: _\nGait/Balance: _\nOutcome scores: _".to_string()),
+                assessment: Some("ASSESSMENT:\nDiagnosis: [ICD-10: ]\nProgress: [ Improving / Plateau / Declining ]\nGoal status:\n  STG 1: [ Met / Progressing / Not met ]\n  STG 2: [ Met / Progressing / Not met ]\n  LTG 1: [ Met / Progressing / Not met ]\n  LTG 2: [ Met / Progressing / Not met ]".to_string()),
+                plan: Some("PLAN:\nContinue POC: [ Yes / Modify ]\nFrequency: _ x/week\nTreatment focus: _\nHEP modifications: _\nAnticipated discharge date: _\nSkilled services justified by: _".to_string()),
+            },
+            default_exam_sections: vec![
+                "general".to_string(), "musculoskeletal".to_string(), "neurological".to_string(),
+            ],
+            ros_systems: vec![
+                "constitutional".to_string(), "musculoskeletal".to_string(),
+                "neurological".to_string(),
+            ],
+        },
+        TemplateRecord {
+            id: "tpl_pt_discharge_note".to_string(),
+            name: "PT Discharge Note".to_string(),
+            specialty: "physical_therapy".to_string(),
+            description: "Physical therapy discharge summary with treatment outcomes, goals met, HEP, and follow-up recommendations".to_string(),
+            default_soap: SoapInput {
+                subjective: Some("REASON FOR DISCHARGE:\n[ Goals met / Patient request / Insurance exhausted / Non-compliance / Physician order / Plateau / Other: _ ]\n\nTREATMENT SUMMARY:\nTotal visits attended: _ of _ authorized\nDate of initial evaluation: _\nDate of discharge: _\nDuration of care: _ weeks\nTreatment provided: _\nDiagnosis: [ICD-10: ]".to_string()),
+                objective: Some("OUTCOMES / GOALS MET:\nInitial pain (NRS): _/10  Discharge pain (NRS): _/10\nFunctional status at intake: _\nFunctional status at discharge: _\n\nGoal Achievement:\n  STG 1: [ Met / Partially met / Not met ] — _\n  STG 2: [ Met / Partially met / Not met ] — _\n  LTG 1: [ Met / Partially met / Not met ] — _\n  LTG 2: [ Met / Partially met / Not met ] — _\n\nOutcome Measures:\n  [Measure]: Initial __ / Discharge __ (MCID: __)".to_string()),
+                assessment: Some("HOME EXERCISE PROGRAM:\nPatient was instructed in the following HEP:\n1. _\n2. _\n3. _\nFrequency: _\nPatient demonstrates: [ Independent / Supervised / Dependent ] with HEP\nPatient verbalized understanding: [ Yes / No ]".to_string()),
+                plan: Some("FOLLOW-UP RECOMMENDATIONS:\n[ ] Return to PT if symptoms recur\n[ ] Follow up with referring physician: _\n[ ] Ongoing maintenance program: _\n[ ] Referral to: _\n[ ] No further PT needed at this time\n\nActivity recommendations: _\nPrecautions/restrictions: _\nPatient education provided: _".to_string()),
+            },
+            default_exam_sections: vec![
+                "general".to_string(), "musculoskeletal".to_string(),
+            ],
+            ros_systems: vec![
+                "constitutional".to_string(), "musculoskeletal".to_string(),
+            ],
+        },
+        TemplateRecord {
+            id: "tpl_pt_fce".to_string(),
+            name: "Functional Capacity Evaluation".to_string(),
+            specialty: "physical_therapy".to_string(),
+            description: "Functional capacity evaluation with demographics, medical history, physical demands analysis, testing results, and recommendations".to_string(),
+            default_soap: SoapInput {
+                subjective: Some("PATIENT DEMOGRAPHICS:\nName: _  DOB: _  Age: _  Gender: _\nOccupation: _  Employer: _\nDate of injury: _  Claim #: _\nReferring physician: _\nReason for FCE: [ Return to work / Disability determination / Baseline / Other: _ ]\n\nMEDICAL HISTORY:\nDiagnosis: [ICD-10: ]\nSurgical history: _\nCurrent medications: _\nRelevant imaging: _\nPain history: Current NRS: _/10  Worst: _/10  Best: _/10\nFunctional complaints: _\nWork status: [ Full duty / Light duty / Off work since _ ]".to_string()),
+                objective: Some("PHYSICAL DEMANDS ANALYSIS:\nJob title: _  DOL code: _\nPhysical demand level: [ Sedentary / Light / Medium / Heavy / Very Heavy ]\nCritical job demands:\n  Lifting: _ lbs (floor to waist) / _ lbs (waist to shoulder)\n  Carrying: _ lbs for _ ft\n  Standing: _ hrs/day\n  Walking: _ hrs/day\n  Sitting: _ hrs/day\n  Bending/Stooping: _ frequency\n  Reaching: _ frequency\n  Fine motor: _ frequency\n\nFUNCTIONAL TESTING RESULTS:\nMusculoskeletal screen: _\nPostural tolerance:\n  Standing: _ min  Sitting: _ min  Walking: _ min\nLifting capacity:\n  Floor to waist: _ lbs  Waist to shoulder: _ lbs  Bilateral carry: _ lbs\nPush/Pull: _ lbs / _ lbs\nGrip strength: R: _ lbs  L: _ lbs (norms: _)\nPositional tolerance:\n  Bending: _  Squatting: _  Kneeling: _  Climbing: _\nCardiovascular response: HR baseline: _  Peak: _  Recovery: _\nConsistency of effort: [ Consistent / Inconsistent — _ ]\nSelf-limiting behaviors: _\nWaddell signs: _/5".to_string()),
+                assessment: Some("CONCLUSIONS:\nOverall physical demand capacity: [ Sedentary / Light / Medium / Heavy / Very Heavy ]\nComparison to job demands: [ Meets / Does not meet ] requirements\nRestrictions/Limitations:\n  _\nMaximum medical improvement: [ Yes / No / Undetermined ]\nReliability of results: [ Reliable / Unreliable — _ ]".to_string()),
+                plan: Some("RECOMMENDATIONS:\n[ ] Return to full duty\n[ ] Return to modified duty with restrictions: _\n[ ] Work conditioning/hardening program: _ weeks\n[ ] Continue physical therapy\n[ ] Vocational rehabilitation referral\n[ ] Additional medical evaluation: _\n[ ] Disability rating evaluation\n\nFollow-up: _\nReport sent to: _".to_string()),
+            },
+            default_exam_sections: vec![
+                "general".to_string(), "musculoskeletal".to_string(), "neurological".to_string(),
+                "cardiovascular".to_string(), "extremities".to_string(),
+            ],
+            ros_systems: vec![
+                "constitutional".to_string(), "musculoskeletal".to_string(),
+                "neurological".to_string(), "cardiovascular".to_string(),
+            ],
+        },
     ]
 }
 
@@ -1250,6 +1351,12 @@ pub async fn list_encounters(
 
 /// Update an encounter's SOAP note or status (CLIN-01).
 ///
+/// When editing a finalized ("finished") encounter, the caller must provide
+/// `amendment_reason`. The previous FHIR resource version is stored as a
+/// separate FHIR resource (resource_type = "EncounterAmendmentHistory") for
+/// audit trail, and a dedicated `documentation.encounter.amend` audit entry
+/// is logged.
+///
 /// Requires: ClinicalDocumentation + Update
 #[tauri::command]
 pub async fn update_encounter(
@@ -1269,16 +1376,70 @@ pub async fn update_encounter(
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    let (patient_id, provider_id, existing_json, version_id): (String, String, String, i64) = conn
+    let (patient_id, provider_id, existing_json, version_id, current_status): (String, String, String, i64, String) = conn
         .query_row(
-            "SELECT ei.patient_id, ei.provider_id, fr.resource, fr.version_id
+            "SELECT ei.patient_id, ei.provider_id, fr.resource, fr.version_id, ei.status
              FROM encounter_index ei
              JOIN fhir_resources fr ON fr.id = ei.encounter_id
              WHERE ei.encounter_id = ?1",
             rusqlite::params![encounter_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         )
         .map_err(|_| AppError::NotFound(format!("Encounter {} not found", encounter_id)))?;
+
+    let is_finalized = current_status == "finished";
+
+    // If the encounter is finalized, require an amendment reason for content changes
+    if is_finalized && (input.soap.is_some() || input.chief_complaint.is_some()) {
+        if input.amendment_reason.as_ref().map_or(true, |r| r.trim().is_empty()) {
+            return Err(AppError::Validation(
+                "Amendment reason is required when editing a finalized encounter".to_string(),
+            ));
+        }
+
+        // Store the previous version for audit trail
+        let history_id = uuid::Uuid::new_v4().to_string();
+        let history_resource = serde_json::json!({
+            "resourceType": "EncounterAmendmentHistory",
+            "id": history_id,
+            "encounterId": encounter_id,
+            "previousVersion": version_id,
+            "previousResource": serde_json::from_str::<serde_json::Value>(&existing_json)
+                .unwrap_or(serde_json::Value::Null),
+            "amendedBy": sess.user_id,
+            "amendedAt": now,
+            "amendmentReason": input.amendment_reason.as_deref().unwrap_or("")
+        });
+        let history_json = serde_json::to_string(&history_resource)
+            .map_err(|e| AppError::Serialization(e.to_string()))?;
+
+        conn.execute(
+            "INSERT INTO fhir_resources (id, resource_type, resource, version_id, last_updated, created_at, updated_at)
+             VALUES (?1, 'EncounterAmendmentHistory', ?2, 1, ?3, ?3, ?3)",
+            rusqlite::params![history_id, history_json, now],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        // Log the amendment audit entry
+        write_audit_entry(
+            &conn,
+            AuditEntryInput {
+                user_id: sess.user_id.clone(),
+                action: "documentation.encounter.amend".to_string(),
+                resource_type: "Encounter".to_string(),
+                resource_id: Some(encounter_id.clone()),
+                patient_id: Some(patient_id.clone()),
+                device_id: device_id.id().to_string(),
+                success: true,
+                details: Some(format!(
+                    "amendment_reason={}, previous_version={}, history_id={}",
+                    input.amendment_reason.as_deref().unwrap_or(""),
+                    version_id,
+                    history_id,
+                )),
+            },
+        )?;
+    }
 
     let mut fhir: serde_json::Value = serde_json::from_str(&existing_json)
         .map_err(|e| AppError::Serialization(e.to_string()))?;
@@ -1294,6 +1455,40 @@ pub async fn update_encounter(
     }
     if let Some(ref soap) = input.soap {
         fhir["note"] = build_soap_note_json(soap);
+    }
+
+    // If amending a finalized encounter, add amendment metadata to the resource
+    if is_finalized && input.amendment_reason.is_some() {
+        let amendments = fhir.get("extension")
+            .and_then(|e| e.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut new_extensions = amendments;
+        new_extensions.push(serde_json::json!({
+            "url": "http://medarc.local/fhir/StructureDefinition/encounter-amendment",
+            "extension": [
+                {
+                    "url": "amendedBy",
+                    "valueReference": {
+                        "reference": format!("Practitioner/{}", sess.user_id),
+                        "type": "Practitioner"
+                    }
+                },
+                {
+                    "url": "amendedAt",
+                    "valueDateTime": now
+                },
+                {
+                    "url": "amendmentReason",
+                    "valueString": input.amendment_reason.as_deref().unwrap_or("")
+                },
+                {
+                    "url": "previousVersion",
+                    "valueInteger": version_id
+                }
+            ]
+        }));
+        fhir["extension"] = serde_json::json!(new_extensions);
     }
 
     let new_version = version_id + 1;

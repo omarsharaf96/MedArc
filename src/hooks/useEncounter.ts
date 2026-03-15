@@ -61,8 +61,9 @@ export interface UseEncounterReturn {
   /**
    * Persist soapState via updateEncounter (status unchanged).
    * Throws on Rust error — callers catch and surface inline.
+   * If the encounter is finalized, `amendmentReason` is required.
    */
-  saveSoap: (soap: SoapInput) => Promise<void>;
+  saveSoap: (soap: SoapInput, amendmentReason?: string | null) => Promise<void>;
   /**
    * Finalize the encounter: persist SOAP and set status → "finished".
    * Sets `isFinalized` to true immediately on success (optimistic update).
@@ -71,6 +72,12 @@ export interface UseEncounterReturn {
   finalizeEncounter: (soap: SoapInput) => Promise<void>;
   /** True when encounter status is "finished" (loaded or just finalized). */
   isFinalized: boolean;
+  /**
+   * Re-open a finalized encounter for editing. Sets isFinalized to false
+   * locally so the UI enables editing. The actual status is NOT changed in
+   * the DB — the encounter remains "finished" and saves require amendment_reason.
+   */
+  reopenForAmendment: () => void;
   // ── T03: Vitals surface ───────────────────────────────────────────
   /**
    * Most-recent vitals record for this encounter (vitals[0] ?? null).
@@ -246,11 +253,12 @@ export function useEncounter({
 
   // ── T02: saveSoap ─────────────────────────────────────────────────────
   const saveSoap = useCallback(
-    async (soap: SoapInput): Promise<void> => {
+    async (soap: SoapInput, amendmentReason?: string | null): Promise<void> => {
       await commands.updateEncounter(encounterId, {
         soap,
         status: null,
         chiefComplaint: null,
+        amendmentReason: amendmentReason ?? null,
       });
       // Reload to re-hydrate from the server (confirms write and refreshes versionId)
       reload();
@@ -265,6 +273,7 @@ export function useEncounter({
         soap,
         status: "finished",
         chiefComplaint: null,
+        amendmentReason: null,
       });
       // Optimistic: set finalized immediately so UI transitions without waiting
       // for reload to complete
@@ -273,6 +282,11 @@ export function useEncounter({
     },
     [encounterId, reload],
   );
+
+  // ── Reopen for amendment ────────────────────────────────────────────
+  const reopenForAmendment = useCallback(() => {
+    setIsFinalized(false);
+  }, []);
 
   // ── T03: latestVitals ─────────────────────────────────────────────────
   // Derived from the fetched vitals array — the first item is the most recent
@@ -322,6 +336,7 @@ export function useEncounter({
     saveSoap,
     finalizeEncounter,
     isFinalized,
+    reopenForAmendment,
     latestVitals,
     saveVitals,
     rosRecord,

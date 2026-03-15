@@ -2,12 +2,14 @@
  * CalendarPage.tsx — Day/week CSS Grid calendar with read-only appointment cards.
  *
  * Layout:
- *   - CalendarHeader: date/range title + prev/next navigation + day/week toggle
+ *   - CalendarHeader: date/range title + prev/next navigation + Today + day/week toggle
  *   - CalendarGrid: time gutter (08:00–18:00) + appointment columns with
  *     absolutely-positioned appointment cards
  *
- * Appointment cards are read-only in T02 — clicking opens an info popover.
- * Write-path (create/edit/cancel) comes in T03.
+ * Features:
+ *   - Click-to-schedule: clicking an empty time slot fires onSlotClick
+ *   - Today button: quick navigation to current date
+ *   - Privacy mode: patientLabel prop converts names to initials
  *
  * Positioning math:
  *   - Time gutter rows: 60px per hour, 08:00 = 480 minutes offset from midnight
@@ -16,10 +18,6 @@
  *
  * Date helpers co-located here; all use string splits + vanilla Date, no "Z"
  * suffix (avoids timezone-shift bug).
- *
- * Observability:
- *   - appointment count visible in DOM — React DevTools → CalendarGrid props
- *   - Per-card extractAppointmentDisplay call; null display yields fallback text
  */
 
 import { useState } from "react";
@@ -99,8 +97,15 @@ export interface CalendarPageProps {
   onNext: () => void;
   onViewChange: (v: "day" | "week") => void;
   onCardClick: (appt: AppointmentRecord) => void;
+  onEditAppointment: (appt: AppointmentRecord) => void;
   onCancelAppointment: (appt: AppointmentRecord) => void;
   canWrite: boolean;
+  /** Called when an empty time slot on the calendar grid is clicked. */
+  onSlotClick?: (date: string, hour: number, minute: number) => void;
+  /** Called when the Today button is clicked — navigate to today's date. */
+  onToday?: () => void;
+  /** Resolves a patientId to a display label (name or initials in privacy mode). */
+  patientLabel?: (patientId: string) => string;
 }
 
 // ─── CalendarHeader ───────────────────────────────────────────────────────────
@@ -111,6 +116,7 @@ interface CalendarHeaderProps {
   onPrev: () => void;
   onNext: () => void;
   onViewChange: (v: "day" | "week") => void;
+  onToday?: () => void;
 }
 
 function CalendarHeader({
@@ -119,6 +125,7 @@ function CalendarHeader({
   onPrev,
   onNext,
   onViewChange,
+  onToday,
 }: CalendarHeaderProps) {
   // Build the title: "Mon Apr 6, 2026" (day) or "Mon Apr 6 – Sun Apr 12, 2026" (week)
   let title: string;
@@ -158,6 +165,15 @@ function CalendarHeader({
         >
           ‹
         </button>
+        {onToday && (
+          <button
+            onClick={onToday}
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label="Go to today"
+          >
+            Today
+          </button>
+        )}
         <h2 className="text-base font-semibold text-gray-900 min-w-[240px] text-center">
           {title}
         </h2>
@@ -202,9 +218,10 @@ function CalendarHeader({
 interface AppointmentCardProps {
   appt: AppointmentRecord;
   onClick: () => void;
+  patientLabel?: (patientId: string) => string;
 }
 
-function AppointmentCard({ appt, onClick }: AppointmentCardProps) {
+function AppointmentCard({ appt, onClick, patientLabel }: AppointmentCardProps) {
   const display = extractAppointmentDisplay(appt.resource);
 
   const startStr = display.start ?? "";
@@ -235,7 +252,7 @@ function AppointmentCard({ appt, onClick }: AppointmentCardProps) {
       }}
     >
       <div className="px-1 py-0.5 truncate leading-tight">
-        <span className="block truncate">{label}</span>
+        <span className="block truncate">{patientLabel ? patientLabel(appt.patientId) : label}</span>
         <span className="block truncate opacity-90">{timeLabel}</span>
       </div>
     </button>
@@ -249,6 +266,8 @@ interface CalendarGridProps {
   view: "day" | "week";
   currentDate: Date;
   onCardClick: (appt: AppointmentRecord) => void;
+  onSlotClick?: (date: string, hour: number, minute: number) => void;
+  patientLabel?: (patientId: string) => string;
 }
 
 function CalendarGrid({
@@ -256,6 +275,8 @@ function CalendarGrid({
   view,
   currentDate,
   onCardClick,
+  onSlotClick,
+  patientLabel,
 }: CalendarGridProps) {
   const hours = Array.from(
     { length: END_HOUR - START_HOUR },
@@ -336,14 +357,28 @@ function CalendarGrid({
 
               {/* Hour grid lines + appointment cards */}
               <div
-                className="relative"
+                className={`relative${onSlotClick ? " cursor-pointer" : ""}`}
                 style={{ height: `${totalHeightPx}px` }}
+                onClick={(e) => {
+                  if (!onSlotClick) return;
+                  // Only fire if we clicked directly on the grid, not on an appointment card
+                  if (e.target !== e.currentTarget) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const yOffset = e.clientY - rect.top;
+                  const totalMinutes = (yOffset / HOUR_HEIGHT_PX) * 60 + GRID_START_MIN;
+                  const clickHour = Math.floor(totalMinutes / 60);
+                  // Round to nearest 15-minute interval
+                  const clickMinute = Math.round((totalMinutes % 60) / 15) * 15;
+                  const finalMinute = clickMinute === 60 ? 0 : clickMinute;
+                  const finalHour = clickMinute === 60 ? clickHour + 1 : clickHour;
+                  onSlotClick(dateStr, finalHour, finalMinute);
+                }}
               >
                 {/* Hour grid lines */}
                 {hours.map((h) => (
                   <div
                     key={h}
-                    className="absolute inset-x-0 border-t border-gray-100"
+                    className="absolute inset-x-0 border-t border-gray-100 pointer-events-none"
                     style={{
                       top: `${(h - START_HOUR) * HOUR_HEIGHT_PX}px`,
                     }}
@@ -356,6 +391,7 @@ function CalendarGrid({
                     key={appt.id}
                     appt={appt}
                     onClick={() => onCardClick(appt)}
+                    patientLabel={patientLabel}
                   />
                 ))}
               </div>
@@ -373,10 +409,12 @@ interface InfoPopoverProps {
   appt: AppointmentRecord;
   onClose: () => void;
   canWrite: boolean;
+  onEditAppointment: (appt: AppointmentRecord) => void;
   onCancelAppointment: (appt: AppointmentRecord) => void;
+  patientLabel?: (patientId: string) => string;
 }
 
-function InfoPopover({ appt, onClose, canWrite, onCancelAppointment }: InfoPopoverProps) {
+function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppointment, patientLabel }: InfoPopoverProps) {
   const { navigate } = useNav();
   const display = extractAppointmentDisplay(appt.resource);
 
@@ -441,8 +479,8 @@ function InfoPopover({ appt, onClose, canWrite, onCancelAppointment }: InfoPopov
           )}
           <div className="flex gap-2">
             <dt className="w-20 shrink-0 text-gray-500">Patient</dt>
-            <dd className="text-gray-900 font-mono text-xs break-all">
-              {appt.patientId}
+            <dd className="text-gray-900 text-sm break-all">
+              {patientLabel ? patientLabel(appt.patientId) : appt.patientId}
             </dd>
           </div>
         </dl>
@@ -459,6 +497,19 @@ function InfoPopover({ appt, onClose, canWrite, onCancelAppointment }: InfoPopov
           >
             Go to Chart
           </button>
+
+          {/* Edit appointment — write-gated, not cancelled/fulfilled */}
+          {canWrite && display.status !== "cancelled" && display.status !== "fulfilled" && (
+            <button
+              onClick={() => {
+                onClose();
+                onEditAppointment(appt);
+              }}
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              Edit Appointment
+            </button>
+          )}
 
           {/* Cancel appointment — write-gated, booked-only */}
           {showCancelBtn && (
@@ -488,8 +539,12 @@ export function CalendarPage({
   onNext,
   onViewChange,
   onCardClick,
+  onEditAppointment,
   onCancelAppointment,
   canWrite,
+  onSlotClick,
+  onToday,
+  patientLabel,
 }: CalendarPageProps) {
   const [selectedCard, setSelectedCard] = useState<AppointmentRecord | null>(null);
 
@@ -510,19 +565,24 @@ export function CalendarPage({
         onPrev={onPrev}
         onNext={onNext}
         onViewChange={onViewChange}
+        onToday={onToday}
       />
       <CalendarGrid
         appointments={appointments}
         view={view}
         currentDate={currentDate}
         onCardClick={handleCardClick}
+        onSlotClick={onSlotClick}
+        patientLabel={patientLabel}
       />
       {selectedCard && (
         <InfoPopover
           appt={selectedCard}
           onClose={handleClosePopover}
           canWrite={canWrite}
+          onEditAppointment={onEditAppointment}
           onCancelAppointment={onCancelAppointment}
+          patientLabel={patientLabel}
         />
       )}
     </div>

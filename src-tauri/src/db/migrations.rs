@@ -457,6 +457,10 @@ pub static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
         ),
         // Migration 15: PT Note index table for PT-DOC-01 through PT-DOC-04
         //
+        // DEPRECATED: PT Notes have been removed as a separate module. PT documentation
+        // is now handled through the encounters/documentation system with note templates.
+        // This migration is kept for append-only migration compatibility — do NOT delete.
+        //
         // `pt_note_index` is the fast-query index for Physical Therapy notes.
         // The actual note content is stored as FHIR Composition JSON in `fhir_resources`
         // (resource_type = 'PTNote').

@@ -91,6 +91,7 @@ export interface FlowBoardPageProps {
   error: string | null;
   canWrite: boolean;
   onUpdateStatus: (input: UpdateFlowStatusInput) => Promise<void>;
+  patientLabel?: (patientId: string) => string;
 }
 
 // ─── FlowBoardCard ────────────────────────────────────────────────────────────
@@ -99,9 +100,10 @@ interface FlowBoardCardProps {
   entry: FlowBoardEntry;
   canWrite: boolean;
   onUpdateStatus: (input: UpdateFlowStatusInput) => Promise<void>;
+  patientLabel?: (patientId: string) => string;
 }
 
-function FlowBoardCard({ entry, canWrite, onUpdateStatus }: FlowBoardCardProps) {
+function FlowBoardCard({ entry, canWrite, onUpdateStatus, patientLabel }: FlowBoardCardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
   const [roomValue, setRoomValue] = useState(entry.room ?? "");
@@ -135,9 +137,12 @@ function FlowBoardCard({ entry, canWrite, onUpdateStatus }: FlowBoardCardProps) 
     <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm space-y-2">
       {/* Top row: type, time, badge */}
       <div className="flex items-center gap-4">
-        {/* Appointment type + time */}
+        {/* Patient + Appointment type + time */}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-gray-900">
+          <p className="truncate text-sm font-semibold text-gray-900">
+            {patientLabel ? patientLabel(entry.patientId) : entry.patientId}
+          </p>
+          <p className="truncate text-sm text-gray-700">
             {entry.apptType}
           </p>
           <p className="text-xs text-gray-500">
@@ -200,6 +205,7 @@ export function FlowBoardPage({
   error,
   canWrite,
   onUpdateStatus,
+  patientLabel,
 }: FlowBoardPageProps) {
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (loading) {
@@ -246,6 +252,7 @@ export function FlowBoardPage({
           entry={entry}
           canWrite={canWrite}
           onUpdateStatus={onUpdateStatus}
+          patientLabel={patientLabel}
         />
       ))}
     </div>

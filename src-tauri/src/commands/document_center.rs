@@ -308,6 +308,7 @@ fn build_categorized_document_fhir(
         "content": [{
             "attachment": {
                 "contentType": input.mime_type,
+                "data": input.file_data_base64,
                 "size": file_size,
                 "title": input.file_name,
                 "creation": now
@@ -2067,6 +2068,101 @@ fn extract_fields_from_fhir(resource: &serde_json::Value) -> Vec<SurveyField> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Document Content Retrieval
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Result of retrieving document content for inline preview.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentContentResult {
+    pub document_id: String,
+    pub mime_type: String,
+    /// Base64-encoded file content (from FHIR attachment.data).
+    /// Null if the document was uploaded before content storage was enabled.
+    pub content_base64: Option<String>,
+    pub file_name: String,
+    pub file_size: i64,
+}
+
+/// Retrieve the base64-encoded content of a document for inline preview.
+///
+/// Reads the FHIR DocumentReference resource and extracts the
+/// `content[0].attachment.data` field if present. Documents uploaded
+/// before content storage was enabled will return contentBase64: null.
+///
+/// RBAC: Provider, NurseMa, SystemAdmin, BillingStaff, FrontDesk (read).
+#[tauri::command]
+pub fn get_document_content(
+    document_id: String,
+    session_manager: State<SessionManager>,
+    db: State<Database>,
+    device_id: State<DeviceId>,
+) -> Result<DocumentContentResult, AppError> {
+    let sess = middleware::require_authenticated(&session_manager)?;
+    let caller_role = sess.role;
+    middleware::require_permission(caller_role, Resource::PatientDocuments, Action::Read)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Fetch document metadata and FHIR resource
+    let (doc_id, mime, fname, fsize, res_str): (String, String, String, i64, String) = conn
+        .query_row(
+            "SELECT d.document_id, d.mime_type, d.file_name, d.file_size, r.resource
+             FROM document_category_index d
+             JOIN fhir_resources r ON r.id = d.document_id
+             WHERE d.document_id = ?1",
+            rusqlite::params![document_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Document '{}' not found", document_id)))?;
+
+    // Parse FHIR resource and extract content[0].attachment.data
+    let resource: serde_json::Value =
+        serde_json::from_str(&res_str).unwrap_or(serde_json::Value::Null);
+
+    let content_base64 = resource
+        .get("content")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("attachment"))
+        .and_then(|a| a.get("data"))
+        .and_then(|d| d.as_str())
+        .map(|s| s.to_string());
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: sess.user_id.clone(),
+            action: "get_document_content".to_string(),
+            resource_type: "DocumentReference".to_string(),
+            resource_id: Some(doc_id.clone()),
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: None,
+        },
+    )?;
+
+    Ok(DocumentContentResult {
+        document_id: doc_id,
+        mime_type: mime,
+        content_base64,
+        file_name: fname,
+        file_size: fsize,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

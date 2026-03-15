@@ -1677,6 +1677,144 @@ pub async fn complete_recall(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Provider Appointment Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Provider appointment types mapping returned to callers.
+///
+/// Stored in `app_settings` under key `provider_appointment_types` as a JSON
+/// object mapping provider user IDs to arrays of appointment type strings.
+/// Example: `{ "uuid-1": ["Checking"], "uuid-2": ["Initial Evaluation", "PT Treatment"] }`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAppointmentTypesMap {
+    /// Map of provider_id → list of allowed appointment type strings.
+    pub types: std::collections::HashMap<String, Vec<String>>,
+}
+
+/// Get the provider-to-appointment-types mapping from app_settings.
+///
+/// Returns a map of provider IDs to their allowed appointment type strings.
+/// If no mapping exists yet, returns an empty map.
+///
+/// Requires: AppointmentScheduling + Read
+#[tauri::command]
+pub async fn get_provider_appointment_types(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+) -> Result<ProviderAppointmentTypesMap, AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Read)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let json_str: String = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'provider_appointment_types'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let types: std::collections::HashMap<String, Vec<String>> =
+        serde_json::from_str(&json_str).unwrap_or_default();
+
+    Ok(ProviderAppointmentTypesMap { types })
+}
+
+/// Set the provider-to-appointment-types mapping in app_settings.
+///
+/// Accepts a JSON map of provider IDs to arrays of appointment type strings.
+/// Overwrites any existing mapping.
+///
+/// Requires: AppointmentScheduling + Update (SystemAdmin or Provider)
+#[tauri::command]
+pub async fn set_provider_appointment_types(
+    types: std::collections::HashMap<String, Vec<String>>,
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<(), AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Update)?;
+
+    let json_str = serde_json::to_string(&types)
+        .map_err(|e| AppError::Serialization(e.to_string()))?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('provider_appointment_types', ?1, datetime('now'))",
+        rusqlite::params![json_str],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: sess.user_id.clone(),
+            action: "scheduling.provider_appt_types.update".to_string(),
+            resource_type: "AppSettings".to_string(),
+            resource_id: Some("provider_appointment_types".to_string()),
+            patient_id: None,
+            device_id: device_id.id().to_string(),
+            success: true,
+            details: Some(format!("providers={}", types.len())),
+        },
+    )?;
+
+    Ok(())
+}
+
+/// List all users with Provider role (convenience command for scheduling UI).
+///
+/// Returns a lightweight list of provider users for the appointment form
+/// provider selector. Does not require user management permissions — only
+/// AppointmentScheduling + Read so any scheduling-capable user can see providers.
+#[tauri::command]
+pub async fn list_providers(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+) -> Result<Vec<ProviderListEntry>, AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Read)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, display_name FROM users WHERE role = 'Provider' AND is_active = 1 ORDER BY display_name ASC",
+    )?;
+
+    let providers: Vec<ProviderListEntry> = stmt
+        .query_map([], |row| {
+            Ok(ProviderListEntry {
+                id: row.get(0)?,
+                display_name: row.get(1)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(providers)
+}
+
+/// Lightweight provider entry for the appointment form provider selector.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderListEntry {
+    pub id: String,
+    pub display_name: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 

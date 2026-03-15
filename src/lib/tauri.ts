@@ -95,9 +95,6 @@ import type {
 import type { BackupResult, RestoreResult, BackupLogEntry } from "../types/backup";
 
 import type {
-  PtNoteInput,
-  PtNoteRecord,
-  PtNoteType,
   MeasureType,
   OutcomeScoreInput,
   OutcomeScoreRecord,
@@ -123,7 +120,7 @@ import type {
   LlmSettingsInput,
 } from "../types/ai";
 
-import type { PdfExportResult } from "../types/export";
+import type { PdfExportResult, FaxEncounterNoteInput, FaxEncounterNoteResult } from "../types/export";
 
 import type {
   FaxRecord,
@@ -147,6 +144,7 @@ import type {
   SurveyResponse,
   ReferralInput,
   ReferralRecord,
+  DocumentContentResult,
 } from "../types/documents";
 
 import type {
@@ -291,6 +289,9 @@ export const commands = {
       username: input.username,
       password: input.password,
     }),
+
+  /** Dev bypass login — debug builds only. */
+  devBypassLogin: () => invoke<LoginResponse>("dev_bypass_login"),
 
   /** Log out the current user. */
   logout: () => invoke<void>("logout"),
@@ -530,6 +531,18 @@ export const commands = {
   completeRecall: (recallId: string, notes?: string | null) =>
     invoke<void>("complete_recall", { recallId, notes: notes ?? null }),
 
+  /** Get provider-to-appointment-types mapping from app_settings. */
+  getProviderAppointmentTypes: () =>
+    invoke<{ types: Record<string, string[]> }>("get_provider_appointment_types"),
+
+  /** Set provider-to-appointment-types mapping in app_settings. */
+  setProviderAppointmentTypes: (types: Record<string, string[]>) =>
+    invoke<void>("set_provider_appointment_types", { types }),
+
+  /** List all active providers (id + displayName) for the appointment form. */
+  listProviders: () =>
+    invoke<Array<{ id: string; displayName: string }>>("list_providers"),
+
   // ─── Documentation commands ──────────────────────────────────────
 
   /** Create a new clinical encounter. */
@@ -654,34 +667,7 @@ export const commands = {
   /** List all backup log entries (most recent first, limit 100). */
   listBackups: () => invoke<BackupLogEntry[]>("list_backups"),
 
-  // ─── PT Note commands ────────────────────────────────────────────
-
-  /** Create a new PT note (draft). Returns the created PtNoteRecord. */
-  createPtNote: (input: PtNoteInput) =>
-    invoke<PtNoteRecord>("create_pt_note", { input }),
-
-  /** Retrieve a single PT note by ID. */
-  getPtNote: (ptNoteId: string) =>
-    invoke<PtNoteRecord>("get_pt_note", { ptNoteId }),
-
-  /** List PT notes for a patient, optionally filtered by note type. */
-  listPtNotes: (patientId: string, noteType?: PtNoteType | null) =>
-    invoke<PtNoteRecord[]>("list_pt_notes", {
-      patientId,
-      noteType: noteType ?? null,
-    }),
-
-  /** Update a PT note's fields (draft only; locked notes are rejected). */
-  updatePtNote: (ptNoteId: string, input: PtNoteInput) =>
-    invoke<PtNoteRecord>("update_pt_note", { ptNoteId, input }),
-
-  /** Co-sign a PT note, transitioning it from draft → signed. */
-  cosignPtNote: (ptNoteId: string) =>
-    invoke<PtNoteRecord>("cosign_pt_note", { ptNoteId }),
-
-  /** Lock a signed PT note, transitioning it from signed → locked. */
-  lockPtNote: (ptNoteId: string) =>
-    invoke<PtNoteRecord>("lock_pt_note", { ptNoteId }),
+  // ─── PT Note commands removed (redundant with encounters/documentation) ──
 
   // ─── M003/S02 — Objective Measures & Outcome Scores ──────────────
 
@@ -818,6 +804,14 @@ export const commands = {
       endDate: endDate ?? null,
     }),
 
+  /** Generate a PDF for a specific encounter's SOAP note. */
+  generateEncounterNotePdf: (encounterId: string) =>
+    invoke<PdfExportResult>("generate_encounter_note_pdf", { encounterId }),
+
+  /** Generate a PDF of an encounter note and immediately fax it via Phaxio. */
+  faxEncounterNote: (input: FaxEncounterNoteInput) =>
+    invoke<FaxEncounterNoteResult>("fax_encounter_note", { input }),
+
   // ─── M003/S04 — Document Center commands ──────────────────────────
 
   /** Upload a document with a PT-specific category. */
@@ -879,6 +873,10 @@ export const commands = {
   /** Update a referral record. */
   updateReferral: (referralId: string, input: ReferralInput) =>
     invoke<ReferralRecord>("update_referral", { referralId, input }),
+
+  /** Retrieve the base64-encoded content of a document for inline preview. */
+  getDocumentContent: (documentId: string) =>
+    invoke<DocumentContentResult>("get_document_content", { documentId }),
 
   // ─── M003/S06 — Fax Integration (Phaxio) ─────────────────────────
 

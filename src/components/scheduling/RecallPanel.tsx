@@ -70,6 +70,7 @@ export interface RecallPanelProps {
   canWrite: boolean;
   onCreateRecall: (input: RecallInput) => Promise<void>;
   onCompleteRecall: (id: string, notes: string | null) => Promise<void>;
+  patientLabel?: (patientId: string) => string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -81,6 +82,7 @@ export function RecallPanel({
   canWrite,
   onCreateRecall,
   onCompleteRecall,
+  patientLabel,
 }: RecallPanelProps) {
   // ── Add form toggle + state ─────────────────────────────────────────────
   const [addOpen, setAddOpen] = useState(false);
@@ -352,7 +354,7 @@ export function RecallPanel({
                 {/* Main info */}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gray-900">
-                    {record.patientId}
+                    {patientLabel ? patientLabel(record.patientId) : record.patientId}
                   </p>
                   <p className="text-xs text-gray-500">
                     Due: {dueDateDisplay}

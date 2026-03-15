@@ -1271,6 +1271,345 @@ pub fn generate_chart_export(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Encounter Note PDF + Fax workflow commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Generate a PDF of a specific encounter's SOAP note.
+///
+/// This is the encounter-workspace-level command that takes an encounter ID
+/// and renders the note with letterhead, patient demographics, SOAP sections,
+/// and a provider signature line. Returns the temp file path so the frontend
+/// can save-as or pass it to the fax workflow.
+///
+/// RBAC: Provider or SystemAdmin, PdfExport::Create.
+#[tauri::command]
+pub fn generate_encounter_note_pdf(
+    encounter_id: String,
+    session_manager: State<'_, SessionManager>,
+    db: State<'_, Database>,
+    device_id: State<'_, DeviceId>,
+) -> Result<PdfExportResult, AppError> {
+    let session = middleware::require_authenticated(&session_manager)?;
+    middleware::require_permission(session.role, Resource::PdfExport, Action::Create)?;
+
+    if encounter_id.trim().is_empty() {
+        return Err(AppError::Validation(
+            "encounter_id is required".to_string(),
+        ));
+    }
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let settings = load_practice_settings(&conn);
+    let provider = load_provider_info(&conn, &session.user_id)?;
+
+    // Fetch the encounter from encounter_index + fhir_resources
+    let (resource_json, patient_id, encounter_date): (String, String, String) = conn
+        .query_row(
+            "SELECT f.resource, e.patient_id, e.encounter_date
+             FROM fhir_resources f
+             JOIN encounter_index e ON f.id = e.encounter_id
+             WHERE f.id = ?1",
+            rusqlite::params![&encounter_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| {
+            AppError::NotFound(format!("Encounter not found: {}", encounter_id))
+        })?;
+
+    let resource: serde_json::Value = serde_json::from_str(&resource_json)
+        .map_err(|e| AppError::Serialization(e.to_string()))?;
+
+    let patient = load_patient_info(&conn, &patient_id)?;
+    let report_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    // Build the PDF
+    let mut builder = PdfBuilder::new(&format!(
+        "Encounter Note - {} {} - {}",
+        patient.given_name, patient.family_name, encounter_date
+    ))?;
+
+    builder.add_letterhead(&settings);
+    builder.add_patient_header(&patient, &report_date);
+
+    // Render the encounter SOAP sections
+    render_encounter(&mut builder, &resource, &encounter_date);
+
+    builder.add_signature_line(&provider.display_name);
+
+    let file_path = temp_pdf_path("encounter-note")?;
+    let page_count = builder.page_count;
+    builder.save(&file_path)?;
+
+    // Log the export
+    log_export(
+        &conn,
+        &patient_id,
+        "note_pdf",
+        &file_path,
+        &session.user_id,
+    )?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: session.user_id.clone(),
+            action: "pdf_export.generate_encounter_note_pdf".to_string(),
+            resource_type: "PdfExport".to_string(),
+            resource_id: Some(encounter_id),
+            patient_id: Some(patient_id),
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some(format!("generated encounter note PDF: {}", file_path)),
+        },
+    );
+
+    Ok(PdfExportResult {
+        file_path,
+        export_type: "note_pdf".to_string(),
+        pages: page_count,
+    })
+}
+
+/// Input for the fax-encounter-note workflow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FaxEncounterNoteInput {
+    /// The encounter ID whose note to fax.
+    pub encounter_id: String,
+    /// Recipient fax number (E.164 format).
+    pub recipient_fax: String,
+    /// Recipient name for the fax log.
+    pub recipient_name: String,
+    /// Optional patient ID (derived from encounter if not provided).
+    pub patient_id: Option<String>,
+}
+
+/// Result of the fax-encounter-note workflow.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FaxEncounterNoteResult {
+    /// Path to the generated PDF that was faxed.
+    pub pdf_path: String,
+    /// The fax log entry ID.
+    pub fax_id: String,
+    /// Fax status after queueing.
+    pub status: String,
+}
+
+/// Generate a PDF of the encounter note and immediately send it via Phaxio fax.
+///
+/// Workflow:
+///   1. Generate the encounter note PDF (same as generate_encounter_note_pdf)
+///   2. Read Phaxio credentials from app_settings
+///   3. POST the PDF to Phaxio /v2/faxes
+///   4. Log the fax in fax_log
+///   5. Return the fax log entry
+///
+/// RBAC: Provider or SystemAdmin, PdfExport::Create + ClinicalRecords::Create.
+#[tauri::command]
+pub fn fax_encounter_note(
+    input: FaxEncounterNoteInput,
+    session_manager: State<'_, SessionManager>,
+    db: State<'_, Database>,
+    device_id: State<'_, DeviceId>,
+) -> Result<FaxEncounterNoteResult, AppError> {
+    let session = middleware::require_authenticated(&session_manager)?;
+    middleware::require_permission(session.role, Resource::PdfExport, Action::Create)?;
+    middleware::require_permission(session.role, Resource::ClinicalRecords, Action::Create)?;
+
+    if input.encounter_id.trim().is_empty() {
+        return Err(AppError::Validation(
+            "encounter_id is required".to_string(),
+        ));
+    }
+    if input.recipient_fax.trim().is_empty() {
+        return Err(AppError::Validation(
+            "recipient_fax is required".to_string(),
+        ));
+    }
+    if input.recipient_name.trim().is_empty() {
+        return Err(AppError::Validation(
+            "recipient_name is required".to_string(),
+        ));
+    }
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let settings = load_practice_settings(&conn);
+    let provider = load_provider_info(&conn, &session.user_id)?;
+
+    // Step 1: Fetch encounter data
+    let (resource_json, patient_id, encounter_date): (String, String, String) = conn
+        .query_row(
+            "SELECT f.resource, e.patient_id, e.encounter_date
+             FROM fhir_resources f
+             JOIN encounter_index e ON f.id = e.encounter_id
+             WHERE f.id = ?1",
+            rusqlite::params![&input.encounter_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| {
+            AppError::NotFound(format!(
+                "Encounter not found: {}",
+                input.encounter_id
+            ))
+        })?;
+
+    let resource: serde_json::Value = serde_json::from_str(&resource_json)
+        .map_err(|e| AppError::Serialization(e.to_string()))?;
+
+    let patient = load_patient_info(&conn, &patient_id)?;
+    let report_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    // Step 2: Generate the PDF
+    let mut builder = PdfBuilder::new(&format!(
+        "Encounter Note - {} {} - {}",
+        patient.given_name, patient.family_name, encounter_date
+    ))?;
+
+    builder.add_letterhead(&settings);
+    builder.add_patient_header(&patient, &report_date);
+    render_encounter(&mut builder, &resource, &encounter_date);
+    builder.add_signature_line(&provider.display_name);
+
+    let pdf_path = temp_pdf_path("fax-encounter-note")?;
+    builder.save(&pdf_path)?;
+
+    log_export(
+        &conn,
+        &patient_id,
+        "note_pdf",
+        &pdf_path,
+        &session.user_id,
+    )?;
+
+    // Step 3: Read Phaxio credentials
+    let get_setting = |key: &str| -> Result<String, AppError> {
+        conn.query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            rusqlite::params![key],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| {
+            AppError::Validation(format!(
+                "Phaxio not configured: missing setting '{}'",
+                key
+            ))
+        })
+    };
+
+    let api_key = get_setting("phaxio_api_key")?;
+    let api_secret = get_setting("phaxio_api_secret")?;
+
+    // Step 4: Send fax via Phaxio API
+    let fax_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Read the PDF file bytes for multipart upload
+    let pdf_bytes = std::fs::read(&pdf_path).map_err(AppError::Io)?;
+
+    let client = reqwest::blocking::Client::new();
+    let form = reqwest::blocking::multipart::Form::new()
+        .text("api_key", api_key)
+        .text("api_secret", api_secret)
+        .text("to", input.recipient_fax.clone())
+        .part(
+            "file",
+            reqwest::blocking::multipart::Part::bytes(pdf_bytes)
+                .file_name("encounter-note.pdf")
+                .mime_str("application/pdf")
+                .map_err(|e| AppError::Validation(e.to_string()))?,
+        );
+
+    let mut status = "queued".to_string();
+    let mut phaxio_fax_id: Option<String> = None;
+    let mut error_message: Option<String> = None;
+
+    match client
+        .post("https://api.phaxio.com/v2/faxes")
+        .multipart(form)
+        .send()
+    {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                if let Ok(body) = resp.json::<serde_json::Value>() {
+                    if body["success"].as_bool() == Some(true) {
+                        phaxio_fax_id = body["data"]["id"]
+                            .as_i64()
+                            .map(|id| id.to_string());
+                        status = "queued".to_string();
+                    } else {
+                        status = "failed".to_string();
+                        error_message =
+                            body["message"].as_str().map(|s| s.to_string());
+                    }
+                }
+            } else {
+                status = "failed".to_string();
+                error_message = Some(format!("HTTP {}", resp.status()));
+            }
+        }
+        Err(e) => {
+            status = "failed".to_string();
+            error_message = Some(e.to_string());
+        }
+    }
+
+    // Step 5: Log fax in fax_log
+    let doc_name = format!(
+        "Encounter Note - {} {}",
+        patient.given_name, patient.family_name
+    );
+    conn.execute(
+        "INSERT INTO fax_log (fax_id, phaxio_fax_id, direction, patient_id, recipient_name, recipient_fax, document_name, file_path, status, sent_at, error_message, retry_count)
+         VALUES (?1, ?2, 'sent', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)",
+        rusqlite::params![
+            fax_id,
+            phaxio_fax_id,
+            patient_id,
+            input.recipient_name,
+            input.recipient_fax,
+            doc_name,
+            pdf_path,
+            status,
+            now,
+            error_message,
+        ],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: session.user_id.clone(),
+            action: "pdf_export.fax_encounter_note".to_string(),
+            resource_type: "FaxLog".to_string(),
+            resource_id: Some(fax_id.clone()),
+            patient_id: Some(patient_id),
+            device_id: device_id.get().to_string(),
+            success: status != "failed",
+            details: Some(format!(
+                "faxed encounter note to {} ({})",
+                input.recipient_name, input.recipient_fax
+            )),
+        },
+    );
+
+    Ok(FaxEncounterNoteResult {
+        pdf_path,
+        fax_id,
+        status,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Unit tests
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -60,6 +60,7 @@ function App() {
       <LoginForm
         onLogin={auth.login}
         onSwitchToRegister={() => setShowRegister(true)}
+        onDevBypass={auth.devBypass}
         firstRun={auth.firstRun}
         error={auth.error}
         loading={auth.loading}
@@ -70,6 +71,13 @@ function App() {
   // Authenticated -- shell with lock screen overlay to preserve React state
   return (
     <>
+      {/* DEV MODE badge — tree-shaken in production builds by Vite */}
+      {import.meta.env.DEV && (
+        <div className="fixed bottom-3 right-3 z-50 rounded px-2 py-1 text-xs font-bold uppercase tracking-wide bg-orange-500/80 text-white shadow select-none pointer-events-none">
+          DEV MODE
+        </div>
+      )}
+
       {/* Lock screen overlay (rendered above shell to preserve router/page state) */}
       {auth.isLocked && (
         <LockScreen

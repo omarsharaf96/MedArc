@@ -11,7 +11,7 @@
 
 import { createContext, useContext, useState, useCallback } from "react";
 import type { ReactNode } from "react";
-import type { PtNoteType } from "../types/pt";
+// PtNoteType import removed — PT notes are now handled through encounters/documentation
 
 // ─── Route union type ───────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ export type Route =
   | { page: "settings" }
   | { page: "audit-log" }
   | { page: "pt-notes"; patientId: string }
-  | { page: "pt-note-detail"; patientId: string; noteType: PtNoteType; ptNoteId: string }
+  | { page: "pt-note-detail"; patientId: string; noteType: string; ptNoteId: string }
   | { page: "outcome-measures"; patientId: string }
   | { page: "document-center"; patientId: string }
   | { page: "survey-builder" }

@@ -80,6 +80,176 @@ function roleBadge(role: string): React.ReactElement {
 
 type Tab = "backup" | "security" | "fax" | "reminders" | "account" | "users";
 
+// ─── Provider Appointment Types Section ────────────────────────────────────────
+
+/**
+ * Inline section within the Users tab for managing per-provider appointment types.
+ * Shows only providers (role === "Provider") and allows adding/removing
+ * appointment type strings per provider.
+ */
+function ProviderAppointmentTypesSection({ users }: { users: UserListEntry[] }) {
+  const [typesMap, setTypesMap] = useState<Record<string, string[]>>({});
+  const [loadingTypes, setLoadingTypes] = useState(false);
+  const [savingTypes, setSavingTypes] = useState(false);
+  const [typesError, setTypesError] = useState<string | null>(null);
+  const [typesSuccess, setTypesSuccess] = useState<string | null>(null);
+  const [newTypeInputs, setNewTypeInputs] = useState<Record<string, string>>({});
+
+  const providerUsers = users.filter((u) => u.role === "Provider" && u.isActive);
+
+  // Load on mount
+  useEffect(() => {
+    let mounted = true;
+    setLoadingTypes(true);
+    commands.getProviderAppointmentTypes()
+      .then((result) => {
+        if (mounted) setTypesMap(result.types);
+      })
+      .catch((e) => {
+        if (mounted) setTypesError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (mounted) setLoadingTypes(false);
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  async function handleSave() {
+    setSavingTypes(true);
+    setTypesError(null);
+    setTypesSuccess(null);
+    try {
+      await commands.setProviderAppointmentTypes(typesMap);
+      setTypesSuccess("Provider appointment types saved.");
+    } catch (e) {
+      setTypesError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingTypes(false);
+    }
+  }
+
+  function handleAddType(providerId: string) {
+    const newType = (newTypeInputs[providerId] ?? "").trim();
+    if (!newType) return;
+    setTypesMap((prev) => {
+      const existing = prev[providerId] ?? [];
+      if (existing.includes(newType)) return prev;
+      return { ...prev, [providerId]: [...existing, newType] };
+    });
+    setNewTypeInputs((prev) => ({ ...prev, [providerId]: "" }));
+  }
+
+  function handleRemoveType(providerId: string, typeToRemove: string) {
+    setTypesMap((prev) => {
+      const existing = prev[providerId] ?? [];
+      return { ...prev, [providerId]: existing.filter((t) => t !== typeToRemove) };
+    });
+  }
+
+  if (providerUsers.length === 0) return null;
+
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-base font-semibold text-gray-900">
+          Provider Appointment Types
+        </h2>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={savingTypes}
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {savingTypes ? "Saving..." : "Save"}
+        </button>
+      </div>
+
+      <p className="text-sm text-gray-500 mb-4">
+        Configure which appointment types each provider can accept. When scheduling,
+        only the selected provider's types will appear in the appointment type dropdown.
+      </p>
+
+      {typesError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-4">
+          {typesError}
+        </div>
+      )}
+
+      {typesSuccess && (
+        <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 mb-4">
+          {typesSuccess}
+        </div>
+      )}
+
+      {loadingTypes ? (
+        <p className="text-sm text-gray-500">Loading...</p>
+      ) : (
+        <div className="space-y-4">
+          {providerUsers.map((prov) => {
+            const provTypes = typesMap[prov.id] ?? [];
+            const newTypeValue = newTypeInputs[prov.id] ?? "";
+
+            return (
+              <div key={prov.id} className="rounded-md border border-gray-100 bg-gray-50 p-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">
+                  {prov.displayName}
+                </h3>
+
+                {/* Existing types as removable tags */}
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {provTypes.length === 0 && (
+                    <span className="text-xs text-gray-400 italic">No types configured (will show generic options)</span>
+                  )}
+                  {provTypes.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800"
+                    >
+                      {t}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveType(prov.id, t)}
+                        className="ml-0.5 rounded-full p-0.5 text-blue-600 hover:bg-blue-200 hover:text-blue-900 focus:outline-none"
+                        aria-label={`Remove ${t}`}
+                      >
+                        x
+                      </button>
+                    </span>
+                  ))}
+                </div>
+
+                {/* Add new type */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newTypeValue}
+                    onChange={(e) => setNewTypeInputs((prev) => ({ ...prev, [prov.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddType(prov.id);
+                      }
+                    }}
+                    placeholder="New appointment type..."
+                    className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddType(prov.id)}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export function SettingsPage() {
@@ -1106,6 +1276,9 @@ export function SettingsPage() {
                 </div>
               )}
             </section>
+
+            {/* ── Provider Appointment Types Configuration ──────────────────────── */}
+            <ProviderAppointmentTypesSection users={users} />
           </div>
         )}
 

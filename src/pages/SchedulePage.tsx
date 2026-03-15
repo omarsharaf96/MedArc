@@ -1,42 +1,35 @@
 /**
- * SchedulePage.tsx — Full scheduling page replacing the S03 stub.
+ * SchedulePage.tsx — Full scheduling page.
  *
  * Owns:
  *   - RBAC: derives role + userId from useAuth; gates canWrite
  *   - View state: day | week toggle, currentDate, prev/next navigation
  *   - Date range: getDateRange(currentDate, view) → { start, end } strings
- *   - Data: calls useSchedule(startDate, endDate, userId)
+ *   - Data: calls useSchedule(startDate, endDate)
  *   - Modal state: createOpen (new appointment), cancelTarget (cancel an appt)
+ *   - Provider data: loads providers + provider appointment types for the form
+ *   - Click-to-schedule: clicking empty calendar slots opens pre-filled modal
+ *   - Privacy mode: toggle patient names to initials
  *   - Layout: page header → CalendarPage → FlowBoardPage → WaitlistPanel → RecallPanel
- *
- * CalendarPage, FlowBoardPage, WaitlistPanel, and RecallPanel receive
- * pre-fetched data as props — they are pure presentational components.
- *
- * Observability:
- *   - errorAppointments and errorFlowBoard rendered as inline red banners
- *   - React DevTools: SchedulePage → view, currentDate, createOpen, cancelTarget
- *   - Runtime: grep "[useSchedule]" in browser console for per-domain errors
  */
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useSchedule } from "../hooks/useSchedule";
+import { usePatientNames, toInitials } from "../hooks/usePatientNames";
 import { CalendarPage } from "../components/scheduling/CalendarPage";
 import { FlowBoardPage } from "../components/scheduling/FlowBoardPage";
 import { WaitlistPanel } from "../components/scheduling/WaitlistPanel";
 import { RecallPanel } from "../components/scheduling/RecallPanel";
 import { AppointmentFormModal } from "../components/scheduling/AppointmentFormModal";
+import type { ProviderOption } from "../components/scheduling/AppointmentFormModal";
 import { extractAppointmentDisplay } from "../lib/fhirExtract";
 import { commands } from "../lib/tauri";
-import type { AppointmentRecord, UpdateFlowStatusInput, WaitlistInput, RecallInput } from "../types/scheduling";
+import type { AppointmentRecord, UpdateAppointmentInput, UpdateFlowStatusInput, WaitlistInput, RecallInput } from "../types/scheduling";
 import type { ReminderLog, ReminderResult } from "../types/reminders";
 
 // ─── RBAC helper ──────────────────────────────────────────────────────────────
 
-/**
- * Returns true for roles that can create/edit/cancel appointments and update
- * flow statuses. BillingStaff and unknown roles are read-only.
- */
 function canWrite(role: string): boolean {
   return (
     role === "FrontDesk" ||
@@ -78,16 +71,26 @@ export function SchedulePage() {
   const { user } = useAuth();
 
   const role = user?.role ?? "";
-  const userId = user?.id ?? "";
   const writeAllowed = canWrite(role);
 
   // View state
   const [view, setView] = useState<"day" | "week">("week");
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
 
-  // Modal state (T03)
+  // Modal state
   const [createOpen, setCreateOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<AppointmentRecord | null>(null);
+  const [editTarget, setEditTarget] = useState<AppointmentRecord | null>(null);
+
+  // Pre-fill start time for click-to-schedule
+  const [prefillStartTime, setPrefillStartTime] = useState<string | undefined>(undefined);
+
+  // Privacy mode — converts patient names to initials
+  const [privacyMode, setPrivacyMode] = useState(false);
+
+  // Provider data for appointment form
+  const [providers, setProviders] = useState<ProviderOption[]>([]);
+  const [providerApptTypes, setProviderApptTypes] = useState<Record<string, string[]>>({});
 
   // Reminder panel state
   const [reminderLogs, setReminderLogs] = useState<Record<string, ReminderLog[]>>({});
@@ -99,7 +102,7 @@ export function SchedulePage() {
   // Date range strings derived from currentDate + view
   const { start: startDate, end: endDate } = getDateRange(currentDate, view);
 
-  // Data layer — wired to the current date range and current user
+  // Data layer — all providers, RBAC gates access
   const {
     appointments,
     flowBoard,
@@ -122,7 +125,50 @@ export function SchedulePage() {
     dischargeWaitlist,
     createRecall,
     completeRecall,
-  } = useSchedule(startDate, endDate, userId || null);
+  } = useSchedule(startDate, endDate, null);
+
+  // Load providers and provider appointment types on mount
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadProviderData() {
+      try {
+        const [providerList, typesMap] = await Promise.all([
+          commands.listProviders(),
+          commands.getProviderAppointmentTypes(),
+        ]);
+        if (!mounted) return;
+        setProviders(providerList);
+        setProviderApptTypes(typesMap.types);
+      } catch {
+        // Silently ignore — providers will be empty and the form will
+        // fall back to generic appointment types
+      }
+    }
+
+    loadProviderData();
+    return () => { mounted = false; };
+  }, []);
+
+  // Collect all patient IDs from appointments, flow board, waitlist, recalls
+  const allPatientIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const a of appointments) ids.add(a.patientId);
+    for (const f of flowBoard) ids.add(f.patientId);
+    for (const w of waitlist) ids.add(w.patientId);
+    for (const r of recalls) ids.add(r.patientId);
+    return [...ids];
+  }, [appointments, flowBoard, waitlist, recalls]);
+
+  // Resolve patient IDs → display names
+  const patientNames = usePatientNames(allPatientIds);
+
+  /** Get display text for a patient: full name or initials depending on privacy mode. */
+  function patientLabel(patientId: string): string {
+    const name = patientNames.get(patientId);
+    if (!name) return privacyMode ? "**" : patientId;
+    return privacyMode ? toInitials(name) : name;
+  }
 
   // Navigation
   function handlePrev() {
@@ -141,6 +187,20 @@ export function SchedulePage() {
     });
   }
 
+  // Today button handler
+  function handleToday() {
+    setCurrentDate(new Date());
+  }
+
+  // Click-to-schedule handler
+  function handleSlotClick(date: string, hour: number, minute: number) {
+    if (!writeAllowed) return;
+    const hh = hour.toString().padStart(2, "0");
+    const mm = minute.toString().padStart(2, "0");
+    setPrefillStartTime(`${date}T${hh}:${mm}`);
+    setCreateOpen(true);
+  }
+
   // Appointment card click — CalendarPage manages popover internally
   function handleCardClick(_appt: AppointmentRecord) {
     // CalendarPage owns popover state; SchedulePage listens for cancel action
@@ -149,6 +209,11 @@ export function SchedulePage() {
   // Cancel target set from CalendarPage's InfoPopover
   function handleCancelAppointment(appt: AppointmentRecord) {
     setCancelTarget(appt);
+  }
+
+  // Edit target set from CalendarPage's InfoPopover
+  function handleEditAppointment(appt: AppointmentRecord) {
+    setEditTarget(appt);
   }
 
   // Flow status mutation
@@ -171,7 +236,6 @@ export function SchedulePage() {
   }
 
   async function handleCompleteRecall(id: string, notes: string | null): Promise<void> {
-    // completeRecall returns void — do not read return value
     await completeRecall(id, notes);
   }
 
@@ -250,16 +314,34 @@ export function SchedulePage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Schedule</h1>
-        {/* New Appointment button — write-gated */}
-        {writeAllowed && (
+        <div className="flex items-center gap-3">
+          {/* Privacy toggle — hides patient names, shows initials */}
           <button
             type="button"
-            onClick={() => setCreateOpen(true)}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            onClick={() => setPrivacyMode((p) => !p)}
+            title={privacyMode ? "Show patient names" : "Hide patient names (initials only)"}
+            className={`rounded-md border px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors ${
+              privacyMode
+                ? "border-blue-600 bg-blue-600 text-white"
+                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            }`}
           >
-            + New Appointment
+            {privacyMode ? "ABC" : "A.B."}
           </button>
-        )}
+          {/* New Appointment button — write-gated */}
+          {writeAllowed && (
+            <button
+              type="button"
+              onClick={() => {
+                setPrefillStartTime(undefined);
+                setCreateOpen(true);
+              }}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              + New Appointment
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Calendar section ─────────────────────────────────────────────── */}
@@ -286,8 +368,12 @@ export function SchedulePage() {
             onNext={handleNext}
             onViewChange={setView}
             onCardClick={handleCardClick}
+            onEditAppointment={handleEditAppointment}
             onCancelAppointment={handleCancelAppointment}
             canWrite={writeAllowed}
+            onSlotClick={writeAllowed ? handleSlotClick : undefined}
+            onToday={handleToday}
+            patientLabel={patientLabel}
           />
         )}
       </section>
@@ -298,7 +384,6 @@ export function SchedulePage() {
           Today's Flow Board
         </h2>
 
-        {/* Flow board error banner */}
         {errorFlowBoard && (
           <div
             role="alert"
@@ -312,15 +397,15 @@ export function SchedulePage() {
         <FlowBoardPage
           flowBoard={flowBoard}
           loading={loadingFlowBoard}
-          error={null /* banner above handles it */}
+          error={null}
           canWrite={writeAllowed}
           onUpdateStatus={handleUpdateStatus}
+          patientLabel={patientLabel}
         />
       </section>
 
       {/* ── Waitlist section ──────────────────────────────────────────────── */}
       <section>
-        {/* Waitlist error banner */}
         {errorWaitlist && (
           <div
             role="alert"
@@ -334,16 +419,16 @@ export function SchedulePage() {
         <WaitlistPanel
           waitlist={waitlist}
           loading={loadingWaitlist}
-          error={null /* banner above handles it */}
+          error={null}
           canWrite={writeAllowed}
           onAdd={handleAddToWaitlist}
           onDischarge={handleDischargeWaitlist}
+          patientLabel={patientLabel}
         />
       </section>
 
       {/* ── Recall Board section ──────────────────────────────────────────── */}
       <section>
-        {/* Recall error banner */}
         {errorRecalls && (
           <div
             role="alert"
@@ -357,10 +442,11 @@ export function SchedulePage() {
         <RecallPanel
           recalls={recalls}
           loading={loadingRecalls}
-          error={null /* banner above handles it */}
+          error={null}
           canWrite={writeAllowed}
           onCreateRecall={handleCreateRecall}
           onCompleteRecall={handleCompleteRecall}
+          patientLabel={patientLabel}
         />
       </section>
 
@@ -397,7 +483,7 @@ export function SchedulePage() {
                     <>
                       <tr key={appt.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3 text-sm text-gray-900">
-                          {appt.patientId}
+                          {patientLabel(appt.patientId)}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {display.start
@@ -433,7 +519,7 @@ export function SchedulePage() {
                                 onClick={() => handleSendReminder(appt.id, "24hr")}
                                 className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
                               >
-                                {isSending ? "Sending…" : "Send Reminder"}
+                                {isSending ? "Sending..." : "Send Reminder"}
                               </button>
                               {(isPastNoShow) && (
                                 <button
@@ -442,7 +528,7 @@ export function SchedulePage() {
                                   onClick={() => handleSendNoShow(appt.id)}
                                   className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-medium text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
                                 >
-                                  {isNoShowSending ? "Sending…" : "No-Show Follow-up"}
+                                  {isNoShowSending ? "Sending..." : "No-Show Follow-up"}
                                 </button>
                               )}
                             </div>
@@ -507,10 +593,49 @@ export function SchedulePage() {
             return result;
           }}
           onSubmitCancel={cancelAppointment}
-          onClose={() => setCreateOpen(false)}
+          onClose={() => {
+            setCreateOpen(false);
+            setPrefillStartTime(undefined);
+          }}
           canWrite={writeAllowed}
+          providers={providers}
+          providerAppointmentTypes={providerApptTypes}
+          initialStartTime={prefillStartTime}
         />
       )}
+
+      {/* ── AppointmentFormModal — edit mode ─────────────────────────────── */}
+      {editTarget && (() => {
+        const d = extractAppointmentDisplay(editTarget.resource);
+        return (
+          <AppointmentFormModal
+            mode="edit"
+            appointmentId={editTarget.id}
+            editData={{
+              patientId: editTarget.patientId,
+              providerId: editTarget.providerId,
+              startTime: d.start ?? "",
+              durationMinutes: d.durationMin ?? 30,
+              apptType: d.apptType ?? "",
+              color: d.color ?? null,
+              reason: d.reason ?? null,
+              notes: d.notes ?? null,
+            }}
+            onSubmitCreate={createAppointment}
+            onSubmitEdit={async (id: string, input: UpdateAppointmentInput) => {
+              const result = await commands.updateAppointment(id, input);
+              reload();
+              setEditTarget(null);
+              return result;
+            }}
+            onSubmitCancel={cancelAppointment}
+            onClose={() => setEditTarget(null)}
+            canWrite={writeAllowed}
+            providers={providers}
+            providerAppointmentTypes={providerApptTypes}
+          />
+        );
+      })()}
 
       {/* ── AppointmentFormModal — cancel mode ───────────────────────────── */}
       {cancelTarget && (
