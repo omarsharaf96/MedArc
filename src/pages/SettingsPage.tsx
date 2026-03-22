@@ -2817,9 +2817,8 @@ export function SettingsPage() {
                           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         >
                           <option value="us.anthropic.claude-sonnet-4-6">Claude Sonnet 4 (us.anthropic.claude-sonnet-4-6)</option>
-                          <option value="us.anthropic.claude-haiku-4-5-20251001">Claude Haiku 4.5 (us.anthropic.claude-haiku-4-5-20251001)</option>
-                          <option value="anthropic.claude-3-5-sonnet-20241022-v2:0">Claude 3.5 Sonnet v2 (anthropic.claude-3-5-sonnet-20241022-v2:0)</option>
-                          <option value="anthropic.claude-3-haiku-20240307-v1:0">Claude 3 Haiku (anthropic.claude-3-haiku-20240307-v1:0)</option>
+                          <option value="us.anthropic.claude-haiku-4-5-20251001-v1:0">Claude Haiku 4.5 (us.anthropic.claude-haiku-4-5-20251001-v1:0)</option>
+                          <option value="us.anthropic.claude-opus-4-6">Claude Opus 4 (us.anthropic.claude-opus-4-6)</option>
                         </select>
                       </div>
                     </div>

@@ -1577,7 +1577,7 @@ fn read_bedrock_credentials(conn: &rusqlite::Connection) -> Result<BedrockCreden
     })
 }
 
-/// Call AWS Bedrock Claude Haiku as a fallback when Ollama is unavailable.
+/// Call AWS Bedrock Claude as a fallback when Ollama is unavailable.
 ///
 /// Credentials are passed in directly (read from DB before calling this async fn)
 /// to avoid holding a MutexGuard across an await point.
@@ -1586,7 +1586,7 @@ async fn call_bedrock_generate(
     system_prompt: &str,
     user_prompt: &str,
 ) -> Result<(String, String), AppError> {
-    let model_id = "anthropic.claude-3-haiku-20240307-v1:0";
+    let model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
 
     // Build the Bedrock InvokeModel request body
     let body = serde_json::json!({
@@ -2654,19 +2654,19 @@ mod tests {
 
     #[test]
     fn test_sigv4_canonical_uri_encodes_colon() {
-        let model_id = "anthropic.claude-3-haiku-20240307-v1:0";
+        let model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
         let canonical_uri = format!("/model/{}/invoke", model_id.replace(':', "%3A"));
         let raw_uri = format!("/model/{}/invoke", model_id);
 
         // Canonical URI must have %3A (colon encoded)
         assert_eq!(
             canonical_uri,
-            "/model/anthropic.claude-3-haiku-20240307-v1%3A0/invoke"
+            "/model/us.anthropic.claude-haiku-4-5-20251001-v1%3A0/invoke"
         );
         // Raw URI used for HTTP request must have literal colon
         assert_eq!(
             raw_uri,
-            "/model/anthropic.claude-3-haiku-20240307-v1:0/invoke"
+            "/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke"
         );
         // reqwest::Url::parse must preserve raw colon (not encode it)
         let url = reqwest::Url::parse(&format!("https://bedrock-runtime.us-east-1.amazonaws.com{}", raw_uri)).unwrap();
