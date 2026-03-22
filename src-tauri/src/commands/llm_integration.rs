@@ -24,6 +24,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::State;
 
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
+
 use crate::audit::{write_audit_entry, AuditEntryInput};
 use crate::auth::session::SessionManager;
 use crate::db::connection::Database;
@@ -275,16 +278,22 @@ pub struct PatientContext {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LlmSettingsInput {
-    /// Provider: "ollama" or "bedrock".
+    /// Provider: "ollama", "claude", or "bedrock".
     pub provider: String,
-    /// Model name override (e.g. "llama3.1:8b").
+    /// Model name override (e.g. "llama3.1:8b") — used for Ollama.
     pub model: Option<String>,
     /// Custom Ollama URL (default: http://localhost:11434).
     pub ollama_url: Option<String>,
-    /// AWS access key for Bedrock (stored encrypted in SQLCipher).
+    /// API key: Claude API key when provider="claude", AWS access key when provider="bedrock".
     pub api_key: Option<String>,
     /// AWS secret key for Bedrock (stored encrypted in SQLCipher).
     pub api_secret: Option<String>,
+    /// AWS region for Bedrock (e.g. "us-east-1").
+    pub bedrock_region: Option<String>,
+    /// Bedrock model override (e.g. "anthropic.claude-3-haiku-20240307-v1:0").
+    pub bedrock_model: Option<String>,
+    /// Claude model override (e.g. "claude-sonnet-4-20250514").
+    pub claude_model: Option<String>,
 }
 
 /// Stored LLM settings returned to callers.
@@ -311,8 +320,13 @@ pub fn build_ollama_generate_url(base_url: &str) -> String {
 }
 
 /// Construct the full prompt for a progress note generation request.
-pub fn build_progress_note_prompt(transcript: &str, patient_context: &Option<PatientContext>) -> String {
+pub fn build_progress_note_prompt(transcript: &str, patient_context: &Option<PatientContext>, clinical_context: &str) -> String {
     let mut prompt = String::new();
+
+    if !clinical_context.is_empty() {
+        prompt.push_str(clinical_context);
+        prompt.push('\n');
+    }
 
     if let Some(ctx) = patient_context {
         if let Some(ref demo) = ctx.demographics {
@@ -334,8 +348,13 @@ pub fn build_progress_note_prompt(transcript: &str, patient_context: &Option<Pat
 }
 
 /// Construct the full prompt for an initial evaluation generation request.
-pub fn build_initial_eval_prompt(transcript: &str, patient_context: &Option<PatientContext>) -> String {
+pub fn build_initial_eval_prompt(transcript: &str, patient_context: &Option<PatientContext>, clinical_context: &str) -> String {
     let mut prompt = String::new();
+
+    if !clinical_context.is_empty() {
+        prompt.push_str(clinical_context);
+        prompt.push('\n');
+    }
 
     if let Some(ctx) = patient_context {
         if let Some(ref demo) = ctx.demographics {
@@ -356,28 +375,42 @@ pub fn build_initial_eval_prompt(transcript: &str, patient_context: &Option<Pati
 /// Parse the LLM's JSON response for a note draft.
 ///
 /// The LLM response should contain a JSON object with "fields" and "confidence" keys.
-/// This function extracts them, handling potential markdown code fences.
+/// Also handles {"soap":..., "metadata":...} format.
+/// This function extracts them, using robust JSON extraction to handle think tags, code fences, and prose.
 pub fn parse_note_draft_response(
     raw_response: &str,
 ) -> Result<(serde_json::Value, HashMap<String, String>), AppError> {
-    // Strip markdown code fences if present
-    let cleaned = strip_code_fences(raw_response);
+    let json_str = extract_json_from_response(raw_response)?;
 
-    let parsed: serde_json::Value = serde_json::from_str(&cleaned)
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
         .map_err(|e| AppError::Serialization(format!("Failed to parse LLM response as JSON: {}. Raw response starts with: {}", e, &raw_response[..raw_response.len().min(200)])))?;
 
-    let fields = parsed
-        .get("fields")
-        .cloned()
-        .unwrap_or(parsed.clone());
+    // Handle {"fields": ..., "confidence": ...} format
+    if let Some(fields) = parsed.get("fields") {
+        let confidence: HashMap<String, String> = if let Some(conf) = parsed.get("confidence") {
+            serde_json::from_value(conf.clone()).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+        return Ok((fields.clone(), confidence));
+    }
 
-    let confidence: HashMap<String, String> = if let Some(conf) = parsed.get("confidence") {
-        serde_json::from_value(conf.clone()).unwrap_or_default()
-    } else {
-        HashMap::new()
-    };
+    // Handle {"soap": ..., "metadata": ...} format
+    if let Some(soap) = parsed.get("soap") {
+        let confidence: HashMap<String, String> = if let Some(meta) = parsed.get("metadata") {
+            if let Some(conf) = meta.get("confidence") {
+                serde_json::from_value(conf.clone()).unwrap_or_default()
+            } else {
+                HashMap::new()
+            }
+        } else {
+            HashMap::new()
+        };
+        return Ok((soap.clone(), confidence));
+    }
 
-    Ok((fields, confidence))
+    // Bare JSON (no wrapper) — use the whole object as fields
+    Ok((parsed, HashMap::new()))
 }
 
 /// Parse the LLM's JSON response for CPT code suggestions.
@@ -476,6 +509,938 @@ fn read_llm_settings(conn: &rusqlite::Connection) -> LlmSettings {
         provider,
         model,
         ollama_url,
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FullLlmSettings — returned by get_llm_settings command
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FullLlmSettings {
+    pub provider: String,
+    pub model: Option<String>,
+    pub ollama_url: Option<String>,
+    pub claude_api_key: Option<String>,
+    pub claude_model: Option<String>,
+    pub bedrock_access_key: Option<String>,
+    pub bedrock_secret_key: Option<String>,
+    pub bedrock_region: Option<String>,
+    pub bedrock_model: Option<String>,
+}
+
+fn read_setting(conn: &rusqlite::Connection, key: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT value FROM app_settings WHERE key = ?1",
+        rusqlite::params![key],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+}
+
+fn mask_secret(value: Option<String>) -> Option<String> {
+    value.map(|v| {
+        if v.len() <= 4 {
+            v
+        } else {
+            format!(
+                "{}{}",
+                "\u{2022}".repeat(v.len().min(8).saturating_sub(4)),
+                &v[v.len() - 4..]
+            )
+        }
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Claude API credentials
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Claude API credentials read synchronously from the database.
+struct ClaudeCredentials {
+    api_key: String,
+    model: String,
+}
+
+/// Read Claude API credentials from the app_settings table (synchronous).
+fn read_claude_credentials(conn: &rusqlite::Connection) -> Result<ClaudeCredentials, AppError> {
+    let api_key = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'llm_claude_api_key'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| {
+            AppError::Validation(
+                "Claude API key not configured. Go to Settings > AI/LLM to configure.".to_string(),
+            )
+        })?;
+
+    let model = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'llm_claude_model'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+
+    Ok(ClaudeCredentials { api_key, model })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chat message type for multi-turn conversations
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A single message in a chat conversation (used by assistant and multi-turn LLM calls).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sample notes and clinical context helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn load_sample_notes(conn: &rusqlite::Connection, note_type: &str) -> Vec<(String, String)> {
+    let mut stmt = match conn.prepare(
+        "SELECT title, content FROM ai_note_samples WHERE note_type = ?1 ORDER BY created_at DESC LIMIT 5",
+    ) {
+        Ok(s) => s,
+        Err(_) => return vec![], // Table may not exist yet
+    };
+
+    let results: Vec<(String, String)> = match stmt.query_map(rusqlite::params![note_type], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(_) => vec![],
+    };
+    results
+}
+
+fn build_style_reference(samples: &[(String, String)]) -> String {
+    if samples.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::from(
+        "\n\n--- STYLE REFERENCE ---\nThe following are sample clinical notes that demonstrate the preferred writing style, format, and level of detail. When generating notes, match this style closely.\n",
+    );
+
+    for (title, content) in samples {
+        out.push_str(&format!("\n[Sample — {}]\n{}\n", title, content));
+    }
+
+    out.push_str("--- END STYLE REFERENCE ---\n");
+    out
+}
+
+fn load_patient_clinical_context(conn: &rusqlite::Connection, patient_id: &str) -> String {
+    let mut sections: Vec<String> = Vec::new();
+
+    // Patient demographics
+    if let Ok(demo) = conn.query_row(
+        "SELECT json_extract(resource, '$.name[0].given[0]') || ' ' || json_extract(resource, '$.name[0].family'),
+                json_extract(resource, '$.birthDate'),
+                json_extract(resource, '$.gender')
+         FROM fhir_resources WHERE resource_type = 'Patient' AND resource_id = ?1",
+        rusqlite::params![patient_id],
+        |row| {
+            Ok(format!(
+                "Patient: {} | DOB: {} | Gender: {}",
+                row.get::<_, String>(0).unwrap_or_default(),
+                row.get::<_, String>(1).unwrap_or_default(),
+                row.get::<_, String>(2).unwrap_or_default(),
+            ))
+        },
+    ) {
+        sections.push(demo);
+    }
+
+    // Active conditions
+    {
+        let mut stmt = match conn.prepare(
+            "SELECT json_extract(resource, '$.code.text'),
+                    json_extract(resource, '$.clinicalStatus.coding[0].code')
+             FROM fhir_resources
+             WHERE resource_type = 'Condition'
+               AND json_extract(resource, '$.subject.reference') = ('Patient/' || ?1)
+             ORDER BY rowid DESC LIMIT 10",
+        ) {
+            Ok(s) => s,
+            Err(_) => return String::new(),
+        };
+        let conditions: Vec<String> = stmt
+            .query_map(rusqlite::params![patient_id], |row| {
+                Ok(format!(
+                    "- {} ({})",
+                    row.get::<_, String>(0).unwrap_or_default(),
+                    row.get::<_, String>(1).unwrap_or_else(|_| "active".to_string()),
+                ))
+            })
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+        if !conditions.is_empty() {
+            sections.push(format!("Active Conditions:\n{}", conditions.join("\n")));
+        }
+    }
+
+    // Medications
+    {
+        let mut stmt = match conn.prepare(
+            "SELECT json_extract(resource, '$.medicationCodeableConcept.text')
+             FROM fhir_resources
+             WHERE resource_type = 'MedicationStatement'
+               AND json_extract(resource, '$.subject.reference') = ('Patient/' || ?1)
+             ORDER BY rowid DESC LIMIT 10",
+        ) {
+            Ok(s) => s,
+            Err(_) => return if sections.is_empty() { String::new() } else { format!("\n--- PATIENT CLINICAL CONTEXT ---\n{}\n--- END PATIENT CLINICAL CONTEXT ---\n", sections.join("\n\n")) },
+        };
+        let meds: Vec<String> = stmt
+            .query_map(rusqlite::params![patient_id], |row| {
+                Ok(format!("- {}", row.get::<_, String>(0).unwrap_or_default()))
+            })
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+        if !meds.is_empty() {
+            sections.push(format!("Medications:\n{}", meds.join("\n")));
+        }
+    }
+
+    // Allergies
+    {
+        let mut stmt = match conn.prepare(
+            "SELECT json_extract(resource, '$.code.text')
+             FROM fhir_resources
+             WHERE resource_type = 'AllergyIntolerance'
+               AND json_extract(resource, '$.patient.reference') = ('Patient/' || ?1)
+             ORDER BY rowid DESC LIMIT 10",
+        ) {
+            Ok(s) => s,
+            Err(_) => return if sections.is_empty() { String::new() } else { format!("\n--- PATIENT CLINICAL CONTEXT ---\n{}\n--- END PATIENT CLINICAL CONTEXT ---\n", sections.join("\n\n")) },
+        };
+        let allergies: Vec<String> = stmt
+            .query_map(rusqlite::params![patient_id], |row| {
+                Ok(format!("- {}", row.get::<_, String>(0).unwrap_or_default()))
+            })
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+        if !allergies.is_empty() {
+            sections.push(format!("Allergies:\n{}", allergies.join("\n")));
+        }
+    }
+
+    // Recent notes (last 3)
+    {
+        let mut stmt = match conn.prepare(
+            "SELECT json_extract(resource, '$.type.text'),
+                    json_extract(resource, '$.date'),
+                    substr(json_extract(resource, '$.content[0].attachment.data'), 1, 500)
+             FROM fhir_resources
+             WHERE resource_type = 'DocumentReference'
+               AND json_extract(resource, '$.subject.reference') = ('Patient/' || ?1)
+             ORDER BY json_extract(resource, '$.date') DESC LIMIT 3",
+        ) {
+            Ok(s) => s,
+            Err(_) => return if sections.is_empty() { String::new() } else { format!("\n--- PATIENT CLINICAL CONTEXT ---\n{}\n--- END PATIENT CLINICAL CONTEXT ---\n", sections.join("\n\n")) },
+        };
+        let notes: Vec<String> = stmt
+            .query_map(rusqlite::params![patient_id], |row| {
+                Ok(format!(
+                    "- {} ({}): {}...",
+                    row.get::<_, String>(0).unwrap_or_else(|_| "Note".to_string()),
+                    row.get::<_, String>(1).unwrap_or_default(),
+                    row.get::<_, String>(2).unwrap_or_default(),
+                ))
+            })
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+        if !notes.is_empty() {
+            sections.push(format!("Recent Notes:\n{}", notes.join("\n")));
+        }
+    }
+
+    if sections.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "\n--- PATIENT CLINICAL CONTEXT ---\n{}\n--- END PATIENT CLINICAL CONTEXT ---\n",
+        sections.join("\n\n")
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Robust JSON extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Strip <think>...</think> tags that some models (e.g. deepseek-r1) include.
+fn strip_think_tags(s: &str) -> String {
+    let mut result = s.to_string();
+    while let Some(start) = result.find("<think>") {
+        if let Some(end) = result.find("</think>") {
+            result = format!("{}{}", &result[..start], &result[end + 8..]);
+        } else {
+            // Unclosed <think> — strip from <think> to end
+            result = result[..start].to_string();
+            break;
+        }
+    }
+    result.trim().to_string()
+}
+
+/// Extract a JSON object or array from an LLM response, handling code fences,
+/// think tags, and surrounding prose.
+pub fn extract_json_from_response(raw: &str) -> Result<String, AppError> {
+    // 1. Strip think tags
+    let cleaned = strip_think_tags(raw);
+
+    // 2. Strip code fences
+    let cleaned = strip_code_fences(&cleaned);
+
+    // 3. Try parsing as-is
+    if serde_json::from_str::<serde_json::Value>(&cleaned).is_ok() {
+        return Ok(cleaned);
+    }
+
+    // 4. Try to find a JSON object or array in the text
+    // Find the first { or [
+    let obj_start = cleaned.find('{');
+    let arr_start = cleaned.find('[');
+
+    let start = match (obj_start, arr_start) {
+        (Some(o), Some(a)) => std::cmp::min(o, a),
+        (Some(o), None) => o,
+        (None, Some(a)) => a,
+        (None, None) => {
+            return Err(AppError::Serialization(format!(
+                "No JSON object or array found in LLM response. Raw starts with: {}",
+                &raw[..raw.len().min(200)]
+            )));
+        }
+    };
+
+    let is_object = cleaned.as_bytes()[start] == b'{';
+    let close_char = if is_object { '}' } else { ']' };
+
+    // Walk forward to find the matching close
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape_next = false;
+    let mut end_pos = None;
+
+    for (i, ch) in cleaned[start..].char_indices() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        if ch == '\\' && in_string {
+            escape_next = true;
+            continue;
+        }
+        if ch == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if in_string {
+            continue;
+        }
+        if ch == '{' || ch == '[' {
+            depth += 1;
+        } else if ch == '}' || ch == ']' {
+            depth -= 1;
+            if depth == 0 && ch == close_char {
+                end_pos = Some(start + i + 1);
+                break;
+            }
+        }
+    }
+
+    let end = end_pos.ok_or_else(|| {
+        AppError::Serialization(format!(
+            "Unterminated JSON in LLM response. Raw starts with: {}",
+            &raw[..raw.len().min(200)]
+        ))
+    })?;
+
+    let candidate = &cleaned[start..end];
+    serde_json::from_str::<serde_json::Value>(candidate).map_err(|e| {
+        AppError::Serialization(format!(
+            "Extracted JSON is not valid: {}. Fragment: {}",
+            e,
+            &candidate[..candidate.len().min(300)]
+        ))
+    })?;
+
+    Ok(candidate.to_string())
+}
+
+/// Convert structured JSON fields to SOAP text sections.
+pub fn json_note_to_soap_text(
+    fields: &serde_json::Value,
+    template_id: &str,
+) -> (String, String, String, String) {
+    let extract_section = |key: &str| -> String {
+        match fields.get(key) {
+            Some(v) if v.is_string() => v.as_str().unwrap_or("").to_string(),
+            Some(v) if v.is_object() => {
+                let obj = v.as_object().unwrap();
+                obj.iter()
+                    .map(|(k, val)| {
+                        let label = k.replace('_', " ");
+                        let text = match val {
+                            serde_json::Value::String(s) => s.clone(),
+                            serde_json::Value::Array(arr) => arr
+                                .iter()
+                                .filter_map(|a| a.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            serde_json::Value::Null => "N/A".to_string(),
+                            other => other.to_string(),
+                        };
+                        format!("{}: {}", label, text)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+            Some(v) => v.to_string(),
+            None => String::new(),
+        }
+    };
+
+    // Map template types to their SOAP-equivalent section keys
+    let (s_keys, o_keys, a_keys, p_keys): (&[&str], &[&str], &[&str], &[&str]) = match template_id
+    {
+        "pt_initial_eval" => (
+            &["history_of_present_illness", "past_medical_history", "medications", "subjective"],
+            &["objective"],
+            &["assessment"],
+            &["plan"],
+        ),
+        "fce" => (
+            &["patient_info"],
+            &["physical_demands", "musculoskeletal", "functional_testing"],
+            &["conclusions"],
+            &[],
+        ),
+        _ => (
+            &["subjective"],
+            &["objective"],
+            &["assessment"],
+            &["plan"],
+        ),
+    };
+
+    let build_section = |keys: &[&str]| -> String {
+        keys.iter()
+            .map(|k| extract_section(k))
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+
+    (
+        build_section(s_keys),
+        build_section(o_keys),
+        build_section(a_keys),
+        build_section(p_keys),
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-turn chat helpers (used by assistant and note generation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Ollama /api/chat request.
+#[derive(Debug, Serialize)]
+struct OllamaChatRequest {
+    model: String,
+    messages: Vec<OllamaChatMessage>,
+    stream: bool,
+    options: OllamaOptions,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OllamaChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaChatResponse {
+    message: Option<OllamaChatMessage>,
+}
+
+/// Call Ollama /api/chat (multi-turn).
+async fn call_ollama_chat(
+    ollama_url: &str,
+    model: &str,
+    system_prompt: &str,
+    messages: &[ChatMessage],
+) -> Result<String, AppError> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(GENERATION_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| AppError::Serialization(format!("Failed to create HTTP client: {}", e)))?;
+
+    let mut chat_messages = vec![OllamaChatMessage {
+        role: "system".to_string(),
+        content: system_prompt.to_string(),
+    }];
+
+    for msg in messages {
+        chat_messages.push(OllamaChatMessage {
+            role: msg.role.clone(),
+            content: msg.content.clone(),
+        });
+    }
+
+    let request = OllamaChatRequest {
+        model: model.to_string(),
+        messages: chat_messages,
+        stream: false,
+        options: OllamaOptions {
+            temperature: 0.3,
+            num_predict: 4096,
+        },
+    };
+
+    let url = format!("{}/api/chat", ollama_url.trim_end_matches('/'));
+    let response = client.post(&url).json(&request).send().await.map_err(|e| {
+        AppError::Serialization(format!(
+            "Ollama chat request failed. Is Ollama running at {}? Error: {}",
+            ollama_url, e
+        ))
+    })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::Serialization(format!(
+            "Ollama chat returned HTTP {}: {}",
+            status, body
+        )));
+    }
+
+    let resp: OllamaChatResponse = response.json().await.map_err(|e| {
+        AppError::Serialization(format!("Failed to parse Ollama chat response: {}", e))
+    })?;
+
+    Ok(resp
+        .message
+        .map(|m| m.content)
+        .unwrap_or_default())
+}
+
+/// Call Claude Messages API directly (not via Bedrock).
+async fn call_claude_generate(
+    credentials: &ClaudeCredentials,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<(String, String), AppError> {
+    let body = serde_json::json!({
+        "model": credentials.model,
+        "max_tokens": 4096,
+        "temperature": 0.3,
+        "system": system_prompt,
+        "messages": [
+            {"role": "user", "content": user_prompt}
+        ]
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(GENERATION_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| AppError::Serialization(format!("Failed to create HTTP client: {}", e)))?;
+
+    let response = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("Content-Type", "application/json")
+        .header("x-api-key", &credentials.api_key)
+        .header("anthropic-version", "2023-06-01")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| AppError::Serialization(format!("Claude API request failed: {}", e)))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(AppError::Serialization(format!(
+            "Claude API returned HTTP {}: {}",
+            status, body_text
+        )));
+    }
+
+    let resp_json: serde_json::Value = response.json().await.map_err(|e| {
+        AppError::Serialization(format!("Failed to parse Claude API response: {}", e))
+    })?;
+
+    let text = resp_json
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok((text, format!("claude:{}", credentials.model)))
+}
+
+/// Call the LLM with an image for vision analysis.
+///
+/// Sends a base64-encoded image to Claude (direct API or Bedrock) for analysis.
+/// Returns `(response_text, model_used)`.
+/// Falls back through providers: Claude API → Bedrock → error.
+pub(crate) async fn call_llm_vision(
+    db: &crate::db::connection::Database,
+    system_prompt: &str,
+    text_prompt: &str,
+    image_base64: &str,
+    media_type: &str,
+) -> Result<(String, String), AppError> {
+    // Read credentials synchronously
+    let (settings, claude_creds, bedrock_creds) = {
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        let s = read_llm_settings(&conn);
+        let cc = read_claude_credentials(&conn).ok();
+        let bc = read_bedrock_credentials(&conn).ok();
+        (s, cc, bc)
+    };
+
+    // Claude API supports vision natively
+    if let Some(creds) = &claude_creds {
+        if settings.provider == "claude" || settings.provider == "ollama" {
+            let model = if creds.model.is_empty() { "claude-sonnet-4-6" } else { &creds.model };
+            let body = serde_json::json!({
+                "model": model,
+                "max_tokens": 4096,
+                "temperature": 0.3,
+                "system": system_prompt,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": text_prompt
+                        }
+                    ]
+                }]
+            });
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(GENERATION_TIMEOUT_SECS))
+                .build()
+                .map_err(|e| AppError::Serialization(format!("HTTP client error: {}", e)))?;
+
+            let response = client
+                .post("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", &creds.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| AppError::Serialization(format!("Claude vision request failed: {}", e)))?;
+
+            if response.status().is_success() {
+                let resp: serde_json::Value = response.json().await.map_err(|e| {
+                    AppError::Serialization(format!("Failed to parse Claude response: {}", e))
+                })?;
+                let text = resp
+                    .get("content")
+                    .and_then(|c| c.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|item| item.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                return Ok((text, format!("claude:{}", model)));
+            }
+        }
+    }
+
+    // Bedrock also supports vision via the Anthropic model
+    if let Some(creds) = &bedrock_creds {
+        let default_model = "us.anthropic.claude-sonnet-4-6";
+        // BedrockCredentials may or may not have a model field — read from settings
+        let model_id = settings.model.as_deref().unwrap_or(default_model);
+        let body_json = serde_json::json!({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 4096,
+            "temperature": 0.3,
+            "system": system_prompt,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_base64
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": text_prompt
+                    }
+                ]
+            }]
+        });
+        let body_bytes = serde_json::to_vec(&body_json)
+            .map_err(|e| AppError::Serialization(format!("Failed to serialize: {}", e)))?;
+
+        let host = format!("bedrock-runtime.{}.amazonaws.com", creds.region);
+        let uri = format!("/model/{}/invoke", model_id);
+        let url = format!("https://{}{}", host, uri);
+
+        // SigV4 signing
+        let now = chrono::Utc::now();
+        let date_stamp = now.format("%Y%m%d").to_string();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let payload_hash = hex::encode(Sha256::digest(&body_bytes));
+        let canonical_headers = format!("content-type:application/json\nhost:{}\nx-amz-date:{}\n", host, amz_date);
+        let signed_headers = "content-type;host;x-amz-date";
+        let canonical_request = format!("POST\n{}\n\n{}\n{}\n{}", uri, canonical_headers, signed_headers, payload_hash);
+        let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
+        let scope = format!("{}/{}/bedrock/aws4_request", date_stamp, creds.region);
+        let sts = format!("AWS4-HMAC-SHA256\n{}\n{}\n{}", amz_date, scope, canonical_hash);
+
+        // HMAC-SHA256 chain for signing key
+        let sign = |key: &[u8], data: &[u8]| -> Vec<u8> {
+            let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key size");
+            mac.update(data);
+            mac.finalize().into_bytes().to_vec()
+        };
+        let k_date = sign(format!("AWS4{}", creds.secret_key).as_bytes(), date_stamp.as_bytes());
+        let k_region = sign(&k_date, creds.region.as_bytes());
+        let k_service = sign(&k_region, b"bedrock");
+        let k_signing = sign(&k_service, b"aws4_request");
+        let signature = hex::encode(sign(&k_signing, sts.as_bytes()));
+        let auth = format!("AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}", creds.access_key, scope, signed_headers, signature);
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(GENERATION_TIMEOUT_SECS))
+            .build()
+            .map_err(|e| AppError::Serialization(format!("HTTP client error: {}", e)))?;
+
+        let response = client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Host", &host)
+            .header("X-Amz-Date", &amz_date)
+            .header("Authorization", &auth)
+            .body(body_bytes)
+            .send()
+            .await
+            .map_err(|e| AppError::Serialization(format!("Bedrock vision request failed: {}", e)))?;
+
+        if response.status().is_success() {
+            let resp: serde_json::Value = response.json().await.map_err(|e| {
+                AppError::Serialization(format!("Failed to parse Bedrock response: {}", e))
+            })?;
+            let text = resp
+                .get("content")
+                .and_then(|c| c.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|item| item.get("text"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            return Ok((text, format!("bedrock:{}", model_id)));
+        }
+    }
+
+    Err(AppError::Serialization(
+        "Vision analysis requires Claude API or AWS Bedrock credentials. Configure one in Settings > AI/LLM.".to_string()
+    ))
+}
+
+/// Call Claude Messages API with multi-turn history.
+async fn call_claude_chat(
+    credentials: &ClaudeCredentials,
+    system_prompt: &str,
+    messages: &[ChatMessage],
+) -> Result<(String, String), AppError> {
+    let api_messages: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "role": m.role,
+                "content": m.content
+            })
+        })
+        .collect();
+
+    let body = serde_json::json!({
+        "model": credentials.model,
+        "max_tokens": 4096,
+        "temperature": 0.3,
+        "system": system_prompt,
+        "messages": api_messages
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(GENERATION_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| AppError::Serialization(format!("Failed to create HTTP client: {}", e)))?;
+
+    let response = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("Content-Type", "application/json")
+        .header("x-api-key", &credentials.api_key)
+        .header("anthropic-version", "2023-06-01")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| AppError::Serialization(format!("Claude API chat request failed: {}", e)))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(AppError::Serialization(format!(
+            "Claude API returned HTTP {}: {}",
+            status, body_text
+        )));
+    }
+
+    let resp_json: serde_json::Value = response.json().await.map_err(|e| {
+        AppError::Serialization(format!("Failed to parse Claude API response: {}", e))
+    })?;
+
+    let text = resp_json
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok((text, format!("claude:{}", credentials.model)))
+}
+
+/// Unified LLM chat function used by the assistant module and other callers.
+/// Reads provider settings from DB, routes to the appropriate backend.
+pub(crate) async fn call_llm_chat(
+    db: &State<'_, Database>,
+    system_prompt: &str,
+    messages: Vec<ChatMessage>,
+) -> Result<(String, String), AppError> {
+    let (settings, ollama_url, claude_creds, bedrock_creds) = {
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        let s = read_llm_settings(&conn);
+        let url = s
+            .ollama_url
+            .clone()
+            .unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string());
+        let cc = read_claude_credentials(&conn).ok();
+        let bc = read_bedrock_credentials(&conn).ok();
+        (s, url, cc, bc)
+    };
+
+    // If user explicitly configured Claude API
+    if settings.provider == "claude" {
+        let creds = claude_creds.ok_or_else(|| {
+            AppError::Validation("Claude API key not configured.".to_string())
+        })?;
+        return call_claude_chat(&creds, system_prompt, &messages).await;
+    }
+
+    // If user explicitly configured Bedrock
+    if settings.provider == "bedrock" {
+        let creds = bedrock_creds.ok_or_else(|| {
+            AppError::Validation(
+                "AWS Bedrock credentials not configured. Go to Settings > AI/LLM to configure."
+                    .to_string(),
+            )
+        })?;
+        // Build a single prompt from messages for Bedrock generate
+        let user_prompt = messages
+            .iter()
+            .map(|m| format!("{}: {}", m.role, m.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return call_bedrock_generate(&creds, system_prompt, &user_prompt).await;
+    }
+
+    // Default: try Ollama chat
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(HEALTH_CHECK_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| AppError::Serialization(format!("HTTP client error: {}", e)))?;
+
+    let url = build_ollama_tags_url(&ollama_url);
+    let ollama_available = match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let tags: OllamaTagsResponse = resp
+                .json()
+                .await
+                .unwrap_or(OllamaTagsResponse { models: None });
+            let models: Vec<String> = tags
+                .models
+                .unwrap_or_default()
+                .into_iter()
+                .map(|m| m.name)
+                .collect();
+            Some(models)
+        }
+        _ => None,
+    };
+
+    match ollama_available {
+        Some(available_models) => {
+            let model = select_model(&settings, &available_models);
+            let response =
+                call_ollama_chat(&ollama_url, &model, system_prompt, &messages).await?;
+            Ok((response, model))
+        }
+        None => {
+            // Ollama unavailable — try Claude fallback, then Bedrock fallback
+            if let Some(cc) = claude_creds {
+                if let Ok(result) = call_claude_chat(&cc, system_prompt, &messages).await {
+                    return Ok(result);
+                }
+            }
+            if let Some(bc) = bedrock_creds {
+                let user_prompt = messages
+                    .iter()
+                    .map(|m| format!("{}: {}", m.role, m.content))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if let Ok(result) = call_bedrock_generate(&bc, system_prompt, &user_prompt).await {
+                    return Ok(result);
+                }
+            }
+            Err(AppError::Serialization(
+                "LLM unavailable. Ollama is not running and no cloud AI provider is configured. \
+                 Please start Ollama (ollama serve) or configure Claude/Bedrock in Settings > AI/LLM."
+                    .to_string(),
+            ))
+        }
     }
 }
 
@@ -633,14 +1598,37 @@ async fn call_bedrock_generate(
         ]
     });
 
-    let url = format!(
-        "https://bedrock-runtime.{}.amazonaws.com/model/{}/invoke",
-        credentials.region, model_id
-    );
+    let body_bytes = serde_json::to_vec(&body)
+        .map_err(|e| AppError::Serialization(format!("Failed to serialize request body: {}", e)))?;
 
-    // Note: In production, this should use proper AWS SigV4 signing.
-    // For now, we construct a basic request. Full SigV4 would require
-    // additional dependencies (aws-sigv4, aws-credential-types).
+    let host = format!("bedrock-runtime.{}.amazonaws.com", credentials.region);
+    let uri = format!("/model/{}/invoke", model_id);
+    let url = format!("https://{}{}", host, uri);
+
+    // SigV4 signing
+    let now = chrono::Utc::now();
+    let date_stamp = now.format("%Y%m%d").to_string();
+    let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let payload_hash = hex::encode(Sha256::digest(&body_bytes));
+    let canonical_headers = format!("content-type:application/json\nhost:{}\nx-amz-date:{}\n", host, amz_date);
+    let signed_headers = "content-type;host;x-amz-date";
+    let canonical_request = format!("POST\n{}\n\n{}\n{}\n{}", uri, canonical_headers, signed_headers, payload_hash);
+    let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
+    let scope = format!("{}/{}/bedrock/aws4_request", date_stamp, credentials.region);
+    let sts = format!("AWS4-HMAC-SHA256\n{}\n{}\n{}", amz_date, scope, canonical_hash);
+
+    let sign = |key: &[u8], data: &[u8]| -> Vec<u8> {
+        let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key size");
+        mac.update(data);
+        mac.finalize().into_bytes().to_vec()
+    };
+    let k_date = sign(format!("AWS4{}", credentials.secret_key).as_bytes(), date_stamp.as_bytes());
+    let k_region = sign(&k_date, credentials.region.as_bytes());
+    let k_service = sign(&k_region, b"bedrock");
+    let k_signing = sign(&k_service, b"aws4_request");
+    let signature = hex::encode(sign(&k_signing, sts.as_bytes()));
+    let auth = format!("AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}", credentials.access_key, scope, signed_headers, signature);
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(GENERATION_TIMEOUT_SECS))
         .build()
@@ -649,9 +1637,10 @@ async fn call_bedrock_generate(
     let response = client
         .post(&url)
         .header("Content-Type", "application/json")
-        .header("X-Amz-Access-Key", &credentials.access_key)
-        .header("X-Amz-Secret-Key", &credentials.secret_key)
-        .json(&body)
+        .header("Host", &host)
+        .header("X-Amz-Date", &amz_date)
+        .header("Authorization", &auth)
+        .body(body_bytes)
         .send()
         .await
         .map_err(|e| {
@@ -686,6 +1675,41 @@ async fn call_bedrock_generate(
 // ─────────────────────────────────────────────────────────────────────────────
 // Tauri commands
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Get the full LLM settings (with secrets masked).
+///
+/// Requires authentication.
+#[tauri::command]
+pub async fn get_llm_settings(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+) -> Result<FullLlmSettings, AppError> {
+    let _sess = middleware::require_authenticated(&session)?;
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let settings = read_llm_settings(&conn);
+    let claude_api_key = mask_secret(read_setting(&conn, "llm_claude_api_key"));
+    let claude_model = read_setting(&conn, "llm_claude_model");
+    let bedrock_access_key = mask_secret(read_setting(&conn, "llm_bedrock_access_key"));
+    let bedrock_secret_key = mask_secret(read_setting(&conn, "llm_bedrock_secret_key"));
+    let bedrock_region = read_setting(&conn, "llm_bedrock_region");
+    let bedrock_model = read_setting(&conn, "llm_bedrock_model");
+
+    Ok(FullLlmSettings {
+        provider: settings.provider,
+        model: settings.model,
+        ollama_url: settings.ollama_url,
+        claude_api_key,
+        claude_model,
+        bedrock_access_key,
+        bedrock_secret_key,
+        bedrock_region,
+        bedrock_model,
+    })
+}
 
 /// Check the Ollama service status and list available models.
 ///
@@ -778,6 +1802,7 @@ pub async fn generate_note_draft(
     transcript: String,
     note_type: String,
     patient_context: Option<PatientContext>,
+    _template_id: Option<String>,
     db: State<'_, Database>,
     session: State<'_, SessionManager>,
     device_id: State<'_, DeviceId>,
@@ -807,49 +1832,77 @@ pub async fn generate_note_draft(
 
     let start = std::time::Instant::now();
 
-    // Read settings and determine provider
-    let (settings, ollama_url) = {
+    // Read settings, sample notes, and clinical context from DB (synchronous)
+    let (settings, ollama_url, style_reference, clinical_context) = {
         let conn = db
             .conn
             .lock()
             .map_err(|e| AppError::Database(e.to_string()))?;
         let s = read_llm_settings(&conn);
         let url = s.ollama_url.clone().unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string());
-        (s, url)
+
+        // Load sample notes for style matching
+        let samples = load_sample_notes(&conn, &note_type);
+        let style_ref = build_style_reference(&samples);
+
+        // Load patient clinical context if patient_id is provided
+        let clin_ctx = patient_context
+            .as_ref()
+            .and_then(|ctx| ctx.patient_id.as_deref())
+            .map(|pid| load_patient_clinical_context(&conn, pid))
+            .unwrap_or_default();
+
+        (s, url, style_ref, clin_ctx)
     };
 
-    // Select system prompt and build user prompt
-    let (system_prompt, user_prompt) = match note_type.as_str() {
-        "progress_note" => (
-            PROGRESS_NOTE_SYSTEM_PROMPT,
-            build_progress_note_prompt(&transcript, &patient_context),
-        ),
-        "initial_eval" => (
-            INITIAL_EVAL_SYSTEM_PROMPT,
-            build_initial_eval_prompt(&transcript, &patient_context),
-        ),
-        _ => unreachable!(), // Already validated above
+    // Build system prompt with style reference appended
+    let base_system_prompt = match note_type.as_str() {
+        "progress_note" => PROGRESS_NOTE_SYSTEM_PROMPT,
+        "initial_eval" => INITIAL_EVAL_SYSTEM_PROMPT,
+        _ => unreachable!(),
+    };
+    let system_prompt = if style_reference.is_empty() {
+        base_system_prompt.to_string()
+    } else {
+        format!("{}{}", base_system_prompt, style_reference)
     };
 
-    // Pre-read Bedrock credentials (synchronously) so we don't hold the DB lock across awaits.
-    // This is a no-op if Bedrock isn't configured — we just get an Err we can handle later.
-    let bedrock_creds = {
+    // Select user prompt with clinical context
+    let user_prompt = match note_type.as_str() {
+        "progress_note" => build_progress_note_prompt(&transcript, &patient_context, &clinical_context),
+        "initial_eval" => build_initial_eval_prompt(&transcript, &patient_context, &clinical_context),
+        _ => unreachable!(),
+    };
+
+    // Pre-read credentials (synchronously) so we don't hold the DB lock across awaits.
+    let (bedrock_creds, claude_creds) = {
         let conn = db
             .conn
             .lock()
             .map_err(|e| AppError::Database(e.to_string()))?;
-        read_bedrock_credentials(&conn).ok()
+        (
+            read_bedrock_credentials(&conn).ok(),
+            read_claude_credentials(&conn).ok(),
+        )
     };
 
-    // Try Ollama first, then Bedrock fallback
-    let (raw_response, model_used) = if settings.provider == "bedrock" {
+    // Route to the configured provider
+    let (raw_response, model_used) = if settings.provider == "claude" {
+        // User explicitly configured Claude API
+        let creds = claude_creds.ok_or_else(|| {
+            AppError::Validation(
+                "Claude API key not configured. Go to Settings > AI/LLM to configure.".to_string(),
+            )
+        })?;
+        call_claude_generate(&creds, &system_prompt, &user_prompt).await?
+    } else if settings.provider == "bedrock" {
         // User explicitly configured Bedrock
         let creds = bedrock_creds.ok_or_else(|| {
             AppError::Validation(
                 "AWS Bedrock credentials not configured. Go to Settings > AI/LLM to configure.".to_string(),
             )
         })?;
-        call_bedrock_generate(&creds, system_prompt, &user_prompt).await?
+        call_bedrock_generate(&creds, &system_prompt, &user_prompt).await?
     } else {
         // Try Ollama (default)
         let status = {
@@ -873,20 +1926,40 @@ pub async fn generate_note_draft(
             Some(available_models) => {
                 let model = select_model(&settings, &available_models);
                 let response =
-                    call_ollama_generate(&ollama_url, &model, system_prompt, &user_prompt)
+                    call_ollama_generate(&ollama_url, &model, &system_prompt, &user_prompt)
                         .await?;
                 (response, model)
             }
             None => {
-                // Ollama unavailable — try Bedrock fallback
+                // Ollama unavailable — try Claude fallback, then Bedrock fallback
+                if let Some(cc) = claude_creds {
+                    if let Ok(result) = call_claude_generate(&cc, &system_prompt, &user_prompt).await {
+                        return {
+                            let elapsed_ms = start.elapsed().as_millis() as u64;
+                            let (fields, confidence) = parse_note_draft_response(&result.0)?;
+                            let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
+                            write_audit_entry(&conn, AuditEntryInput {
+                                user_id: sess.user_id.clone(),
+                                action: format!("llm.generate_note.{}", note_type),
+                                resource_type: "LlmNoteDraft".to_string(),
+                                resource_id: None,
+                                patient_id: patient_id_for_audit.clone(),
+                                device_id: device_id.id().to_string(),
+                                success: true,
+                                details: Some(format!("model={}, time_ms={}", result.1, elapsed_ms)),
+                            })?;
+                            Ok(NoteDraftResult { note_type, fields, confidence, model_used: result.1, generation_time_ms: elapsed_ms })
+                        };
+                    }
+                }
                 match bedrock_creds {
                     Some(creds) => {
-                        match call_bedrock_generate(&creds, system_prompt, &user_prompt).await {
+                        match call_bedrock_generate(&creds, &system_prompt, &user_prompt).await {
                             Ok(result) => result,
                             Err(_bedrock_err) => {
                                 return Err(AppError::Serialization(
-                                    "LLM unavailable. Ollama is not running and AWS Bedrock request failed. \
-                                     Please start Ollama (ollama serve) or check your Bedrock configuration."
+                                    "LLM unavailable. Ollama is not running and cloud AI requests failed. \
+                                     Please start Ollama (ollama serve) or check your AI configuration."
                                         .to_string(),
                                 ));
                             }
@@ -894,8 +1967,8 @@ pub async fn generate_note_draft(
                     }
                     None => {
                         return Err(AppError::Serialization(
-                            "LLM unavailable. Ollama is not running and AWS Bedrock is not configured. \
-                             Please start Ollama (ollama serve) or configure Bedrock in Settings > AI/LLM."
+                            "LLM unavailable. Ollama is not running and no cloud AI provider is configured. \
+                             Please start Ollama (ollama serve) or configure Claude/Bedrock in Settings > AI/LLM."
                                 .to_string(),
                         ));
                     }
@@ -1116,9 +2189,10 @@ pub async fn configure_llm_settings(
     middleware::require_permission(sess.role, Resource::UserManagement, Action::Update)?;
 
     // Validate provider
-    if input.provider != "ollama" && input.provider != "bedrock" {
+    let valid_providers = ["ollama", "claude", "bedrock"];
+    if !valid_providers.contains(&input.provider.as_str()) {
         return Err(AppError::Validation(format!(
-            "Invalid provider '{}'. Must be 'ollama' or 'bedrock'.",
+            "Invalid provider '{}'. Must be one of: 'ollama', 'claude', or 'bedrock'.",
             input.provider
         )));
     }
@@ -1128,25 +2202,7 @@ pub async fn configure_llm_settings(
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    // Upsert settings
-    let settings_pairs: Vec<(&str, &str)> = {
-        let mut pairs = vec![("llm_provider", input.provider.as_str())];
-        if input.model.is_some() {
-            pairs.push(("llm_model", ""));
-        }
-        if input.ollama_url.is_some() {
-            pairs.push(("llm_ollama_url", ""));
-        }
-        if input.api_key.is_some() {
-            pairs.push(("llm_bedrock_access_key", ""));
-        }
-        if input.api_secret.is_some() {
-            pairs.push(("llm_bedrock_secret_key", ""));
-        }
-        pairs
-    };
-
-    // We need to handle the actual values properly
+    // Save provider
     conn.execute(
         "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_provider', ?1)",
         rusqlite::params![input.provider],
@@ -1169,20 +2225,69 @@ pub async fn configure_llm_settings(
         .map_err(|e| AppError::Database(e.to_string()))?;
     }
 
-    if let Some(ref key) = input.api_key {
-        conn.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_bedrock_access_key', ?1)",
-            rusqlite::params![key],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
-    }
-
-    if let Some(ref secret) = input.api_secret {
-        conn.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_bedrock_secret_key', ?1)",
-            rusqlite::params![secret],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
+    if input.provider == "claude" {
+        // Route credentials to Claude-specific keys
+        // Skip empty strings — empty means "keep existing value"
+        if let Some(ref key) = input.api_key {
+            if !key.trim().is_empty() {
+                conn.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_claude_api_key', ?1)",
+                    rusqlite::params![key],
+                )
+                .map_err(|e| AppError::Database(e.to_string()))?;
+            }
+        }
+        // Save Claude model from the dedicated claude_model field
+        if let Some(ref model) = input.claude_model {
+            if !model.trim().is_empty() {
+                conn.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_claude_model', ?1)",
+                    rusqlite::params![model],
+                )
+                .map_err(|e| AppError::Database(e.to_string()))?;
+            }
+        }
+    } else if input.provider == "bedrock" {
+        // Route credentials to Bedrock-specific keys
+        // Skip empty strings — empty means "keep existing value"
+        if let Some(ref key) = input.api_key {
+            if !key.trim().is_empty() {
+                conn.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_bedrock_access_key', ?1)",
+                    rusqlite::params![key],
+                )
+                .map_err(|e| AppError::Database(e.to_string()))?;
+            }
+        }
+        if let Some(ref secret) = input.api_secret {
+            if !secret.trim().is_empty() {
+                conn.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_bedrock_secret_key', ?1)",
+                    rusqlite::params![secret],
+                )
+                .map_err(|e| AppError::Database(e.to_string()))?;
+            }
+        }
+        // Save Bedrock region
+        if let Some(ref region) = input.bedrock_region {
+            if !region.trim().is_empty() {
+                conn.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_bedrock_region', ?1)",
+                    rusqlite::params![region],
+                )
+                .map_err(|e| AppError::Database(e.to_string()))?;
+            }
+        }
+        // Save Bedrock model override
+        if let Some(ref model) = input.bedrock_model {
+            if !model.trim().is_empty() {
+                conn.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('llm_bedrock_model', ?1)",
+                    rusqlite::params![model],
+                )
+                .map_err(|e| AppError::Database(e.to_string()))?;
+            }
+        }
     }
 
     // Audit log
@@ -1203,9 +2308,6 @@ pub async fn configure_llm_settings(
             )),
         },
     )?;
-
-    // Suppress unused variable warning — settings_pairs was used for documentation/planning
-    let _ = settings_pairs;
 
     Ok(read_llm_settings(&conn))
 }
@@ -1255,7 +2357,7 @@ mod tests {
             diagnosis: Some("R shoulder impingement".to_string()),
         });
 
-        let prompt = build_progress_note_prompt("Patient reports pain at 4/10.", &ctx);
+        let prompt = build_progress_note_prompt("Patient reports pain at 4/10.", &ctx, "");
 
         assert!(prompt.contains("Patient demographics: 65yo male"));
         assert!(prompt.contains("Diagnosis: R shoulder impingement"));
@@ -1266,7 +2368,7 @@ mod tests {
 
     #[test]
     fn test_progress_note_prompt_without_context() {
-        let prompt = build_progress_note_prompt("Patient doing well.", &None);
+        let prompt = build_progress_note_prompt("Patient doing well.", &None, "");
 
         assert!(!prompt.contains("Patient demographics:"));
         assert!(prompt.contains("Session transcript:"));
@@ -1282,7 +2384,7 @@ mod tests {
             diagnosis: Some("Low back pain".to_string()),
         });
 
-        let prompt = build_initial_eval_prompt("New patient with LBP x 3 months.", &ctx);
+        let prompt = build_initial_eval_prompt("New patient with LBP x 3 months.", &ctx, "");
 
         assert!(prompt.contains("Patient demographics: 42yo female"));
         assert!(prompt.contains("Referral diagnosis: Low back pain"));

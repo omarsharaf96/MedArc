@@ -199,6 +199,7 @@ pub fn validate_contact_type(contact_type: &str) -> Result<(), AppError> {
 }
 
 /// Validate that a retry count is within the allowed maximum.
+#[allow(dead_code)]
 pub fn validate_retry_count(retry_count: i32) -> Result<(), AppError> {
     if retry_count <= MAX_AUTO_RETRIES {
         Ok(())
@@ -270,31 +271,7 @@ pub fn configure_phaxio(
     device_id: State<'_, DeviceId>,
 ) -> Result<PhaxioConfigRecord, AppError> {
     let session = middleware::require_authenticated(&session_manager)?;
-    middleware::require_permission(session.role, Resource::ClinicalRecords, Action::Create)?;
-
-    // Only SystemAdmin can configure fax credentials
-    if session.role != crate::rbac::roles::Role::SystemAdmin {
-        let conn = db
-            .conn
-            .lock()
-            .map_err(|e| AppError::Database(e.to_string()))?;
-        write_audit_entry(
-            &conn,
-            AuditEntryInput {
-                user_id: session.user_id.clone(),
-                action: "configure_phaxio".to_string(),
-                resource_type: "FaxIntegration".to_string(),
-                resource_id: None,
-                patient_id: None,
-                device_id: device_id.get().to_string(),
-                success: false,
-                details: Some("configure_phaxio requires SystemAdmin role".to_string()),
-            },
-        );
-        return Err(AppError::Unauthorized(
-            "Only SystemAdmin can configure Phaxio credentials".to_string(),
-        ));
-    }
+    middleware::require_permission(session.role, Resource::UserManagement, Action::Create)?;
 
     if input.api_key.is_empty() || input.api_secret.is_empty() || input.fax_number.is_empty() {
         return Err(AppError::Validation(
@@ -311,7 +288,7 @@ pub fn configure_phaxio(
     store_phaxio_setting(&conn, "phaxio_api_secret", &input.api_secret)?;
     store_phaxio_setting(&conn, "phaxio_fax_number", &input.fax_number)?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id,
@@ -354,7 +331,7 @@ pub fn test_phaxio_connection(
     let (api_key, api_secret, _fax_number) = match creds {
         Some(c) => c,
         None => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: session.user_id,
@@ -390,7 +367,7 @@ pub fn test_phaxio_connection(
         .conn
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn2,
         AuditEntryInput {
             user_id: session.user_id,
@@ -483,7 +460,7 @@ pub fn send_fax(
     .map_err(|e| AppError::Database(e.to_string()))?;
 
     // Audit log (do not log document content — HIPAA)
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -735,7 +712,7 @@ pub fn poll_received_faxes(
                 )
                 .map_err(|e| AppError::Database(e.to_string()))?;
 
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn2,
                 AuditEntryInput {
                     user_id: session.user_id.clone(),
@@ -828,7 +805,7 @@ pub fn create_fax_contact(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id,
@@ -959,7 +936,7 @@ pub fn update_fax_contact(
         )));
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id,
@@ -1025,7 +1002,7 @@ pub fn delete_fax_contact(
         )));
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id,
@@ -1207,7 +1184,7 @@ pub fn get_fax_status(
                                     )
                                     .map_err(|e| AppError::Database(e.to_string()))?;
 
-                                write_audit_entry(
+                                let _ = write_audit_entry(
                                     &conn2,
                                     AuditEntryInput {
                                         user_id: session.user_id,
@@ -1288,7 +1265,7 @@ pub fn retry_fax(
 
     // Check retry limit
     if record.retry_count >= MAX_AUTO_RETRIES {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: session.user_id.clone(),
@@ -1353,7 +1330,7 @@ pub fn retry_fax(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id,

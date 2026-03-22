@@ -102,11 +102,11 @@ function formatDate(iso: string): string {
  */
 function bytesToBase64(bytes: Uint8Array): string {
   const CHUNK = 8192;
-  let result = "";
+  let binaryStr = "";
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    result += btoa(String.fromCharCode(...bytes.subarray(i, i + CHUNK)));
+    binaryStr += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
-  return result;
+  return btoa(binaryStr);
 }
 
 /** Detect MIME type from file extension. */
@@ -186,6 +186,11 @@ export function DocumentCenterPage({
   // ── Re-categorize state ──────────────────────────────────────────────────
   const [recatDocId, setRecatDocId] = useState<string | null>(null);
   const [recatCategory, setRecatCategory] = useState("");
+
+  // ── Rename state ───────────────────────────────────────────────────────
+  const [renameDocId, setRenameDocId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   // ── Transient upload data — refs to avoid logging risk ───────────────────
   const pendingBytesRef = useRef<Uint8Array | null>(null);
@@ -456,6 +461,22 @@ export function DocumentCenterPage({
     }
   }
 
+  // ── Rename document ──────────────────────────────────────────────────
+  async function handleRenameSubmit() {
+    if (!renameDocId || !renameValue.trim()) return;
+    setRenameError(null);
+    try {
+      await commands.renameDocument(renameDocId, renameValue.trim());
+      setRenameDocId(null);
+      setRenameValue("");
+      setRefreshCounter((n) => n + 1);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[DocumentCenterPage] rename failed:", msg);
+      setRenameError(msg);
+    }
+  }
+
   // ─── Render ────────────────────────────────────────────────────────────
 
   return (
@@ -685,6 +706,20 @@ export function DocumentCenterPage({
                       </td>
                       <td className="py-2.5">
                         <div className="flex items-center gap-2">
+                          {/* Rename */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenameDocId(doc.id);
+                              setRenameValue(doc.title);
+                              setRenameError(null);
+                            }}
+                            className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                            title="Rename"
+                          >
+                            Rename
+                          </button>
                           {/* Re-categorize */}
                           <button
                             type="button"
@@ -960,6 +995,60 @@ export function DocumentCenterPage({
                 className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60"
               >
                 {uploading ? "Uploading\u2026" : "Upload"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rename modal ─────────────────────────────────────────────────── */}
+      {renameDocId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" role="dialog" aria-modal="true" aria-labelledby="rename-modal-title">
+          <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+            <h3 id="rename-modal-title" className="mb-4 text-base font-semibold text-gray-900">
+              Rename Document
+            </h3>
+
+            <div className="mb-4">
+              <label htmlFor="rename-input" className="mb-1 block text-sm font-medium text-gray-700">
+                New Name
+              </label>
+              <input
+                id="rename-input"
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRenameSubmit();
+                }}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                autoFocus
+              />
+            </div>
+
+            {renameError && (
+              <p className="mb-3 text-sm text-red-600">{renameError}</p>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setRenameDocId(null);
+                  setRenameValue("");
+                  setRenameError(null);
+                }}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRenameSubmit}
+                disabled={!renameValue.trim()}
+                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60"
+              >
+                Save
               </button>
             </div>
           </div>

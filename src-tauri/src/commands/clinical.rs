@@ -430,7 +430,7 @@ pub fn build_immunization_fhir(id: &str, input: &ImmunizationInput) -> serde_jso
 
 fn audit_denied(db: &Database, device_id: &DeviceId, user_id: &str, action: &str, detail: &str) {
     if let Ok(conn) = db.conn.lock() {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.to_string(),
@@ -507,7 +507,7 @@ pub fn add_allergy(
         rusqlite::params![id, input.patient_id, clinical_status, input.category],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -583,7 +583,7 @@ pub fn list_allergies(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -639,7 +639,7 @@ pub fn update_allergy(
 
     let current_version = match version_result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -679,7 +679,7 @@ pub fn update_allergy(
         rusqlite::params![clinical_status, input.category, allergy_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -739,7 +739,7 @@ pub fn delete_allergy(
     )?;
 
     if rows == 0 {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id,
@@ -759,7 +759,7 @@ pub fn delete_allergy(
     }
 
     // allergy_index has ON DELETE CASCADE from migration 10
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -837,7 +837,7 @@ pub fn add_problem(
         rusqlite::params![id, input.patient_id, clinical_status, input.icd10_code],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -927,7 +927,7 @@ pub fn list_problems(
         .filter_map(|r| r.ok())
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -983,7 +983,7 @@ pub fn update_problem(
 
     let current_version = match version_result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -1023,7 +1023,7 @@ pub fn update_problem(
         rusqlite::params![clinical_status, input.icd10_code, problem_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1109,7 +1109,7 @@ pub fn add_medication(
         rusqlite::params![id, input.patient_id, status, input.rxnorm_code],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1199,7 +1199,7 @@ pub fn list_medications(
         .filter_map(|r| r.ok())
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1255,7 +1255,7 @@ pub fn update_medication(
 
     let current_version = match version_result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -1295,7 +1295,7 @@ pub fn update_medication(
         rusqlite::params![status, input.rxnorm_code, medication_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1383,7 +1383,7 @@ pub fn add_immunization(
         rusqlite::params![id, input.patient_id, input.cvx_code, input.occurrence_date],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1460,7 +1460,7 @@ pub fn list_immunizations(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,

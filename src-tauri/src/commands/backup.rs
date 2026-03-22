@@ -32,7 +32,7 @@
 /// -----
 /// Every command writes an audit row (success or failure) using `write_audit_entry`.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::State;
 
@@ -127,6 +127,7 @@ const SBOX: [u8; 256] = [
 // AES round constants
 const RCON: [u8; 11] = [0x00,0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36];
 
+#[allow(dead_code)]
 fn xtime(a: u8) -> u8 {
     ((a as u16) << 1 ^ if a & 0x80 != 0 { 0x1b } else { 0 }) as u8
 }
@@ -497,7 +498,7 @@ pub fn create_backup(
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn2,
             AuditEntryInput {
                 user_id: session.user_id.clone(),
@@ -545,7 +546,7 @@ pub fn restore_backup(
     use crate::rbac::roles::Role;
     if session.role != Role::SystemAdmin {
         let conn = db.conn.lock().map_err(|e| AppError::Database(e.to_string()))?;
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: session.user_id.clone(),
@@ -627,7 +628,7 @@ pub fn restore_backup(
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: session.user_id.clone(),

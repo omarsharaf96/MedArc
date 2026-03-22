@@ -822,7 +822,7 @@ pub async fn list_exercises(
         .filter_map(|r| r.ok())
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -885,7 +885,7 @@ pub async fn search_exercises(
         .filter_map(|r| r.ok())
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -973,7 +973,7 @@ pub async fn create_hep_program(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1044,7 +1044,7 @@ pub async fn get_hep_program(
     let exercises: Vec<ExercisePrescription> = serde_json::from_str(&exercises_json)
         .map_err(|e| AppError::Serialization(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1121,7 +1121,7 @@ pub async fn list_hep_programs(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1180,7 +1180,7 @@ pub async fn update_hep_program(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1252,7 +1252,7 @@ pub async fn create_hep_template(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1332,7 +1332,7 @@ pub async fn list_hep_templates(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1394,7 +1394,7 @@ pub async fn get_hep_template(
     let exercises: Vec<ExercisePrescription> = serde_json::from_str(&exercises_json)
         .map_err(|e| AppError::Serialization(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

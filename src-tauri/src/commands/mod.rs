@@ -1,4 +1,6 @@
+pub mod ai_documentation;
 pub mod analytics;
+pub mod assistant;
 pub mod audit;
 pub mod audio_capture;
 pub mod auth;
@@ -6,6 +8,7 @@ pub mod auth_tracking;
 pub mod backup;
 pub mod billing;
 pub mod break_glass;
+pub mod calendar_events;
 pub mod claims;
 pub mod era_processing;
 pub mod clinical;

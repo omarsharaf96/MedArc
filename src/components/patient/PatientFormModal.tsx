@@ -22,7 +22,7 @@
  * Modal overlay pattern: position: fixed inset-0 z-50 (same as LockScreen.tsx).
  * Input / label Tailwind classes mirror LoginForm.tsx exactly.
  */
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { commands } from "../../lib/tauri";
 import type { PatientDisplay } from "../../lib/fhirExtract";
 import type { PatientInput, InsuranceInput, CareTeamMemberInput } from "../../types/patient";
@@ -133,6 +133,31 @@ export function PatientFormModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingPatient, setDeletingPatient] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // ── Reset form when switching patients while modal is open ────────────
+  useEffect(() => {
+    setFamilyName(initialDisplay?.familyName ?? "");
+    setGivenName(initialDisplay?.givenNames?.join(" ") ?? "");
+    setBirthDate(initialDisplay?.dob ?? "");
+    setGender(initialDisplay?.gender ?? "");
+    setPhone(initialDisplay?.phone ?? "");
+    setEmail(initialDisplay?.email ?? "");
+    setAddressLine(initialDisplay?.addressLine ?? "");
+    setCity(initialDisplay?.city ?? "");
+    setState(initialDisplay?.state ?? "");
+    setPostalCode(initialDisplay?.postalCode ?? "");
+    setPayerName(initialDisplay?.insurancePrimary?.payerName ?? "");
+    setMemberId(initialDisplay?.insurancePrimary?.memberId ?? "");
+    setPlanName(initialDisplay?.insurancePrimary?.planName ?? "");
+    setGroupNumber(initialDisplay?.insurancePrimary?.groupNumber ?? "");
+    setCtMemberId("");
+    setCtMemberName("");
+    setCtRole("");
+    setCtNote("");
+    setSubmitError(null);
+    setFieldErrors({});
+    setActiveTab("basic");
+  }, [patientId]);
 
   // ── Submit ─────────────────────────────────────────────────────────────
 
@@ -292,6 +317,18 @@ export function PatientFormModal({
           {activeTab === "basic" && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
+                <FormField label="First Name" htmlFor="givenName">
+                  <input
+                    id="givenName"
+                    type="text"
+                    value={givenName}
+                    onChange={(e) => setGivenName(e.target.value)}
+                    className={INPUT_CLS}
+                    autoComplete="given-name"
+                    autoFocus
+                  />
+                </FormField>
+
                 <FormField
                   label="Last Name *"
                   htmlFor="familyName"
@@ -304,18 +341,6 @@ export function PatientFormModal({
                     onChange={(e) => setFamilyName(e.target.value)}
                     className={INPUT_CLS}
                     autoComplete="family-name"
-                    autoFocus
-                  />
-                </FormField>
-
-                <FormField label="First Name" htmlFor="givenName">
-                  <input
-                    id="givenName"
-                    type="text"
-                    value={givenName}
-                    onChange={(e) => setGivenName(e.target.value)}
-                    className={INPUT_CLS}
-                    autoComplete="given-name"
                   />
                 </FormField>
               </div>

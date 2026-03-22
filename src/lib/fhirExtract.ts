@@ -163,7 +163,7 @@ function extractExtensionGroup(
  * SOAP section URLs stored as FHIR extension valueCode on Annotation items.
  * Must match the Rust patient.rs / encounter.rs constants exactly.
  */
-const SOAP_SECTION_URL = "http://medarc.local/fhir/ext/soap-section";
+const SOAP_SECTION_URL = "http://medarc.local/fhir/StructureDefinition/note-section";
 
 /** Structured SOAP section output — all sections nullable (missing ↔ null). */
 export interface SoapSections {

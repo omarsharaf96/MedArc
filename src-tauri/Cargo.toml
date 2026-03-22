@@ -29,6 +29,7 @@ password-auth = { version = "1", features = ["argon2"] }
 rand = "0.8"
 totp-rs = { version = "5", features = ["qr", "otpauth", "gen_secret", "serde_support"] }
 sha2 = "0.10"
+hmac = "0.12"
 machine-uid = "0.5"
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2.6.0"
@@ -42,7 +43,11 @@ whisper-rs = { version = "0.12", optional = true }
 # M003/S03 — LLM Integration (Ollama HTTP API + AWS Bedrock fallback)
 reqwest = { version = "0.12", features = ["json", "blocking", "multipart"] }
 # M003/S05 — PDF Export & Report Generation
-printpdf = "0.7"
+printpdf = { version = "0.7", features = ["embedded_images"] }
+# Base64 decoding for logo/signature image embedding in PDFs
+base64 = "0.22"
+# CMS-1500 — Fill AcroForm fields in template PDF
+lopdf = "0.34"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-local-authentication = { version = "0.3.2", features = ["LAContext", "block2"] }

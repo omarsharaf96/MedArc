@@ -144,6 +144,7 @@ pub struct RemittanceRecord {
 }
 
 /// A claim payment record (from claim_payments table).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimPaymentRecord {
@@ -233,6 +234,7 @@ pub struct PatientBalance {
 }
 
 /// Input for listing remittances with optional filters.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemittanceListFilter {
@@ -282,7 +284,7 @@ pub fn parse_835(content: &str) -> Result<RemittanceAdvice, AppError> {
     // Track whether the CAS segment belongs to a CLP or SVC context
     let mut in_svc_context = false;
     // Track N1 qualifier
-    let mut last_n1_qualifier = String::new();
+    let mut _last_n1_qualifier = String::new();
 
     for seg in &segments {
         let elements: Vec<&str> = seg.splitn(20, '*').collect();
@@ -309,10 +311,10 @@ pub fn parse_835(content: &str) -> Result<RemittanceAdvice, AppError> {
             }
             "N1" => {
                 // N1*PR*<payer_name>  or  N1*PE*<payee_name>
-                last_n1_qualifier = elements.get(1).copied().unwrap_or("").to_string();
+                _last_n1_qualifier = elements.get(1).copied().unwrap_or("").to_string();
                 let name = elements.get(2).copied().unwrap_or("");
                 let id = elements.get(4).copied().unwrap_or("");
-                match last_n1_qualifier.as_str() {
+                match _last_n1_qualifier.as_str() {
                     "PR" => {
                         payer_name = Some(name.to_string());
                         if !id.is_empty() {
@@ -578,7 +580,7 @@ pub async fn import_835(
         ],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -767,7 +769,7 @@ pub async fn auto_post_remittance(
         [&remittance_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -849,7 +851,7 @@ pub async fn list_remittances(
 
     let records: Vec<RemittanceRecord> = rows.filter_map(|r| r.ok()).collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -923,7 +925,7 @@ pub async fn list_denials(
 
     let records: Vec<DenialRecord> = rows.filter_map(|r| r.ok()).collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -988,7 +990,7 @@ pub async fn get_ar_aging(
     let today = chrono::Local::now().date_naive().to_string();
     let report = build_aging_report(&pairs, &today);
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1058,7 +1060,7 @@ pub async fn get_patient_balance(
     let total_patient_resp: f64 = claim_details.iter().map(|c| c.patient_responsibility).sum();
     let outstanding: f64 = claim_details.iter().map(|c| c.outstanding).sum();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

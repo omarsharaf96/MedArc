@@ -41,6 +41,7 @@ impl From<&User> for UserResponse {
 }
 
 /// Input for creating a new user account.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateUserInput {
@@ -51,6 +52,7 @@ pub struct CreateUserInput {
 }
 
 /// Input for user login.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginInput {

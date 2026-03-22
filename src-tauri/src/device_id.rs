@@ -20,6 +20,7 @@ pub struct DeviceId {
 
 impl DeviceId {
     /// Create a new `DeviceId` with the given identifier string.
+    #[allow(dead_code)]
     pub fn new(id: impl Into<String>) -> Self {
         DeviceId { id: id.into() }
     }

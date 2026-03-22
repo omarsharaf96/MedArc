@@ -43,6 +43,7 @@ use crate::rbac::roles::{Action, Resource};
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Clearinghouse partner options.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Clearinghouse {
@@ -52,6 +53,7 @@ pub enum Clearinghouse {
     Manual,
 }
 
+#[allow(dead_code)]
 impl Clearinghouse {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -74,6 +76,7 @@ impl Clearinghouse {
 }
 
 /// Billing rule for 8-minute rule calculation.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BillingRule {
@@ -81,6 +84,7 @@ pub enum BillingRule {
     Ama,
 }
 
+#[allow(dead_code)]
 impl BillingRule {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -112,6 +116,7 @@ pub enum ClaimStatus {
 }
 
 impl ClaimStatus {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             ClaimStatus::Draft => "draft",
@@ -215,6 +220,7 @@ pub struct EdiGenerationResult {
 }
 
 /// Input for listing claims with filters.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimListFilter {
@@ -286,6 +292,7 @@ struct ServiceLine {
 /// Build an 837P EDI transaction set.
 ///
 /// Returns the full EDI text and the segment count (excluding ISA/IEA).
+#[allow(private_interfaces)]
 pub fn build_837p(
     control_number: &str,
     provider: &BillingProvider,
@@ -576,6 +583,7 @@ pub fn build_837p(
 struct EncounterBillingData {
     patient_id: String,
     total_charge: f64,
+    #[allow(dead_code)]
     billing_rule: String,
     line_items: Vec<LineItemData>,
 }
@@ -761,7 +769,7 @@ pub async fn create_payer(
         ],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -825,7 +833,7 @@ pub async fn list_payers(
         .filter_map(|r| r.ok())
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -880,7 +888,7 @@ pub async fn get_payer(
         )
         .map_err(|_| AppError::NotFound(format!("Payer {} not found", payer_id)))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -954,7 +962,7 @@ pub async fn update_payer(
         )
         .map_err(|_| AppError::NotFound(format!("Payer {} not found after update", payer_id)))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1044,7 +1052,7 @@ pub async fn create_claim(
         ],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1234,7 +1242,7 @@ pub async fn validate_claim(
         )?;
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1380,7 +1388,7 @@ pub async fn generate_837p(
         new_claim_id
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1457,7 +1465,7 @@ pub async fn submit_claim(
         )
         .map_err(|_| AppError::NotFound(format!("Claim {} not found", claim_id)))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1556,7 +1564,7 @@ pub async fn list_claims(
             .collect(),
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1602,7 +1610,7 @@ pub async fn get_claim(
         )
         .map_err(|_| AppError::NotFound(format!("Claim {} not found", claim_id)))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1695,7 +1703,7 @@ pub async fn update_claim_status(
         )
         .map_err(|_| AppError::NotFound(format!("Claim {} not found", claim_id)))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

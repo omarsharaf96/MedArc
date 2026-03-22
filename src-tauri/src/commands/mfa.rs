@@ -364,7 +364,7 @@ pub async fn biometric_authenticate(
             )?;
 
             // Audit: success
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: user_id_clone,
@@ -382,7 +382,7 @@ pub async fn biometric_authenticate(
         }
         Err(err_msg) => {
             // Audit: failure
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: user_id_clone,

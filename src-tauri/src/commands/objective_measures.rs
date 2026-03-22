@@ -570,7 +570,7 @@ pub async fn record_objective_measures(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -671,7 +671,7 @@ pub async fn get_objective_measures(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -780,7 +780,7 @@ pub async fn record_outcome_score(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -883,7 +883,7 @@ pub async fn list_outcome_scores(
         .filter_map(|r| r.ok())
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -943,7 +943,7 @@ pub async fn get_outcome_score(
         )
         .map_err(|_| AppError::NotFound(format!("Outcome score {} not found", score_id)))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1038,7 +1038,7 @@ pub async fn get_outcome_comparison(
         }
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

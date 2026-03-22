@@ -23,7 +23,9 @@
  */
 import { useState, useEffect, type FormEvent } from "react";
 import type { AppointmentInput, AppointmentRecord } from "../../types/scheduling";
+import type { PatientInput } from "../../types/patient";
 import { PatientAutocomplete } from "../shared/PatientAutocomplete";
+import { commands } from "../../lib/tauri";
 
 // ─── Shared style constants ───────────────────────────────────────────────────
 
@@ -94,6 +96,8 @@ export interface AppointmentFormModalProps {
   providerAppointmentTypes?: Record<string, string[]>;
   /** Pre-fill the start time (ISO datetime-local string, e.g. "2026-04-01T09:00"). */
   initialStartTime?: string;
+  /** Default appointment duration from calendar settings (minutes). */
+  defaultDurationMinutes?: number;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -111,6 +115,7 @@ export function AppointmentFormModal({
   providers,
   providerAppointmentTypes,
   initialStartTime,
+  defaultDurationMinutes,
 }: AppointmentFormModalProps) {
   // ── Create/Edit form state (pre-filled from editData in edit mode) ─────
   const [patientId, setPatientId] = useState(editData?.patientId ?? "");
@@ -120,7 +125,7 @@ export function AppointmentFormModal({
       ? editData.startTime.slice(0, 16) // trim seconds for datetime-local input
       : (initialStartTime ?? ""),
   );
-  const [durationMinutes, setDurationMinutes] = useState(editData?.durationMinutes ?? 30);
+  const [durationMinutes, setDurationMinutes] = useState(editData?.durationMinutes ?? defaultDurationMinutes ?? 60);
   const [apptType, setApptType] = useState(editData?.apptType ?? "");
   const [reason, setReason] = useState(editData?.reason ?? "");
   const [notes, setNotes] = useState(editData?.notes ?? "");
@@ -297,6 +302,42 @@ export function AppointmentFormModal({
     }
   }
 
+  // ── Quick-create patient from autocomplete ──────────────────────────────
+  async function handleCreatePatient(name: string) {
+    const parts = name.trim().split(/\s+/);
+    const given = parts[0] || name;
+    const family = parts.slice(1).join(" ") || given;
+    try {
+      const input: PatientInput = {
+        givenNames: [given],
+        familyName: family,
+        birthDate: null,
+        gender: null,
+        genderIdentity: null,
+        phone: null,
+        email: null,
+        addressLine: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        country: null,
+        photoUrl: null,
+        mrn: null,
+        primaryProviderId: null,
+        insurancePrimary: null,
+        insuranceSecondary: null,
+        insuranceTertiary: null,
+        employer: null,
+        sdoh: null,
+      };
+      const result = await commands.createPatient(input);
+      setPatientId(result.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSubmitError(msg);
+    }
+  }
+
   // ── Read-only guard ─────────────────────────────────────────────────────
   if (!canWrite) {
     return null;
@@ -336,6 +377,8 @@ export function AppointmentFormModal({
                 onChange={(id) => setPatientId(id ?? "")}
                 placeholder="Start typing a patient name..."
                 disabled={submitting || mode === "edit"}
+                onCreatePatient={mode === "create" ? handleCreatePatient : undefined}
+                autoFocus={mode === "create"}
               />
             </div>
 

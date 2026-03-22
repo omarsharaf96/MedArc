@@ -127,7 +127,7 @@ pub fn login(
 
     // Look up user by username
     let user_row = conn.query_row(
-        "SELECT id, username, password_hash, display_name, role, is_active, failed_login_attempts, locked_until FROM users WHERE username = ?1",
+        "SELECT id, username, password_hash, display_name, role, is_active, failed_login_attempts, locked_until FROM users WHERE username = ?1 COLLATE NOCASE",
         rusqlite::params![username],
         |row| {
             Ok((
@@ -156,7 +156,7 @@ pub fn login(
 
     // Check if account is active
     if !is_active {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -177,7 +177,7 @@ pub fn login(
         if let Ok(lock_dt) = chrono::NaiveDateTime::parse_from_str(lock_time, "%Y-%m-%d %H:%M:%S") {
             let lock_utc = lock_dt.and_utc();
             if chrono::Utc::now() < lock_utc {
-                write_audit_entry(
+                let _ = write_audit_entry(
                     &conn,
                     AuditEntryInput {
                         user_id: user_id.clone(),
@@ -247,7 +247,7 @@ pub fn login(
             )?;
         }
 
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -282,7 +282,7 @@ pub fn login(
         // MFA is required -- do NOT create a full session yet.
         // Return a partial response so the frontend can prompt for TOTP code.
         // Record as a pending login (password succeeded but MFA still required).
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -326,7 +326,7 @@ pub fn login(
         rusqlite::params![session_id, user_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: user_id.clone(),
@@ -382,7 +382,7 @@ pub fn logout(
             "UPDATE sessions SET state = 'expired' WHERE id = ?1",
             rusqlite::params![session_id],
         )?;
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id_for_audit,
@@ -443,7 +443,7 @@ pub fn complete_login(
         .map_err(|_| AppError::Authentication("Invalid credentials".to_string()))?;
 
     if !totp_enabled {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -468,7 +468,7 @@ pub fn complete_login(
     // Verify the TOTP code
     let valid = totp::verify_totp(&secret, &totp_code)?;
     if !valid {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -494,7 +494,7 @@ pub fn complete_login(
         rusqlite::params![session_id, user_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: user_id.clone(),
@@ -551,6 +551,7 @@ pub fn check_first_run(db: State<'_, Database>) -> Result<bool, AppError> {
 /// Skip the login form and authenticate as a pre-configured dev user.
 ///
 /// Available in debug builds only. Returns Err in release builds.
+#[allow(dead_code, unused_variables)]
 #[tauri::command]
 pub fn dev_bypass_login(
     db: State<'_, Database>,
@@ -578,7 +579,7 @@ pub fn dev_bypass_login(
         // Look up (or create) the dev user.
         let existing: Option<(String, String)> = conn
             .query_row(
-                "SELECT id, role FROM users WHERE username = ?1",
+                "SELECT id, role FROM users WHERE username = ?1 COLLATE NOCASE",
                 rusqlite::params![DEV_USERNAME],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -607,7 +608,7 @@ pub fn dev_bypass_login(
             rusqlite::params![session_id, user_id],
         )?;
 
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -688,7 +689,7 @@ pub fn list_users(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -742,7 +743,7 @@ pub fn deactivate_user(
         )));
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: acting_user_id,
@@ -801,7 +802,7 @@ pub fn update_user_profile(
         }
     })?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: user_id.clone(),
@@ -873,7 +874,7 @@ pub fn change_password(
         rusqlite::params![new_hash, user_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: user_id.clone(),

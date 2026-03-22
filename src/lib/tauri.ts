@@ -61,6 +61,7 @@ import type {
   RecallRecord,
   UpdateFlowStatusInput,
   FlowBoardEntry,
+  CalendarSettings,
 } from "../types/scheduling";
 
 import type {
@@ -118,9 +119,19 @@ import type {
   PatientContext,
   LlmSettings,
   LlmSettingsInput,
+  FullLlmSettings,
 } from "../types/ai";
 
-import type { PdfExportResult, ExportSettings, FaxEncounterNoteInput, FaxEncounterNoteResult } from "../types/export";
+import type {
+  SendMessageInput,
+  AssistantResponse,
+  ConversationSummary,
+  ConversationMessage,
+  ExecuteActionInput,
+  ActionResult,
+} from "../types/assistant";
+
+import type { PdfExportResult, ExportSettings, FaxEncounterNoteInput, FaxEncounterNoteResult, SchedulePrintSettings } from "../types/export";
 
 import type {
   FaxRecord,
@@ -547,6 +558,14 @@ export const commands = {
   listProviders: () =>
     invoke<Array<{ id: string; displayName: string }>>("list_providers"),
 
+  /** Get calendar display settings (week view, hours, etc.). */
+  getCalendarSettings: () =>
+    invoke<CalendarSettings>("get_calendar_settings"),
+
+  /** Save calendar display settings. */
+  saveCalendarSettings: (settings: CalendarSettings) =>
+    invoke<CalendarSettings>("save_calendar_settings", { settings }),
+
   // ─── Documentation commands ──────────────────────────────────────
 
   /** Create a new clinical encounter. */
@@ -782,6 +801,10 @@ export const commands = {
   configureLlmSettings: (input: LlmSettingsInput) =>
     invoke<LlmSettings>("configure_llm_settings", { input }),
 
+  /** Retrieve all LLM settings (provider, model, API keys). */
+  getLlmSettings: () =>
+    invoke<FullLlmSettings>("get_llm_settings"),
+
   // ─── M003/S05 — PDF Export & Report Generation ───────────────────
 
   /** Generate a single note PDF. */
@@ -828,6 +851,27 @@ export const commands = {
   setExportSettings: (settings: ExportSettings) =>
     invoke<ExportSettings>("set_export_settings", { settings }),
 
+  /** Generate a schedule PDF for a date range. */
+  generateSchedulePdf: (startDate: string, endDate: string, patientId?: string | null, providerId?: string | null) =>
+    invoke<PdfExportResult>("generate_schedule_pdf", {
+      startDate,
+      endDate,
+      patientId: patientId ?? null,
+      providerId: providerId ?? null,
+    }),
+
+  /** Retrieve schedule print settings from app_settings. */
+  getSchedulePrintSettings: () =>
+    invoke<SchedulePrintSettings>("get_schedule_print_settings"),
+
+  /** Save schedule print settings to app_settings. */
+  saveSchedulePrintSettings: (settings: SchedulePrintSettings) =>
+    invoke<SchedulePrintSettings>("save_schedule_print_settings", { settings }),
+
+  /** Open a file in the system's default application. */
+  openFileInDefaultApp: (filePath: string) =>
+    invoke<void>("open_file_in_default_app", { filePath }),
+
   // ─── M003/S04 — Document Center commands ──────────────────────────
 
   /** Upload a document with a PT-specific category. */
@@ -849,6 +893,10 @@ export const commands = {
   /** Soft-delete a document (marks FHIR status as entered-in-error). */
   deleteDocument: (documentId: string) =>
     invoke<void>("delete_document", { documentId }),
+
+  /** Rename a document. */
+  renameDocument: (documentId: string, newName: string) =>
+    invoke<void>("rename_document", { documentId, newName }),
 
   /** Create a custom survey template. */
   createSurveyTemplate: (input: SurveyTemplateInput) =>
@@ -1511,4 +1559,142 @@ export const commands = {
    */
   changePassword: (currentPassword: string, newPassword: string) =>
     invoke<void>("change_password", { currentPassword, newPassword }),
+
+  // ─── Calendar Events ──────────────────────────────────────────────
+
+  /** Create a non-patient calendar event (meeting, lunch, blocked time). */
+  createCalendarEvent: (input: {
+    providerId: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+    color?: string | null;
+    notes?: string | null;
+  }) => invoke<{
+    eventId: string;
+    providerId: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+    color: string;
+    notes: string | null;
+    createdAt: string;
+  }>("create_calendar_event", { input }),
+
+  /** List calendar events for a date range. */
+  listCalendarEvents: (startDate: string, endDate: string, providerId?: string | null) =>
+    invoke<Array<{
+      eventId: string;
+      providerId: string;
+      title: string;
+      startTime: string;
+      endTime: string;
+      color: string;
+      notes: string | null;
+      createdAt: string;
+    }>>("list_calendar_events", {
+      startDate,
+      endDate,
+      providerId: providerId ?? null,
+    }),
+
+  /** Update a calendar event. */
+  updateCalendarEvent: (eventId: string, input: {
+    title?: string | null;
+    startTime?: string | null;
+    endTime?: string | null;
+    color?: string | null;
+    notes?: string | null;
+  }) => invoke<{
+    eventId: string;
+    providerId: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+    color: string;
+    notes: string | null;
+    createdAt: string;
+  }>("update_calendar_event", { eventId, input }),
+
+  /** Delete a calendar event. */
+  deleteCalendarEvent: (eventId: string) =>
+    invoke<void>("delete_calendar_event", { eventId }),
+
+  // ─── AI Assistant ─────────────────────────────────────────────────
+
+  /** Send a message to the AI assistant. */
+  sendAssistantMessage: (input: SendMessageInput) =>
+    invoke<AssistantResponse>("send_assistant_message", { input }),
+
+  /** List all assistant conversations for the current user. */
+  listConversations: () =>
+    invoke<ConversationSummary[]>("list_conversations"),
+
+  /** Get all messages in a conversation. */
+  getConversation: (conversationId: string) =>
+    invoke<ConversationMessage[]>("get_conversation", { conversationId }),
+
+  /** Delete a conversation and all its messages. */
+  deleteConversation: (conversationId: string) =>
+    invoke<void>("delete_conversation", { conversationId }),
+
+  /** Execute a parsed assistant action (scheduling, patient lookup, etc.). */
+  executeAssistantAction: (input: ExecuteActionInput) =>
+    invoke<ActionResult>("execute_assistant_action", { input }),
+
+  /** Clear the actions JSON from a message (after execution or dismissal). */
+  clearMessageActions: (messageId: string) =>
+    invoke<void>("clear_message_actions", { messageId }),
+
+  // ─── AI Documentation ─────────────────────────────────────────────
+
+  /** Save a sample clinical note for AI training reference. */
+  saveNoteSample: (input: { noteType: string; title: string; content: string }) =>
+    invoke<{
+      id: string;
+      noteType: string;
+      title: string;
+      content: string;
+      createdAt: string;
+      updatedAt: string;
+    }>("save_note_sample", { input }),
+
+  /** List all saved note samples. */
+  listNoteSamples: () =>
+    invoke<Array<{
+      id: string;
+      noteType: string;
+      title: string;
+      content: string;
+      createdAt: string;
+      updatedAt: string;
+    }>>("list_note_samples"),
+
+  /** Delete a note sample by ID. */
+  deleteNoteSample: (sampleId: string) =>
+    invoke<void>("delete_note_sample", { sampleId }),
+
+  /** Add an exercise to the AI exercise library. */
+  addAiExercise: (input: { category: string; name: string; description?: string | null }) =>
+    invoke<{
+      id: string;
+      category: string;
+      name: string;
+      description: string | null;
+      createdAt: string;
+    }>("add_ai_exercise", { input }),
+
+  /** List exercises from the AI exercise library. */
+  listAiExercises: (category?: string | null) =>
+    invoke<Array<{
+      id: string;
+      category: string;
+      name: string;
+      description: string | null;
+      createdAt: string;
+    }>>("list_ai_exercises", { category: category ?? null }),
+
+  /** Delete an exercise from the AI exercise library. */
+  deleteAiExercise: (exerciseId: string) =>
+    invoke<void>("delete_ai_exercise", { exerciseId }),
 };

@@ -207,6 +207,7 @@ pub fn render_template(template: &str, ctx: &TemplateContext) -> String {
 /// start_time string (format: "YYYY-MM-DDTHH:MM:SS" or RFC3339).
 ///
 /// Returns `None` if the start_time cannot be parsed.
+#[allow(dead_code)]
 pub fn reminder_send_time(start_time: &str, hours_before: i64) -> Option<chrono::DateTime<chrono::Utc>> {
     // Try RFC3339 first, then bare local datetime
     let appt_dt = chrono::DateTime::parse_from_rfc3339(start_time)
@@ -537,7 +538,7 @@ pub fn configure_reminders(
         }
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -576,7 +577,7 @@ pub fn get_reminder_config(
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -657,7 +658,7 @@ pub fn process_pending_reminders(
     let do_2hr = get_setting_bool(&conn, "reminder_2hr", true);
 
     if !sms_enabled && !email_enabled {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: session.user_id.clone(),
@@ -894,7 +895,7 @@ pub fn process_pending_reminders(
         rusqlite::params![no_show_window_start, no_show_window_end],
     );
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1042,7 +1043,7 @@ pub fn send_reminder(
         }
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1175,7 +1176,7 @@ pub fn send_no_show_followup(
         }
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1355,7 +1356,7 @@ pub fn process_cancellation_waitlist(
         });
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1410,7 +1411,7 @@ pub fn confirm_waitlist_booking(
         )));
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1508,7 +1509,7 @@ pub fn list_reminder_log(
         .filter_map(|r| r.ok())
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),

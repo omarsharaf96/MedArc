@@ -37,6 +37,7 @@ use crate::rbac::roles::{Action, Resource};
 /// auto-implementation of Send/Sync. However, the stream's public API
 /// (play/pause/drop) is safe to call from any thread, and our usage pattern
 /// (create on one thread, drop on same or another thread) is safe.
+#[allow(dead_code)]
 struct SendSyncStream(cpal::Stream);
 
 // SAFETY: See struct-level doc comment. We only use play() and drop().
@@ -52,7 +53,7 @@ struct ActiveRecording {
     recording_id: String,
     /// cpal stream handle — kept alive to continue capture.
     stream: SendSyncStream,
-    /// Shared buffer of f32 PCM samples.
+    /// Shared buffer of f32 PCM samples (at device's native sample rate).
     samples: Arc<Mutex<Vec<f32>>>,
     /// Current peak audio level (0.0–1.0).
     level: Arc<Mutex<f32>>,
@@ -60,6 +61,10 @@ struct ActiveRecording {
     wav_path: std::path::PathBuf,
     /// Recording start instant (for duration tracking).
     started_at: std::time::Instant,
+    /// The device's actual sample rate (for resampling to 16kHz on stop).
+    device_sample_rate: u32,
+    /// Number of channels the device is recording (for downmix to mono).
+    device_channels: u16,
 }
 
 /// Thread-safe wrapper managed by Tauri state.
@@ -92,6 +97,9 @@ pub struct StopRecordingResult {
     pub recording_id: String,
     pub wav_path: String,
     pub duration_seconds: f64,
+    /// Peak audio level detected in the recorded samples (0.0–1.0).
+    /// Use this to check for silence before transcribing.
+    pub peak_level: f32,
 }
 
 /// Current audio level for the visualizer.
@@ -160,10 +168,18 @@ pub fn start_audio_recording(
         .default_input_device()
         .ok_or_else(|| AppError::Validation("No microphone found".into()))?;
 
-    // Preferred config: 16kHz mono f32
+    // Use the device's default input config (typically 48kHz stereo on macOS).
+    // We'll resample to 16kHz mono when writing the WAV on stop.
+    let default_config = device
+        .default_input_config()
+        .map_err(|e| AppError::Validation(format!("Failed to get default input config: {}", e)))?;
+
+    let device_sample_rate = default_config.sample_rate().0;
+    let device_channels = default_config.channels();
+
     let config = cpal::StreamConfig {
-        channels: CHANNELS,
-        sample_rate: cpal::SampleRate(SAMPLE_RATE),
+        channels: device_channels,
+        sample_rate: cpal::SampleRate(device_sample_rate),
         buffer_size: cpal::BufferSize::Default,
     };
 
@@ -190,7 +206,7 @@ pub fn start_audio_recording(
                 if let Ok(mut lvl) = level_clone.lock() {
                     *lvl = peak.min(1.0);
                 }
-                // Append samples
+                // Append raw samples (at device rate, possibly multi-channel)
                 if let Ok(mut buf) = samples_clone.lock() {
                     buf.extend_from_slice(data);
                 }
@@ -211,6 +227,8 @@ pub fn start_audio_recording(
         level,
         wav_path,
         started_at: std::time::Instant::now(),
+        device_sample_rate,
+        device_channels,
     };
 
     *active = Some(recording);
@@ -255,11 +273,35 @@ pub fn stop_audio_recording(
     // Drop the stream to stop capture
     drop(recording.stream);
 
-    // Write WAV file from accumulated samples
-    let samples = recording
+    // Write WAV file from accumulated samples, resampling to 16kHz mono
+    let raw_samples = recording
         .samples
         .lock()
         .map_err(|e| AppError::Validation(format!("Lock poisoned: {}", e)))?;
+
+    // Downmix to mono if multi-channel (average all channels per frame)
+    let mono_samples: Vec<f32> = if recording.device_channels > 1 {
+        let ch = recording.device_channels as usize;
+        raw_samples
+            .chunks_exact(ch)
+            .map(|frame| frame.iter().sum::<f32>() / ch as f32)
+            .collect()
+    } else {
+        raw_samples.clone()
+    };
+
+    // Resample from device rate to 16kHz if needed
+    let samples = if recording.device_sample_rate != SAMPLE_RATE {
+        resample(&mono_samples, recording.device_sample_rate, SAMPLE_RATE)
+    } else {
+        mono_samples
+    };
+
+    // Compute peak level from the final mono samples
+    let peak_level = samples
+        .iter()
+        .map(|s| s.abs())
+        .fold(0.0_f32, f32::max);
 
     write_wav_file(&recording.wav_path, &samples)?;
 
@@ -273,6 +315,7 @@ pub fn stop_audio_recording(
         recording_id,
         wav_path: wav_path_str,
         duration_seconds,
+        peak_level,
     })
 }
 
@@ -374,6 +417,26 @@ fn write_wav_file(
 fn f32_to_i16(sample: f32) -> i16 {
     let clamped = sample.max(-1.0).min(1.0);
     (clamped * i16::MAX as f32) as i16
+}
+
+/// Linear interpolation resample from `from_rate` to `to_rate`.
+/// Good enough for speech (Whisper is tolerant of simple resampling).
+fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+    if from_rate == to_rate || samples.is_empty() {
+        return samples.to_vec();
+    }
+    let ratio = from_rate as f64 / to_rate as f64;
+    let out_len = (samples.len() as f64 / ratio) as usize;
+    let mut output = Vec::with_capacity(out_len);
+    for i in 0..out_len {
+        let src_pos = i as f64 * ratio;
+        let idx = src_pos as usize;
+        let frac = (src_pos - idx as f64) as f32;
+        let s0 = samples[idx.min(samples.len() - 1)];
+        let s1 = samples[(idx + 1).min(samples.len() - 1)];
+        output.push(s0 + frac * (s1 - s0));
+    }
+    output
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

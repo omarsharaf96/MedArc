@@ -437,7 +437,7 @@ fn build_document_fhir(
     sha1: &str,
     now: &str,
 ) -> serde_json::Value {
-    let category = input.category.as_deref().unwrap_or("clinical-note");
+    let category = input.category.as_deref().unwrap_or("other");
     serde_json::json!({
         "resourceType": "DocumentReference",
         "id": id,
@@ -469,6 +469,7 @@ fn build_document_fhir(
         "content": [{
             "attachment": {
                 "contentType": input.content_type,
+                "data": input.content_base64,
                 "size": input.file_size_bytes,
                 "title": input.title,
                 "creation": now
@@ -589,7 +590,7 @@ pub fn add_lab_catalogue_entry(
         rusqlite::params![id, input.loinc_code, input.display_name, category],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -688,7 +689,7 @@ pub fn list_lab_catalogue(
             .collect(),
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -763,7 +764,7 @@ pub fn create_lab_order(
         rusqlite::params![id, input.patient_id, input.provider_id, ordered_at, input.loinc_code, priority],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -867,7 +868,7 @@ pub fn list_lab_orders(
             .collect(),
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -960,7 +961,7 @@ pub fn enter_lab_result(
         )?;
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1074,7 +1075,7 @@ pub fn list_lab_results(
             .filter_map(|r| r.ok()).map(to_record).collect(),
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1166,7 +1167,7 @@ pub fn sign_lab_result(
         rusqlite::params![input.result_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1245,8 +1246,12 @@ pub fn upload_document(
 
     let valid_types = [
         "clinical-note", "imaging", "lab-report", "consent", "referral", "other",
+        // New PT-specific categories (document_center format)
+        "referral_rx", "referral-rx", "consent_forms", "consent-forms",
+        "intake_surveys", "intake-surveys", "insurance", "legal",
+        "home_exercise_program", "hep",
     ];
-    let category = input.category.as_deref().unwrap_or("clinical-note");
+    let category = input.category.as_deref().unwrap_or("other");
     if !valid_types.contains(&category) {
         return Err(AppError::Validation(format!(
             "Invalid category '{}'. Must be one of: {}",
@@ -1286,7 +1291,7 @@ pub fn upload_document(
         ],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1385,7 +1390,7 @@ pub fn list_documents(
         }
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1433,7 +1438,7 @@ pub fn verify_document_integrity(
     let computed_sha1 = compute_sha256_hex(&content_base64)?;
     let integrity_ok = stored_sha1 == computed_sha1;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1872,7 +1877,7 @@ mod tests {
     }
 
     #[test]
-    fn docs_01_default_category_is_clinical_note() {
+    fn docs_01_default_category_is_other() {
         let input = DocumentUploadInput {
             patient_id: "patient-001".to_string(),
             title: "Test Doc".to_string(),
@@ -1883,7 +1888,7 @@ mod tests {
             uploaded_by: "provider-001".to_string(),
         };
         let fhir = build_document_fhir("doc-004", &input, "sha1", "2026-03-11T09:00:00Z");
-        assert_eq!(fhir["type"]["coding"][0]["code"], "clinical-note");
+        assert_eq!(fhir["type"]["coding"][0]["code"], "other");
     }
 
     // ─── RBAC matrix tests for LabResults ────────────────────────────────────

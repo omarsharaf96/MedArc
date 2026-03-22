@@ -390,7 +390,7 @@ pub async fn create_auth_record(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -442,7 +442,7 @@ pub async fn get_auth_record(
 
     let record = query_auth_record(&conn, &auth_id)?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -558,7 +558,7 @@ pub async fn list_auth_records(
         )
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -656,7 +656,7 @@ pub async fn update_auth_record(
         )
         .unwrap_or_else(|_| now.clone());
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -754,7 +754,7 @@ pub async fn increment_visit_count(
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: sess.user_id.clone(),
@@ -925,7 +925,7 @@ pub async fn generate_reauth_letter(
         &today,
     );
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

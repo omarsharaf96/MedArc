@@ -20,6 +20,7 @@ import type {
   MeasureOutcome,
   PayerBreakdown,
 } from "../types/analytics";
+import { MIPSDashboardPage } from "./MIPSDashboardPage";
 
 // ─── Tailwind constants ──────────────────────────────────────────────────────
 
@@ -488,6 +489,9 @@ interface Props {
 }
 
 export function AnalyticsDashboardPage({ role: _role }: Props) {
+  // ── Tab state ──────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<"analytics" | "mips">("analytics");
+
   // ── Date range state (default: current month) ──────────────────────────
   const now = new Date();
   const defaultStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -542,41 +546,83 @@ export function AnalyticsDashboardPage({ role: _role }: Props) {
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full bg-gray-50">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Analytics & Outcomes Dashboard</h1>
-          <p className="text-sm text-gray-500">
-            KPIs, financial performance, clinical outcomes, and payer mix
-          </p>
+      {/* Header with tab bar */}
+      <div className="border-b border-gray-200 bg-white">
+        <div className="flex items-center justify-between px-6 py-4">
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Analytics & Outcomes Dashboard</h1>
+            <p className="text-sm text-gray-500">
+              KPIs, financial performance, clinical outcomes, and MIPS quality
+            </p>
+          </div>
+
+          {/* Date range picker — only shown on Analytics tab */}
+          {activeTab === "analytics" && (
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">From</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className={INPUT_CLS}
+              />
+              <label className="text-sm font-medium text-gray-700">To</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className={INPUT_CLS}
+              />
+              <button
+                type="button"
+                onClick={() => void fetchAll()}
+                disabled={loading}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? "Loading\u2026" : "Refresh"}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Date range picker */}
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium text-gray-700">From</label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className={INPUT_CLS}
-          />
-          <label className="text-sm font-medium text-gray-700">To</label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className={INPUT_CLS}
-          />
+        {/* Tab bar */}
+        <div className="flex gap-0 px-6">
           <button
             type="button"
-            onClick={() => void fetchAll()}
-            disabled={loading}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            onClick={() => setActiveTab("analytics")}
+            className={[
+              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              activeTab === "analytics"
+                ? "border-blue-600 text-blue-700"
+                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300",
+            ].join(" ")}
           >
-            {loading ? "Loading…" : "Refresh"}
+            Analytics
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("mips")}
+            className={[
+              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              activeTab === "mips"
+                ? "border-blue-600 text-blue-700"
+                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300",
+            ].join(" ")}
+          >
+            MIPS Quality
           </button>
         </div>
       </div>
+
+      {/* MIPS Quality tab */}
+      {activeTab === "mips" && (
+        <div className="flex-1 overflow-y-auto">
+          <MIPSDashboardPage role={_role} />
+        </div>
+      )}
+
+      {/* Analytics tab */}
+      {activeTab === "analytics" && <>
 
       {/* Error banner */}
       {error && (
@@ -880,6 +926,8 @@ export function AnalyticsDashboardPage({ role: _role }: Props) {
           </div>
         </section>
       </div>
+
+      </>}
     </div>
   );
 }

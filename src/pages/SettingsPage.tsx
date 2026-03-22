@@ -29,6 +29,7 @@ import type { BiometricStatus } from "../types/auth";
 import type { UserListEntry } from "../types/mips";
 import type { ReminderConfigRecord, ReminderConfigInput } from "../types/reminders";
 import type { ExportSettings } from "../types/export";
+// SchedulePrintSettings type is inferred from commands.saveSchedulePrintSettings
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ function roleBadge(role: string): React.ReactElement {
 
 // ─── Tab type ─────────────────────────────────────────────────────────────────
 
-type Tab = "backup" | "security" | "fax" | "reminders" | "export" | "account" | "users";
+type Tab = "backup" | "security" | "fax" | "reminders" | "export" | "calendar" | "ai" | "account" | "users";
 
 // ─── Provider Appointment Types Section ────────────────────────────────────────
 
@@ -366,6 +367,57 @@ export function SettingsPage() {
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
 
+  // ── Calendar tab state ─────────────────────────────────────────────────────
+  const [calShowSaturday, setCalShowSaturday] = useState(false);
+  const [calShowSunday, setCalShowSunday] = useState(false);
+  const [calStartHour, setCalStartHour] = useState(6);
+  const [calEndHour, setCalEndHour] = useState(20);
+  const [calDefaultDuration, setCalDefaultDuration] = useState(60);
+  const [calDefaultView, setCalDefaultView] = useState<string>("week");
+  const [calHourHeight, setCalHourHeight] = useState(60);
+  const [calShowHalfHourLines, setCalShowHalfHourLines] = useState(true);
+  const [calSaving, setCalSaving] = useState(false);
+  const [calError, setCalError] = useState<string | null>(null);
+  const [calSuccess, setCalSuccess] = useState<string | null>(null);
+  const [calLoading, setCalLoading] = useState(false);
+
+  // ── AI tab state ────────────────────────────────────────────────────────────
+  const [aiProvider, setAiProvider] = useState<"ollama" | "bedrock" | "claude">("ollama");
+  const [aiOllamaUrl, setAiOllamaUrl] = useState("http://localhost:11434");
+  const [aiModel, setAiModel] = useState("deepseek-r1:14b");
+  const [aiBedrockAccessKey, setAiBedrockAccessKey] = useState("");
+  const [aiBedrockSecretKey, setAiBedrockSecretKey] = useState("");
+  const [aiBedrockRegion, setAiBedrockRegion] = useState("us-east-1");
+  const [aiClaudeApiKey, setAiClaudeApiKey] = useState("");
+  // Masked placeholders for secret fields (display-only, never saved back)
+  const [aiBedrockModel, setAiBedrockModel] = useState("us.anthropic.claude-sonnet-4-6");
+  const [aiClaudeModel, setAiClaudeModel] = useState("claude-sonnet-4-6");
+  const [aiClaudeApiKeyPlaceholder, setAiClaudeApiKeyPlaceholder] = useState("Enter Claude API key...");
+  const [aiBedrockAccessKeyPlaceholder, setAiBedrockAccessKeyPlaceholder] = useState("Enter AWS access key...");
+  const [aiBedrockSecretKeyPlaceholder, setAiBedrockSecretKeyPlaceholder] = useState("Enter AWS secret key...");
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiSuccess, setAiSuccess] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaFetching, setOllamaFetching] = useState(false);
+  const [ollamaFetchError, setOllamaFetchError] = useState<string | null>(null);
+
+  // ── Schedule print settings state ──────────────────────────────────────────
+  const [spIncludeCancelled, setSpIncludeCancelled] = useState(false);
+  const [spDateFormat, setSpDateFormat] = useState("MM/DD/YYYY");
+  const [spShowPatientDob, setSpShowPatientDob] = useState(false);
+  const [spShowAppointmentType, setSpShowAppointmentType] = useState(true);
+  const [spShowAppointmentStatus, setSpShowAppointmentStatus] = useState(true);
+  const [spShowProviderName, setSpShowProviderName] = useState(true);
+  const [spIncludeClinicLogo, setSpIncludeClinicLogo] = useState(true);
+  const [spDocumentFormat, setSpDocumentFormat] = useState("letter");
+  const [spOrientation, setSpOrientation] = useState("portrait");
+  const [spSaving, setSpSaving] = useState(false);
+  const [spError, setSpError] = useState<string | null>(null);
+  const [spSuccess, setSpSuccess] = useState<string | null>(null);
+  const [spLoading, setSpLoading] = useState(false);
+
   // ── Users: load when SystemAdmin opens the Users tab ────────────────────────
   useEffect(() => {
     if (user?.role !== "SystemAdmin") return;
@@ -451,6 +503,110 @@ export function SettingsPage() {
       .finally(() => { if (mounted) setExportLoading(false); });
     return () => { mounted = false; };
   }, [activeTab]);
+
+  // ── Calendar: load settings when tab becomes active ────────────────────────
+  useEffect(() => {
+    if (activeTab !== "calendar") return;
+    let mounted = true;
+    setCalLoading(true);
+    commands.getCalendarSettings()
+      .then((settings) => {
+        if (!mounted) return;
+        setCalShowSaturday(settings.showSaturday);
+        setCalShowSunday(settings.showSunday);
+        setCalStartHour(settings.startHour);
+        setCalEndHour(settings.endHour);
+        setCalDefaultDuration(settings.defaultDurationMinutes);
+        setCalDefaultView(settings.defaultView);
+        setCalHourHeight(settings.hourHeightPx);
+        setCalShowHalfHourLines(settings.showHalfHourLines);
+      })
+      .catch(() => { /* not yet configured — silently ignore */ })
+      .finally(() => { if (mounted) setCalLoading(false); });
+    return () => { mounted = false; };
+  }, [activeTab]);
+
+  // ── Schedule print: load settings when calendar tab becomes active ─────────
+  useEffect(() => {
+    if (activeTab !== "calendar") return;
+    let mounted = true;
+    setSpLoading(true);
+    commands.getSchedulePrintSettings()
+      .then((settings) => {
+        if (!mounted) return;
+        setSpIncludeCancelled(settings.includeCancelled ?? false);
+        setSpDateFormat(settings.dateFormat ?? "MM/DD/YYYY");
+        setSpShowPatientDob(settings.showPatientDob ?? false);
+        setSpShowAppointmentType(settings.showAppointmentType ?? true);
+        setSpShowAppointmentStatus(settings.showAppointmentStatus ?? true);
+        setSpShowProviderName(settings.showProviderName ?? true);
+        setSpIncludeClinicLogo(settings.includeClinicLogo ?? true);
+        setSpDocumentFormat(settings.documentFormat ?? "letter");
+        setSpOrientation(settings.orientation ?? "portrait");
+      })
+      .catch(() => { /* not yet configured — use defaults */ })
+      .finally(() => { if (mounted) setSpLoading(false); });
+    return () => { mounted = false; };
+  }, [activeTab]);
+
+  // ── AI: load settings when tab becomes active ──────────────────────────────
+  useEffect(() => {
+    if (activeTab !== "ai") return;
+    let mounted = true;
+    setAiLoading(true);
+    commands.getLlmSettings()
+      .then((settings) => {
+        if (!mounted) return;
+        const p = settings.provider as "ollama" | "bedrock" | "claude";
+        if (p === "ollama" || p === "bedrock" || p === "claude") setAiProvider(p);
+        if (settings.model) setAiModel(settings.model);
+        if (settings.ollamaUrl) setAiOllamaUrl(settings.ollamaUrl);
+        if (settings.bedrockRegion) setAiBedrockRegion(settings.bedrockRegion);
+        if (settings.bedrockModel) setAiBedrockModel(settings.bedrockModel);
+        if (settings.claudeModel) setAiClaudeModel(settings.claudeModel);
+        if (settings.claudeApiKey) setAiClaudeApiKeyPlaceholder(`Configured (${settings.claudeApiKey})`);
+        if (settings.bedrockAccessKey) setAiBedrockAccessKeyPlaceholder(`Configured (${settings.bedrockAccessKey})`);
+        if (settings.bedrockSecretKey) setAiBedrockSecretKeyPlaceholder(`Configured (${settings.bedrockSecretKey})`);
+        setAiClaudeApiKey("");
+        setAiBedrockAccessKey("");
+        setAiBedrockSecretKey("");
+      })
+      .catch(() => { /* not yet configured — use defaults */ })
+      .finally(() => { if (mounted) setAiLoading(false); });
+    return () => { mounted = false; };
+  }, [activeTab]);
+
+  const fetchOllamaModels = useCallback(async () => {
+    setOllamaFetching(true);
+    setOllamaFetchError(null);
+    try {
+      const status = await commands.checkOllamaStatus();
+      if (!status.available) {
+        setOllamaFetchError(status.error ?? "Ollama is not reachable");
+        setOllamaModels([]);
+        return;
+      }
+      setOllamaModels(status.models);
+      if (status.models.length > 0) {
+        const preferred = "deepseek-r1:14b";
+        const hasPreferred = status.models.includes(preferred);
+        setAiModel((prev) => {
+          if (status.models.includes(prev)) return prev;
+          return hasPreferred ? preferred : status.models[0];
+        });
+      }
+    } catch (e) {
+      setOllamaFetchError(e instanceof Error ? e.message : String(e));
+      setOllamaModels([]);
+    } finally {
+      setOllamaFetching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "ai" || aiProvider !== "ollama") return;
+    fetchOllamaModels();
+  }, [activeTab, aiProvider, fetchOllamaModels]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -582,6 +738,35 @@ export function SettingsPage() {
       setFaxTesting(false);
     }
   }, []);
+
+  const handleSaveAiSettings = useCallback(async () => {
+    setAiSaving(true);
+    setAiError(null);
+    setAiSuccess(null);
+    try {
+      await commands.configureLlmSettings({
+        provider: aiProvider,
+        model: aiProvider === "ollama" ? aiModel.trim() || null : null,
+        ollamaUrl: aiProvider === "ollama" ? aiOllamaUrl.trim() || null : null,
+        apiKey: aiProvider === "bedrock"
+          ? aiBedrockAccessKey.trim() || null
+          : aiProvider === "claude"
+            ? aiClaudeApiKey.trim() || null
+            : null,
+        apiSecret: aiProvider === "bedrock"
+          ? aiBedrockSecretKey.trim() || null
+          : null,
+        bedrockRegion: aiProvider === "bedrock" ? aiBedrockRegion.trim() || null : null,
+        bedrockModel: aiProvider === "bedrock" ? aiBedrockModel : null,
+        claudeModel: aiProvider === "claude" ? aiClaudeModel : null,
+      });
+      setAiSuccess("AI settings saved successfully.");
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiSaving(false);
+    }
+  }, [aiProvider, aiModel, aiOllamaUrl, aiBedrockAccessKey, aiBedrockSecretKey, aiBedrockRegion, aiBedrockModel, aiClaudeApiKey, aiClaudeModel]);
 
   const handleSaveReminderConfig = useCallback(async () => {
     setReminderSaving(true);
@@ -823,6 +1008,64 @@ export function SettingsPage() {
     }
   }, []);
 
+  const handleSaveCalendarSettings = useCallback(async () => {
+    setCalSaving(true);
+    setCalError(null);
+    setCalSuccess(null);
+    try {
+      await commands.saveCalendarSettings({
+        showSaturday: calShowSaturday,
+        showSunday: calShowSunday,
+        startHour: calStartHour,
+        endHour: calEndHour,
+        defaultDurationMinutes: calDefaultDuration,
+        defaultView: calDefaultView,
+        hourHeightPx: calHourHeight,
+        showHalfHourLines: calShowHalfHourLines,
+      });
+      setCalSuccess("Calendar settings saved successfully.");
+    } catch (e) {
+      setCalError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCalSaving(false);
+    }
+  }, [
+    calShowSaturday, calShowSunday, calStartHour, calEndHour,
+    calDefaultDuration, calDefaultView, calHourHeight, calShowHalfHourLines,
+  ]);
+
+  const handleSaveSchedulePrintSettings = useCallback(async () => {
+    setSpSaving(true);
+    setSpError(null);
+    setSpSuccess(null);
+    try {
+      await commands.saveSchedulePrintSettings({
+        includeCalendarEvents: null,
+        includeCancelled: spIncludeCancelled,
+        dateFormat: spDateFormat,
+        showPatientDob: spShowPatientDob,
+        showAppointmentType: spShowAppointmentType,
+        showAppointmentStatus: spShowAppointmentStatus,
+        clinicName: null,
+        clinicAddress: null,
+        clinicPhone: null,
+        includeClinicLogo: spIncludeClinicLogo,
+        documentFormat: spDocumentFormat,
+        orientation: spOrientation,
+        showProviderName: spShowProviderName,
+      });
+      setSpSuccess("Schedule print settings saved successfully.");
+    } catch (e) {
+      setSpError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSpSaving(false);
+    }
+  }, [
+    spIncludeCancelled, spDateFormat, spShowPatientDob, spShowAppointmentType,
+    spShowAppointmentStatus, spShowProviderName, spIncludeClinicLogo,
+    spDocumentFormat, spOrientation,
+  ]);
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   const tabs: { id: Tab; label: string; adminOnly?: boolean }[] = [
@@ -831,6 +1074,8 @@ export function SettingsPage() {
     { id: "fax", label: "Fax" },
     { id: "reminders", label: "Reminders", adminOnly: true },
     { id: "export", label: "Export" },
+    { id: "calendar", label: "Calendar" },
+    { id: "ai", label: "AI" },
     { id: "account", label: "Account" },
     { id: "users", label: "Users", adminOnly: true },
   ];
@@ -1970,6 +2215,640 @@ export function SettingsPage() {
                     className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {exportSaving ? "Saving..." : "Save Export Settings"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ─── CALENDAR TAB ───────────────────────────────────────────────────── */}
+        {activeTab === "calendar" && (
+          <div className="space-y-6 max-w-3xl">
+
+            {calError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {calError}
+              </div>
+            )}
+            {calSuccess && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                {calSuccess}
+              </div>
+            )}
+
+            {calLoading ? (
+              <p className="text-sm text-gray-500">Loading calendar settings...</p>
+            ) : (
+              <>
+                {/* Week View Settings */}
+                <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <h2 className="mb-1 text-base font-semibold text-gray-900">
+                    Week View Settings
+                  </h2>
+                  <p className="mb-4 text-sm text-gray-500">
+                    Configure which days and hours are visible in the calendar week view.
+                  </p>
+
+                  <div className="space-y-4">
+                    {/* Show Saturday */}
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-gray-700">Show Saturday</label>
+                      <button
+                        type="button"
+                        onClick={() => setCalShowSaturday((v) => !v)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                          calShowSaturday ? "bg-blue-600" : "bg-gray-200"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            calShowSaturday ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Show Sunday */}
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-gray-700">Show Sunday</label>
+                      <button
+                        type="button"
+                        onClick={() => setCalShowSunday((v) => !v)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                          calShowSunday ? "bg-blue-600" : "bg-gray-200"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            calShowSunday ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Start Hour */}
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Start Hour
+                      </label>
+                      <select
+                        value={calStartHour}
+                        onChange={(e) => setCalStartHour(Number(e.target.value))}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        {[5, 6, 7, 8, 9, 10].map((h) => (
+                          <option key={h} value={h}>
+                            {h <= 11 ? `${h}:00 AM` : `${h - 12 || 12}:00 PM`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* End Hour */}
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        End Hour
+                      </label>
+                      <select
+                        value={calEndHour}
+                        onChange={(e) => setCalEndHour(Number(e.target.value))}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        {[17, 18, 19, 20, 21, 22].map((h) => (
+                          <option key={h} value={h}>
+                            {h <= 11 ? `${h}:00 AM` : `${h - 12 || 12}:00 PM`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Default Appointment Duration */}
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Default Appointment Duration
+                      </label>
+                      <select
+                        value={calDefaultDuration}
+                        onChange={(e) => setCalDefaultDuration(Number(e.target.value))}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value={15}>15 minutes</option>
+                        <option value={30}>30 minutes</option>
+                        <option value={45}>45 minutes</option>
+                        <option value={60}>60 minutes</option>
+                      </select>
+                    </div>
+
+                    {/* Default View */}
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Default View
+                      </label>
+                      <select
+                        value={calDefaultView}
+                        onChange={(e) => setCalDefaultView(e.target.value)}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="day">Day</option>
+                        <option value="week">Week</option>
+                      </select>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Appearance */}
+                <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <h2 className="mb-1 text-base font-semibold text-gray-900">
+                    Appearance
+                  </h2>
+                  <p className="mb-4 text-sm text-gray-500">
+                    Customize the visual appearance of the calendar grid.
+                  </p>
+
+                  <div className="space-y-4">
+                    {/* Hour Height */}
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Hour Height
+                      </label>
+                      <select
+                        value={calHourHeight}
+                        onChange={(e) => setCalHourHeight(Number(e.target.value))}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value={40}>Small (40px)</option>
+                        <option value={60}>Medium (60px)</option>
+                        <option value={80}>Large (80px)</option>
+                      </select>
+                    </div>
+
+                    {/* Show Half-Hour Lines */}
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-gray-700">Show Half-Hour Lines</label>
+                      <button
+                        type="button"
+                        onClick={() => setCalShowHalfHourLines((v) => !v)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                          calShowHalfHourLines ? "bg-blue-600" : "bg-gray-200"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            calShowHalfHourLines ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Save button */}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSaveCalendarSettings}
+                    disabled={calSaving}
+                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {calSaving ? "Saving..." : "Save Calendar Settings"}
+                  </button>
+                </div>
+
+                {/* ── Schedule Print Settings ────────────────────────────── */}
+                {spError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {spError}
+                  </div>
+                )}
+                {spSuccess && (
+                  <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                    {spSuccess}
+                  </div>
+                )}
+
+                {spLoading ? (
+                  <p className="text-sm text-gray-500">Loading print settings...</p>
+                ) : (
+                  <>
+                    <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                      <h2 className="mb-1 text-base font-semibold text-gray-900">
+                        Schedule Print Settings
+                      </h2>
+                      <p className="mb-4 text-sm text-gray-500">
+                        Configure how schedule PDFs are generated when printing appointments.
+                      </p>
+
+                      <div className="space-y-4">
+                        {/* Include Cancelled */}
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium text-gray-700">Include Cancelled Appointments</label>
+                          <button
+                            type="button"
+                            onClick={() => setSpIncludeCancelled((v) => !v)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                              spIncludeCancelled ? "bg-blue-600" : "bg-gray-200"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                spIncludeCancelled ? "translate-x-6" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Show Patient DOB */}
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium text-gray-700">Show Patient Date of Birth</label>
+                          <button
+                            type="button"
+                            onClick={() => setSpShowPatientDob((v) => !v)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                              spShowPatientDob ? "bg-blue-600" : "bg-gray-200"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                spShowPatientDob ? "translate-x-6" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Show Appointment Type */}
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium text-gray-700">Show Appointment Type</label>
+                          <button
+                            type="button"
+                            onClick={() => setSpShowAppointmentType((v) => !v)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                              spShowAppointmentType ? "bg-blue-600" : "bg-gray-200"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                spShowAppointmentType ? "translate-x-6" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Show Appointment Status */}
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium text-gray-700">Show Appointment Status</label>
+                          <button
+                            type="button"
+                            onClick={() => setSpShowAppointmentStatus((v) => !v)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                              spShowAppointmentStatus ? "bg-blue-600" : "bg-gray-200"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                spShowAppointmentStatus ? "translate-x-6" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Show Provider Name */}
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium text-gray-700">Show Provider Name</label>
+                          <button
+                            type="button"
+                            onClick={() => setSpShowProviderName((v) => !v)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                              spShowProviderName ? "bg-blue-600" : "bg-gray-200"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                spShowProviderName ? "translate-x-6" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Include Clinic Letterhead */}
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium text-gray-700">Include Clinic Letterhead</label>
+                          <button
+                            type="button"
+                            onClick={() => setSpIncludeClinicLogo((v) => !v)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                              spIncludeClinicLogo ? "bg-blue-600" : "bg-gray-200"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                spIncludeClinicLogo ? "translate-x-6" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Date Format */}
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">
+                            Date Format
+                          </label>
+                          <select
+                            value={spDateFormat}
+                            onChange={(e) => setSpDateFormat(e.target.value)}
+                            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                          </select>
+                        </div>
+
+                        {/* Document Format */}
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">
+                            Paper Size
+                          </label>
+                          <select
+                            value={spDocumentFormat}
+                            onChange={(e) => setSpDocumentFormat(e.target.value)}
+                            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="letter">Letter (8.5 x 11)</option>
+                            <option value="a4">A4 (210 x 297 mm)</option>
+                          </select>
+                        </div>
+
+                        {/* Orientation */}
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">
+                            Orientation
+                          </label>
+                          <select
+                            value={spOrientation}
+                            onChange={(e) => setSpOrientation(e.target.value)}
+                            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="portrait">Portrait</option>
+                            <option value="landscape">Landscape</option>
+                          </select>
+                        </div>
+                      </div>
+                    </section>
+
+                    {/* Save Print Settings button */}
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={handleSaveSchedulePrintSettings}
+                        disabled={spSaving}
+                        className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {spSaving ? "Saving..." : "Save Print Settings"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ─── AI TAB ──────────────────────────────────────────────────────────── */}
+        {activeTab === "ai" && (
+          <div className="space-y-6 max-w-2xl">
+
+            {aiError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {aiError}
+              </div>
+            )}
+            {aiSuccess && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                {aiSuccess}
+              </div>
+            )}
+
+            {aiLoading ? (
+              <p className="text-sm text-gray-500">Loading AI settings...</p>
+            ) : (
+              <>
+                <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                  <h2 className="mb-1 text-base font-semibold text-gray-900">
+                    LLM Provider
+                  </h2>
+                  <p className="mb-4 text-sm text-gray-500">
+                    Choose between a local model (Ollama) or a cloud provider for AI-assisted note generation.
+                  </p>
+
+                  <div className="flex gap-4">
+                    {([
+                      { value: "ollama" as const, label: "Local (Ollama)" },
+                      { value: "bedrock" as const, label: "Cloud (AWS Bedrock)" },
+                      { value: "claude" as const, label: "Claude API" },
+                    ]).map((opt) => (
+                      <label key={opt.value} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="ai-provider"
+                          value={opt.value}
+                          checked={aiProvider === opt.value}
+                          onChange={() => setAiProvider(opt.value)}
+                          className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </section>
+
+                {aiProvider === "ollama" && (
+                  <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                    <h2 className="mb-1 text-base font-semibold text-gray-900">
+                      Ollama Settings
+                    </h2>
+                    <p className="mb-4 text-sm text-gray-500">
+                      Configure the local Ollama instance for on-device AI processing.
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Ollama URL
+                        </label>
+                        <input
+                          type="text"
+                          value={aiOllamaUrl}
+                          onChange={(e) => setAiOllamaUrl(e.target.value)}
+                          placeholder="http://localhost:11434"
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Model
+                        </label>
+                        {ollamaFetchError ? (
+                          <>
+                            <input
+                              type="text"
+                              value={aiModel}
+                              onChange={(e) => setAiModel(e.target.value)}
+                              placeholder="deepseek-r1:14b"
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                            <p className="mt-1 text-xs text-red-600">{ollamaFetchError}</p>
+                          </>
+                        ) : (
+                          <div className="flex gap-2">
+                            <select
+                              value={aiModel}
+                              onChange={(e) => setAiModel(e.target.value)}
+                              disabled={ollamaFetching || ollamaModels.length === 0}
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              {ollamaModels.length === 0 && (
+                                <option value="">
+                                  {ollamaFetching ? "Loading models..." : "No models found"}
+                                </option>
+                              )}
+                              {ollamaModels.map((m) => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={fetchOllamaModels}
+                              disabled={ollamaFetching}
+                              className="shrink-0 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {ollamaFetching ? "..." : "Refresh"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                {aiProvider === "bedrock" && (
+                  <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                    <h2 className="mb-1 text-base font-semibold text-gray-900">
+                      AWS Bedrock Settings
+                    </h2>
+                    <p className="mb-4 text-sm text-gray-500">
+                      Enter your AWS credentials for Bedrock AI access. A BAA is required for PHI.
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Access Key
+                        </label>
+                        <input
+                          type="text"
+                          value={aiBedrockAccessKey}
+                          onChange={(e) => setAiBedrockAccessKey(e.target.value)}
+                          placeholder={aiBedrockAccessKeyPlaceholder}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Secret Key
+                        </label>
+                        <input
+                          type="password"
+                          value={aiBedrockSecretKey}
+                          onChange={(e) => setAiBedrockSecretKey(e.target.value)}
+                          placeholder={aiBedrockSecretKeyPlaceholder}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Region
+                        </label>
+                        <input
+                          type="text"
+                          value={aiBedrockRegion}
+                          onChange={(e) => setAiBedrockRegion(e.target.value)}
+                          placeholder="us-east-1"
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Model
+                        </label>
+                        <select
+                          value={aiBedrockModel}
+                          onChange={(e) => setAiBedrockModel(e.target.value)}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="us.anthropic.claude-sonnet-4-6">Claude Sonnet 4 (us.anthropic.claude-sonnet-4-6)</option>
+                          <option value="us.anthropic.claude-haiku-4-5-20251001">Claude Haiku 4.5 (us.anthropic.claude-haiku-4-5-20251001)</option>
+                          <option value="anthropic.claude-3-5-sonnet-20241022-v2:0">Claude 3.5 Sonnet v2 (anthropic.claude-3-5-sonnet-20241022-v2:0)</option>
+                          <option value="anthropic.claude-3-haiku-20240307-v1:0">Claude 3 Haiku (anthropic.claude-3-haiku-20240307-v1:0)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                {aiProvider === "claude" && (
+                  <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                    <h2 className="mb-1 text-base font-semibold text-gray-900">
+                      Claude API Settings
+                    </h2>
+                    <p className="mb-4 text-sm text-gray-500">
+                      Enter your Claude API key for cloud AI fallback.
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          API Key
+                        </label>
+                        <input
+                          type="password"
+                          value={aiClaudeApiKey}
+                          onChange={(e) => setAiClaudeApiKey(e.target.value)}
+                          placeholder={aiClaudeApiKeyPlaceholder}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Model
+                        </label>
+                        <select
+                          value={aiClaudeModel}
+                          onChange={(e) => setAiClaudeModel(e.target.value)}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="claude-sonnet-4-6">Claude Sonnet 4 (claude-sonnet-4-6)</option>
+                          <option value="claude-opus-4-6">Claude Opus 4 (claude-opus-4-6)</option>
+                          <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (claude-haiku-4-5-20251001)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleSaveAiSettings}
+                    disabled={aiSaving}
+                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {aiSaving ? "Saving..." : "Save"}
                   </button>
                 </div>
               </>

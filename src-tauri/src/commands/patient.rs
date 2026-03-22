@@ -225,11 +225,18 @@ pub struct RelatedPersonRecord {
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Generate a short MRN if the caller did not supply one.
-/// Format: `MRN-<8 upper hex digits>` — simple, unique, readable.
-fn generate_mrn() -> String {
-    let random_bytes: [u8; 4] = rand::random();
-    format!("MRN-{}", hex::encode_upper(random_bytes))
+/// Generate a sequential MRN (1, 2, 3, …).
+/// Queries the highest existing integer MRN and returns the next one.
+fn generate_sequential_mrn(conn: &rusqlite::Connection) -> String {
+    let max: Option<i64> = conn
+        .query_row(
+            "SELECT MAX(CAST(mrn AS INTEGER)) FROM patient_index WHERE mrn GLOB '[0-9]*'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(None);
+    let next = max.unwrap_or(0) + 1;
+    next.to_string()
 }
 
 /// Build a FHIR R4 Patient resource from `PatientInput`.
@@ -253,7 +260,7 @@ fn build_patient_fhir(id: &str, mrn: &str, input: &PatientInput) -> serde_json::
         .map(|g| serde_json::Value::String(g.clone()))
         .collect();
 
-    let mut name = serde_json::json!({
+    let name = serde_json::json!({
         "use": "official",
         "family": input.family_name,
         "given": given,
@@ -390,7 +397,7 @@ fn build_patient_fhir(id: &str, mrn: &str, input: &PatientInput) -> serde_json::
 /// Write a failure audit row (safe — acquires its own lock).
 fn audit_denied(db: &Database, device_id: &DeviceId, user_id: &str, action: &str, reason: &str) {
     if let Ok(conn) = db.conn.lock() {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.to_string(),
@@ -453,7 +460,7 @@ pub fn create_patient(
         .mrn
         .clone()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(generate_mrn);
+        .unwrap_or_else(|| generate_sequential_mrn(&conn));
     let now = chrono::Utc::now().to_rfc3339();
 
     // Check MRN uniqueness
@@ -467,7 +474,7 @@ pub fn create_patient(
         > 0;
 
     if mrn_exists {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -496,7 +503,7 @@ pub fn create_patient(
 
     match insert_result {
         Err(e) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -531,7 +538,7 @@ pub fn create_patient(
         ],
     );
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -606,7 +613,7 @@ pub fn get_patient(
 
     match result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -628,7 +635,7 @@ pub fn get_patient(
         Ok((id, mrn, resource_str, version_id, last_updated, created_at)) => {
             let resource: serde_json::Value =
                 serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -701,7 +708,7 @@ pub fn update_patient(
 
     let (current_version, existing_mrn) = match version_result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -760,7 +767,7 @@ pub fn update_patient(
         ],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -914,7 +921,7 @@ pub fn search_patients(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -967,7 +974,7 @@ pub fn delete_patient(
     )?;
 
     if rows == 0 {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id,
@@ -1032,7 +1039,7 @@ pub fn delete_patient(
         rusqlite::params![format!("Patient/{}", patient_id)],
     );
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1130,7 +1137,7 @@ pub fn upsert_care_team(
         new_id
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1197,7 +1204,7 @@ pub fn get_care_team(
 
     match result {
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -1216,7 +1223,7 @@ pub fn get_care_team(
         Ok((id, resource_str, last_updated)) => {
             let resource: serde_json::Value =
                 serde_json::from_str(&resource_str).unwrap_or(serde_json::Value::Null);
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -1325,7 +1332,7 @@ pub fn add_related_person(
         rusqlite::params![id, resource_json, now, now, now],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1396,7 +1403,7 @@ pub fn list_related_persons(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -1652,40 +1659,56 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    // ── generate_mrn ──────────────────────────────────────────────────────
+    // ── generate_sequential_mrn ────────────────────────────────────────
 
     #[test]
-    fn generate_mrn_has_correct_prefix() {
-        let mrn = generate_mrn();
-        assert!(
-            mrn.starts_with("MRN-"),
-            "MRN should start with MRN-: {}",
-            mrn
-        );
+    fn sequential_mrn_starts_at_1_when_empty() {
+        let conn = test_db();
+        let mrn = generate_sequential_mrn(&conn);
+        assert_eq!(mrn, "1");
     }
 
     #[test]
-    fn generate_mrn_is_8_hex_digits() {
-        let mrn = generate_mrn();
-        let suffix = mrn.strip_prefix("MRN-").unwrap();
-        assert_eq!(
-            suffix.len(),
-            8,
-            "MRN suffix should be 8 hex digits: {}",
-            suffix
-        );
-        assert!(
-            suffix.chars().all(|c| c.is_ascii_hexdigit()),
-            "suffix must be hex: {}",
-            suffix
-        );
+    fn sequential_mrn_increments() {
+        let conn = test_db();
+        // Insert a patient with MRN "5"
+        let input = sample_patient_input();
+        let fhir = build_patient_fhir("pat-seq1", "5", &input);
+        let now = chrono::Utc::now().to_rfc3339();
+        let json = serde_json::to_string(&fhir).unwrap();
+        conn.execute(
+            "INSERT INTO fhir_resources (id, resource_type, resource, version_id, last_updated, created_at, updated_at) VALUES (?1,'Patient',?2,1,?3,?3,?3)",
+            rusqlite::params!["pat-seq1", json, now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO patient_index (patient_id, mrn, family_name, given_name, birth_date, gender) VALUES (?1,?2,?3,?4,?5,?6)",
+            rusqlite::params!["pat-seq1", "5", "Doe", "Jane", "1990-01-01", "female"],
+        ).unwrap();
+
+        let mrn = generate_sequential_mrn(&conn);
+        assert_eq!(mrn, "6");
     }
 
     #[test]
-    fn generate_mrn_produces_unique_values() {
-        let mrns: Vec<String> = (0..100).map(|_| generate_mrn()).collect();
-        let unique: std::collections::HashSet<&String> = mrns.iter().collect();
-        assert_eq!(unique.len(), 100, "MRNs must be unique across 100 samples");
+    fn sequential_mrn_ignores_non_numeric() {
+        let conn = test_db();
+        // Insert a patient with a legacy non-numeric MRN
+        let input = sample_patient_input();
+        let fhir = build_patient_fhir("pat-seq2", "MRN-ABC123", &input);
+        let now = chrono::Utc::now().to_rfc3339();
+        let json = serde_json::to_string(&fhir).unwrap();
+        conn.execute(
+            "INSERT INTO fhir_resources (id, resource_type, resource, version_id, last_updated, created_at, updated_at) VALUES (?1,'Patient',?2,1,?3,?3,?3)",
+            rusqlite::params!["pat-seq2", json, now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO patient_index (patient_id, mrn, family_name, given_name, birth_date, gender) VALUES (?1,?2,?3,?4,?5,?6)",
+            rusqlite::params!["pat-seq2", "MRN-ABC123", "Smith", "John", "1985-06-15", "male"],
+        ).unwrap();
+
+        // Non-numeric MRN should be ignored; next MRN starts at 1
+        let mrn = generate_sequential_mrn(&conn);
+        assert_eq!(mrn, "1");
     }
 
     // ── patient_index cascade delete ─────────────────────────────────────

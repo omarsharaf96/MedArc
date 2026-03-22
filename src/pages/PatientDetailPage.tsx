@@ -160,13 +160,26 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
   const [encountersError, setEncountersError] = useState<string | null>(null);
   const [encounterRefresh, setEncounterRefresh] = useState(0);
 
-  // (Start Encounter removed — encounters are created from calendar appointments only)
+  // ── Start Encounter state ────────────────────────────────────────────
+  const [startingEncounter, setStartingEncounter] = useState(false);
+  const [startEncounterError, setStartEncounterError] = useState<string | null>(null);
+  const [showApptPicker, setShowApptPicker] = useState(false);
 
   // ── Patient appointments state ──────────────────────────────────────
   const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
   const [appointmentsLoading, setAppointmentsLoading] = useState(true);
 
   // (Delete patient moved into PatientFormModal)
+
+  // Refresh patient + encounters when the AI assistant completes an action
+  useEffect(() => {
+    const handler = () => {
+      reload();
+      setEncounterRefresh((n) => n + 1);
+    };
+    window.addEventListener("assistant-action-completed", handler);
+    return () => window.removeEventListener("assistant-action-completed", handler);
+  }, [reload]);
 
   // ── Fetch encounters on mount and refresh ──────────────────────────────
   useEffect(() => {
@@ -225,8 +238,63 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
     return () => { mounted = false; };
   }, [patientId]);
 
-  // (Start Encounter and template picker handlers removed — encounters are
-  //  created from calendar appointments only)
+  /** Create a new encounter linked to a selected appointment. */
+  async function handleStartEncounter(appt: AppointmentRecord) {
+    setStartingEncounter(true);
+    setStartEncounterError(null);
+    setShowApptPicker(false);
+    try {
+      const display = extractAppointmentDisplay(appt.resource);
+      const encounterDate = display.start ?? new Date().toISOString().slice(0, 19);
+      const encounterType = display.apptType ?? "office_visit";
+      const created = await commands.createEncounter({
+        patientId,
+        providerId: userId,
+        encounterDate,
+        encounterType,
+        chiefComplaint: display.reason ?? null,
+        templateId: null,
+        soap: null,
+        appointmentId: appt.id,
+      });
+      navigate({
+        page: "encounter-workspace",
+        patientId,
+        encounterId: created.id,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[PatientDetailPage] handleStartEncounter failed:", msg);
+      setStartEncounterError(msg);
+    } finally {
+      setStartingEncounter(false);
+    }
+  }
+
+  /** Get upcoming/today's appointments that don't already have linked encounters. */
+  function getAvailableAppointments(): AppointmentRecord[] {
+    const now = new Date();
+    const todayStr = now.toLocaleDateString("sv"); // YYYY-MM-DD
+    return appointments.filter((a) => {
+      const display = extractAppointmentDisplay(a.resource);
+      if (!display.start) return false;
+      const apptDate = display.start.slice(0, 10);
+      if (apptDate < todayStr) return false;
+      if (display.status === "cancelled" || display.status === "noshow") return false;
+      // Check if this appointment already has a linked encounter
+      const appointmentRef = `Appointment/${a.id}`;
+      const isLinked = encounters.some((enc) => {
+        const extensions = enc.resource?.["extension"];
+        if (!Array.isArray(extensions)) return false;
+        return extensions.some(
+          (ext: Record<string, unknown>) =>
+            ext["url"] === "http://medarc.local/fhir/StructureDefinition/encounter-appointment" &&
+            (ext["valueReference"] as Record<string, unknown> | undefined)?.["reference"] === appointmentRef,
+        );
+      });
+      return !isLinked;
+    });
+  }
 
   // Delete patient is handled inside PatientFormModal via onDelete callback.
 
@@ -326,6 +394,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
       {/* Edit modal */}
       {editOpen && (
         <PatientFormModal
+          key={patientId}
           patientId={patientId}
           initialDisplay={display}
           onSuccess={() => {
@@ -346,7 +415,75 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
 
       {/* ── Encounters section ───────────────────────────────────────────── */}
       {!isBillingStaff && (
-        <SectionCard title="Encounters">
+        <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-base font-semibold text-gray-800">Encounters</h2>
+            {["Provider", "SystemAdmin", "NurseMa"].includes(role) && (
+              <div className="relative">
+                <button
+                  type="button"
+                  disabled={startingEncounter || appointmentsLoading}
+                  onClick={() => setShowApptPicker((v) => !v)}
+                  className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                >
+                  {startingEncounter ? "Creating..." : "Start Encounter"}
+                </button>
+                {showApptPicker && (() => {
+                  const available = getAvailableAppointments();
+                  return (
+                    <div className="absolute right-0 top-full z-20 mt-1 w-72 rounded-lg border border-gray-200 bg-white shadow-lg">
+                      <div className="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        Select Appointment
+                      </div>
+                      {available.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-gray-500 text-center">
+                          No available appointments. Schedule an appointment first.
+                        </div>
+                      ) : (
+                        <ul className="max-h-48 overflow-y-auto divide-y divide-gray-50">
+                          {available.map((a) => {
+                            const d = extractAppointmentDisplay(a.resource);
+                            const dateStr = d.start ? d.start.slice(0, 10) : "—";
+                            const timeStr = d.start
+                              ? new Date(d.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+                              : "";
+                            const typeLabel = d.apptTypeDisplay ?? d.apptType ?? "Appointment";
+                            return (
+                              <li key={a.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEncounter(a)}
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                                >
+                                  <span className="font-medium text-gray-900">{dateStr}</span>
+                                  <span className="ml-2 text-gray-500">{timeStr}</span>
+                                  <span className="ml-2 text-gray-400">{typeLabel}</span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                      <div className="border-t border-gray-100 px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowApptPicker(false)}
+                          className="text-xs text-gray-400 hover:text-gray-600"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+          {startEncounterError && (
+            <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {startEncounterError}
+            </div>
+          )}
           {encountersLoading ? (
             <p className="text-sm text-gray-500">Loading encounters...</p>
           ) : encountersError ? (
@@ -429,11 +566,44 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
               </table>
             </div>
           )}
-        </SectionCard>
+        </section>
       )}
 
       {/* ── Appointments section (upcoming + past) ────────────────────────── */}
-      <SectionCard title="Appointments">
+      <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-800">Appointments</h2>
+          {!appointmentsLoading && appointments.length > 0 && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const now = new Date();
+                  const upcoming = appointments.filter((a) => {
+                    const d = extractAppointmentDisplay(a.resource);
+                    return d.start && new Date(d.start) >= now && d.status !== "cancelled";
+                  });
+                  const dates = (upcoming.length > 0 ? upcoming : appointments)
+                    .map((a) => extractAppointmentDisplay(a.resource).start?.split("T")[0])
+                    .filter(Boolean) as string[];
+                  if (dates.length === 0) return;
+                  dates.sort();
+                  const startDate = dates[0];
+                  const endRaw = new Date(dates[dates.length - 1]);
+                  endRaw.setDate(endRaw.getDate() + 1);
+                  const endDate = endRaw.toISOString().split("T")[0];
+                  const result = await commands.generateSchedulePdf(startDate, endDate, patientId);
+                  await commands.openFileInDefaultApp(result.filePath);
+                } catch (err) {
+                  console.error("Failed to generate appointment PDF:", err);
+                }
+              }}
+              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              Print Appointments
+            </button>
+          )}
+        </div>
         {appointmentsLoading ? (
           <p className="text-sm text-gray-500">Loading appointments...</p>
         ) : appointments.length === 0 ? (
@@ -516,7 +686,7 @@ export function PatientDetailPage({ patientId, role, userId }: PatientDetailPage
             </div>
           );
         })()}
-      </SectionCard>
+      </section>
 
       {/* ── Documents — visible to all authenticated roles ────────────────── */}
       <SectionCard title="Documents">

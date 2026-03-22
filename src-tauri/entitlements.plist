@@ -63,7 +63,8 @@
     <true/>
 
     <!-- ── Touch ID / biometric (AUTH-04) ───────────────────────── -->
-    <key>com.apple.security.personal-information.location</key>
-    <false/>
+    <!-- Required for LAContext to access the Secure Enclave for Touch ID -->
+    <key>com.apple.security.personal-information.biometrics</key>
+    <true/>
 </dict>
 </plist>

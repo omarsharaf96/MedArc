@@ -436,9 +436,9 @@ pub async fn create_appointment(
     middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Create)?;
 
     // --- Validate duration ---
-    if input.duration_minutes < 5 || input.duration_minutes > 60 {
+    if input.duration_minutes < 5 || input.duration_minutes > 480 {
         if let Ok(conn) = db.conn.lock() {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: sess.user_id.clone(),
@@ -448,12 +448,12 @@ pub async fn create_appointment(
                     patient_id: Some(input.patient_id.clone()),
                     device_id: device_id.id().to_string(),
                     success: false,
-                    details: Some("duration_minutes must be between 5 and 60".to_string()),
+                    details: Some("duration_minutes must be between 5 and 480".to_string()),
                 },
             );
         }
         return Err(AppError::Validation(
-            "duration_minutes must be between 5 and 60".to_string(),
+            "duration_minutes must be between 5 and 480".to_string(),
         ));
     }
 
@@ -468,7 +468,7 @@ pub async fn create_appointment(
     let now = chrono::Utc::now().to_rfc3339();
     let mut records = Vec::new();
 
-    let mut conn = db
+    let conn = db
         .conn
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
@@ -668,7 +668,7 @@ pub async fn update_appointment(
     middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Update)?;
 
     let now = chrono::Utc::now().to_rfc3339();
-    let mut conn = db
+    let conn = db
         .conn
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
@@ -859,7 +859,7 @@ pub async fn cancel_appointment(
     middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Update)?;
 
     let now = chrono::Utc::now().to_rfc3339();
-    let mut conn = db
+    let conn = db
         .conn
         .lock()
         .map_err(|e| AppError::Database(e.to_string()))?;
@@ -1882,6 +1882,126 @@ pub struct ProviderListEntry {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Calendar Settings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Calendar display settings stored as JSON in app_settings under key "calendar_settings".
+/// Controls the appearance and behavior of the week/day calendar views.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarSettings {
+    /// Whether to show Saturday in the week view.
+    pub show_saturday: bool,
+    /// Whether to show Sunday in the week view.
+    pub show_sunday: bool,
+    /// Start hour for the calendar grid (5-10, default 6).
+    pub start_hour: u32,
+    /// End hour for the calendar grid (17-22, default 20).
+    pub end_hour: u32,
+    /// Default appointment duration in minutes (15/30/45/60, default 60).
+    pub default_duration_minutes: u32,
+    /// Default calendar view: "day" or "week".
+    pub default_view: String,
+    /// Height in pixels per hour in the calendar grid (40/60/80, default 60).
+    pub hour_height_px: u32,
+    /// Whether to show dotted half-hour lines in the calendar grid.
+    pub show_half_hour_lines: bool,
+}
+
+impl Default for CalendarSettings {
+    fn default() -> Self {
+        Self {
+            show_saturday: false,
+            show_sunday: false,
+            start_hour: 6,
+            end_hour: 20,
+            default_duration_minutes: 60,
+            default_view: "week".to_string(),
+            hour_height_px: 60,
+            show_half_hour_lines: true,
+        }
+    }
+}
+
+/// Get calendar display settings from app_settings.
+///
+/// Returns the stored CalendarSettings or sensible defaults if not yet configured.
+///
+/// Requires: AppointmentScheduling + Read
+#[tauri::command]
+pub async fn get_calendar_settings(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+) -> Result<CalendarSettings, AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Read)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let json_str: String = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'calendar_settings'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let settings: CalendarSettings =
+        serde_json::from_str(&json_str).unwrap_or_default();
+
+    Ok(settings)
+}
+
+/// Save calendar display settings to app_settings.
+///
+/// Overwrites any existing calendar_settings value.
+///
+/// Requires: AppointmentScheduling + Update
+#[tauri::command]
+pub async fn save_calendar_settings(
+    settings: CalendarSettings,
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<CalendarSettings, AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::AppointmentScheduling, Action::Update)?;
+
+    let json_str = serde_json::to_string(&settings)
+        .map_err(|e| AppError::Serialization(e.to_string()))?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('calendar_settings', ?1, datetime('now'))",
+        rusqlite::params![json_str],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: sess.user_id.clone(),
+            action: "scheduling.calendar_settings.update".to_string(),
+            resource_type: "AppSettings".to_string(),
+            resource_id: Some("calendar_settings".to_string()),
+            patient_id: None,
+            device_id: device_id.id().to_string(),
+            success: true,
+            details: Some("Calendar settings updated".to_string()),
+        },
+    )?;
+
+    Ok(settings)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2492,5 +2612,42 @@ mod tests {
         assert!(has_permission(Role::NurseMa, Resource::AppointmentScheduling, Action::Read));
         assert!(has_permission(Role::NurseMa, Resource::AppointmentScheduling, Action::Update));
         assert!(!has_permission(Role::NurseMa, Resource::AppointmentScheduling, Action::Delete));
+    }
+
+    // ── CalendarSettings serialization ───────────────────────────────────
+
+    #[test]
+    fn calendar_settings_default_has_correct_values() {
+        let defaults = CalendarSettings::default();
+        assert_eq!(defaults.show_saturday, false);
+        assert_eq!(defaults.show_sunday, false);
+        assert_eq!(defaults.start_hour, 6);
+        assert_eq!(defaults.end_hour, 20);
+        assert_eq!(defaults.default_duration_minutes, 60);
+        assert_eq!(defaults.default_view, "week");
+        assert_eq!(defaults.hour_height_px, 60);
+        assert_eq!(defaults.show_half_hour_lines, true);
+    }
+
+    #[test]
+    fn calendar_settings_serializes_camelcase() {
+        let settings = CalendarSettings::default();
+        let json = serde_json::to_string(&settings).expect("should serialize");
+        assert!(json.contains("\"showSaturday\""), "camelCase showSaturday expected");
+        assert!(json.contains("\"showSunday\""), "camelCase showSunday expected");
+        assert!(json.contains("\"startHour\""), "camelCase startHour expected");
+        assert!(json.contains("\"endHour\""), "camelCase endHour expected");
+        assert!(json.contains("\"defaultDurationMinutes\""), "camelCase defaultDurationMinutes expected");
+        assert!(json.contains("\"defaultView\""), "camelCase defaultView expected");
+        assert!(json.contains("\"hourHeightPx\""), "camelCase hourHeightPx expected");
+        assert!(json.contains("\"showHalfHourLines\""), "camelCase showHalfHourLines expected");
+    }
+
+    #[test]
+    fn calendar_settings_deserializes_from_empty_json() {
+        let settings: CalendarSettings = serde_json::from_str("{}").unwrap_or_default();
+        assert_eq!(settings.start_hour, 6);
+        assert_eq!(settings.end_hour, 20);
+        assert_eq!(settings.default_view, "week");
     }
 }

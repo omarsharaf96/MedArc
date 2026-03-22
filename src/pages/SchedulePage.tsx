@@ -25,6 +25,7 @@ import { commands } from "../lib/tauri";
 import type {
   AppointmentRecord,
   UpdateAppointmentInput,
+  CalendarSettings,
 } from "../types/scheduling";
 import type { ReminderLog, ReminderResult } from "../types/reminders";
 
@@ -73,7 +74,10 @@ export function SchedulePage() {
   const role = user?.role ?? "";
   const writeAllowed = canWrite(role);
 
-  // View state
+  // Calendar settings loaded from backend
+  const [calendarSettings, setCalendarSettings] = useState<CalendarSettings | null>(null);
+
+  // View state — default view comes from calendar settings once loaded
   const [view, setView] = useState<"day" | "week">("week");
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
 
@@ -91,6 +95,9 @@ export function SchedulePage() {
   // Provider data for appointment form
   const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [providerApptTypes, setProviderApptTypes] = useState<Record<string, string[]>>({});
+
+  // Reschedule error (drag-to-reschedule)
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
 
   // Reminder panel state
   const [reminderLogs, setReminderLogs] = useState<Record<string, ReminderLog[]>>({});
@@ -113,7 +120,7 @@ export function SchedulePage() {
     cancelAppointment,
   } = useSchedule(startDate, endDate, null);
 
-  // Load providers and provider appointment types on mount
+  // Load providers, provider appointment types, and calendar settings on mount
   useEffect(() => {
     let mounted = true;
 
@@ -132,7 +139,22 @@ export function SchedulePage() {
       }
     }
 
+    async function loadCalendarSettings() {
+      try {
+        const settings = await commands.getCalendarSettings();
+        if (!mounted) return;
+        setCalendarSettings(settings);
+        // Apply default view from settings (only on initial load)
+        if (settings.defaultView === "day" || settings.defaultView === "week") {
+          setView(settings.defaultView as "day" | "week");
+        }
+      } catch {
+        // Silently ignore — use defaults
+      }
+    }
+
     loadProviderData();
+    loadCalendarSettings();
     return () => { mounted = false; };
   }, []);
 
@@ -187,6 +209,7 @@ export function SchedulePage() {
   // Drag-to-reschedule handler — updates appointment start time
   const handleReschedule = useCallback(async (appointmentId: string, newStartTime: string) => {
     try {
+      setRescheduleError(null);
       await commands.updateAppointment(appointmentId, {
         startTime: newStartTime,
         durationMinutes: null,
@@ -198,7 +221,8 @@ export function SchedulePage() {
       });
       reload();
     } catch (err) {
-      console.error("Failed to reschedule appointment:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setRescheduleError(msg);
     }
   }, [reload]);
 
@@ -265,6 +289,7 @@ export function SchedulePage() {
   }, [expandedReminder]);
 
   const handleSendReminder = useCallback(async (appointmentId: string, type: string) => {
+    if (reminderSending[appointmentId]) return;
     setReminderSending((prev) => ({ ...prev, [appointmentId]: true }));
     setReminderResults((prev) => ({ ...prev, [appointmentId]: null }));
     try {
@@ -283,7 +308,7 @@ export function SchedulePage() {
     } finally {
       setReminderSending((prev) => ({ ...prev, [appointmentId]: false }));
     }
-  }, []);
+  }, [reminderSending]);
 
   const handleSendNoShow = useCallback(async (appointmentId: string) => {
     setNoShowSending((prev) => ({ ...prev, [appointmentId]: true }));
@@ -355,6 +380,25 @@ export function SchedulePage() {
           </div>
         )}
 
+        {rescheduleError && (
+          <div
+            role="alert"
+            className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex items-center justify-between"
+          >
+            <span>
+              <span className="font-medium">Failed to reschedule: </span>
+              {rescheduleError}
+            </span>
+            <button
+              type="button"
+              onClick={() => setRescheduleError(null)}
+              className="ml-3 text-red-600 hover:text-red-800 font-medium text-xs"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {loadingAppointments ? (
           <div className="h-96 rounded-xl bg-gray-100 animate-pulse" />
         ) : (
@@ -375,6 +419,7 @@ export function SchedulePage() {
             onReschedule={writeAllowed ? handleReschedule : undefined}
             onUpdateStatus={writeAllowed ? handleUpdateStatus : undefined}
             onDeleteAppointment={writeAllowed ? handleDeleteAppointment : undefined}
+            calendarSettings={calendarSettings}
           />
         )}
       </section>
@@ -530,6 +575,7 @@ export function SchedulePage() {
           providers={providers}
           providerAppointmentTypes={providerApptTypes}
           initialStartTime={prefillStartTime}
+          defaultDurationMinutes={calendarSettings?.defaultDurationMinutes}
         />
       )}
 

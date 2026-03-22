@@ -1,9 +1,11 @@
 /**
  * EncounterWorkspace.tsx — Clinical encounter workspace.
  *
- * Simplified single-note encounter workspace:
- *   - One large textarea for the entire clinical note (no SOAP split)
- *   - No Vitals, ROS, or Physical Exam tabs
+ * SOAP-structured note editor with split and merged view modes:
+ *   - Four labeled textareas for Subjective / Objective / Assessment / Plan
+ *   - Optional merged single-textarea view via toggle
+ *   - Auto-detects SOAP sections in legacy single-field text
+ *   - Per-section dictation support (useDictation hook)
  *   - Finalized encounters show a PDF preview inline
  *   - "Edit" button triggers amendment mode to return to the editable view
  *
@@ -23,6 +25,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { copyFile, readFile } from "@tauri-apps/plugin-fs";
 import { AuthAlertBanner } from "../components/clinical/AuthTrackingPanel";
 import { TherapyCapBanner } from "../components/clinical/TherapyCapBanner";
+import { useDictation } from "../hooks/useDictation";
 import type { SoapInput } from "../types/documentation";
 import type { FaxContact } from "../types/fax";
 
@@ -89,16 +92,122 @@ function extractEncounterTypeFromResource(
 /**
  * Merge all four SOAP fields into a single note string for display.
  * When loading an encounter that was saved with separate SOAP fields,
- * combine them into one text block.
+ * combine them into one text block with section headers.
  */
 function mergeNoteContent(soap: SoapInput): string {
   const parts: string[] = [];
-  if (soap.subjective?.trim()) parts.push(soap.subjective.trim());
-  if (soap.objective?.trim()) parts.push(soap.objective.trim());
-  if (soap.assessment?.trim()) parts.push(soap.assessment.trim());
-  if (soap.plan?.trim()) parts.push(soap.plan.trim());
+  if (soap.subjective?.trim()) parts.push(`SUBJECTIVE:\n${soap.subjective.trim()}`);
+  if (soap.objective?.trim()) parts.push(`OBJECTIVE:\n${soap.objective.trim()}`);
+  if (soap.assessment?.trim()) parts.push(`ASSESSMENT:\n${soap.assessment.trim()}`);
+  if (soap.plan?.trim()) parts.push(`PLAN:\n${soap.plan.trim()}`);
+  // Fallback: if no sections have headers, just join the raw text
+  if (parts.length === 0) {
+    const raw: string[] = [];
+    if (soap.subjective?.trim()) raw.push(soap.subjective.trim());
+    if (soap.objective?.trim()) raw.push(soap.objective.trim());
+    if (soap.assessment?.trim()) raw.push(soap.assessment.trim());
+    if (soap.plan?.trim()) raw.push(soap.plan.trim());
+    return raw.join("\n\n");
+  }
   return parts.join("\n\n");
 }
+
+/** SOAP section keys in display order. */
+type SoapKey = "subjective" | "objective" | "assessment" | "plan";
+
+/** SOAP section display metadata. */
+const SOAP_SECTIONS: { key: SoapKey; label: string; placeholder: string }[] = [
+  {
+    key: "subjective",
+    label: "SUBJECTIVE",
+    placeholder: "Patient complaints, symptoms, self-reported history...",
+  },
+  {
+    key: "objective",
+    label: "OBJECTIVE",
+    placeholder: "Exam findings, measurements, treatments performed...",
+  },
+  {
+    key: "assessment",
+    label: "ASSESSMENT",
+    placeholder: "Clinical assessment, progress status, diagnosis...",
+  },
+  {
+    key: "plan",
+    label: "PLAN",
+    placeholder: "Treatment plan, goals, next steps, follow-up...",
+  },
+];
+
+/**
+ * Parse SOAP sections from a single text string.
+ * Detects section headers like "SUBJECTIVE:", "S:", "Subjective:", etc.
+ * and splits the text into the four SOAP fields.
+ *
+ * If no section headers are detected, returns the entire text in subjective.
+ */
+function parseSoapFromText(text: string): SoapInput {
+  const sections: SoapInput = {
+    subjective: null,
+    objective: null,
+    assessment: null,
+    plan: null,
+  };
+
+  if (!text || !text.trim()) return sections;
+
+  const markers: { key: SoapKey; patterns: RegExp[] }[] = [
+    { key: "subjective", patterns: [/^SUBJECTIVE:/im, /^S:/im] },
+    { key: "objective", patterns: [/^OBJECTIVE:/im, /^O:/im] },
+    { key: "assessment", patterns: [/^ASSESSMENT:/im, /^A:/im] },
+    { key: "plan", patterns: [/^PLAN:/im, /^P:/im] },
+  ];
+
+  // Find position of each marker in the text
+  const found: { key: SoapKey; pos: number; matchLen: number }[] = [];
+  for (const marker of markers) {
+    for (const pattern of marker.patterns) {
+      const match = pattern.exec(text);
+      if (match) {
+        found.push({ key: marker.key, pos: match.index, matchLen: match[0].length });
+        break; // Use the first matching pattern for this section
+      }
+    }
+  }
+
+  // If no section headers found, put everything in subjective
+  if (found.length === 0) {
+    sections.subjective = text.trim();
+    return sections;
+  }
+
+  // Sort by position
+  found.sort((a, b) => a.pos - b.pos);
+
+  // Extract text between markers
+  for (let i = 0; i < found.length; i++) {
+    const start = found[i].pos + found[i].matchLen;
+    const end = i + 1 < found.length ? found[i + 1].pos : text.length;
+    const content = text.slice(start, end).trim();
+    if (content) {
+      sections[found[i].key] = content;
+    }
+  }
+
+  // If there's text before the first marker, prepend it to the first section
+  if (found[0].pos > 0) {
+    const preamble = text.slice(0, found[0].pos).trim();
+    if (preamble) {
+      const firstKey = found[0].key;
+      sections[firstKey] = preamble + (sections[firstKey] ? "\n\n" + sections[firstKey] : "");
+    }
+  }
+
+  return sections;
+}
+
+/** View mode for the note editor. */
+type NoteViewMode = "split" | "merged";
 
 // ─── Loading skeleton ────────────────────────────────────────────────────────
 
@@ -108,6 +217,52 @@ function LoadingSkeleton() {
       <div className="h-8 w-1/3 rounded bg-gray-200" />
       <div className="h-4 w-1/2 rounded bg-gray-200" />
       <div className="h-64 rounded bg-gray-200" />
+    </div>
+  );
+}
+
+// ─── Dictation Button ─────────────────────────────────────────────────────────
+
+interface DictationButtonProps {
+  /** Called with transcribed text to append to a field. */
+  onTranscript: (text: string) => void;
+  disabled?: boolean;
+  /** Compact size for individual section textareas. */
+  size?: "sm" | "md";
+}
+
+function DictationButton({ onTranscript, disabled, size = "sm" }: DictationButtonProps) {
+  const { isRecording, isTranscribing, toggle, error } = useDictation({
+    onTranscript,
+  });
+
+  const sizeClasses =
+    size === "sm"
+      ? "px-2 py-1 text-xs"
+      : "px-3 py-1.5 text-sm";
+
+  return (
+    <div className="inline-flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => void toggle()}
+        disabled={disabled || isTranscribing}
+        className={[
+          "rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-60",
+          sizeClasses,
+          isRecording
+            ? "bg-red-600 text-white hover:bg-red-700 focus:ring-red-500 animate-pulse"
+            : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus:ring-indigo-500",
+        ].join(" ")}
+        title={isRecording ? "Stop recording" : isTranscribing ? "Transcribing..." : "Start dictation"}
+      >
+        {isTranscribing ? "Transcribing..." : isRecording ? "Stop" : "Dictate"}
+      </button>
+      {error && (
+        <span className="text-xs text-red-500 max-w-[200px] truncate" title={error}>
+          {error}
+        </span>
+      )}
     </div>
   );
 }
@@ -138,9 +293,24 @@ function NoteEditor({
   isFinalized,
   isAmending,
   templates,
-  soapState: _soapState,
+  soapState,
   setSoapState,
 }: NoteEditorProps) {
+  // ── View mode state ───────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<NoteViewMode>("split");
+
+  // ── Collapsible section state ─────────────────────────────────────
+  const [collapsedSections, setCollapsedSections] = useState<Record<SoapKey, boolean>>({
+    subjective: false,
+    objective: false,
+    assessment: false,
+    plan: false,
+  });
+
+  const toggleSection = useCallback((key: SoapKey) => {
+    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
   // ── Save state ────────────────────────────────────────────────────
   const [savingSoap, setSavingSoap] = useState(false);
   const [soapSaveError, setSoapSaveError] = useState<string | null>(null);
@@ -156,6 +326,27 @@ function NoteEditor({
   const isReadOnly =
     (isFinalized && !isAmending) || role === "NurseMa" || role === "BillingStaff";
 
+  // ── Helper: update a single SOAP field ────────────────────────────
+  const updateSoapField = useCallback(
+    (key: SoapKey, value: string) => {
+      const updated = { ...soapState, [key]: value || null };
+      setSoapState(updated);
+      // Keep merged noteContent in sync
+      setNoteContent(mergeNoteContent(updated));
+    },
+    [soapState, setSoapState, setNoteContent],
+  );
+
+  // ── Sync from merged view back to split fields ────────────────────
+  const syncMergedToSplit = useCallback(
+    (text: string) => {
+      setNoteContent(text);
+      const parsed = parseSoapFromText(text);
+      setSoapState(parsed);
+    },
+    [setNoteContent, setSoapState],
+  );
+
   // ── Template picker onChange ────────────────────────────────────────
   const handleTemplateChange = useCallback(
     async (templateId: string) => {
@@ -163,10 +354,8 @@ function NoteEditor({
       try {
         setLoadingTemplate(true);
         const tpl = await commands.getTemplate(templateId);
-        // Merge template's default SOAP into the single note content
-        const merged = mergeNoteContent(tpl.defaultSoap);
-        setNoteContent(merged);
         setSoapState(tpl.defaultSoap);
+        setNoteContent(mergeNoteContent(tpl.defaultSoap));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setSoapSaveError(`Failed to load template: ${msg}`);
@@ -177,18 +366,27 @@ function NoteEditor({
     [setNoteContent, setSoapState],
   );
 
+  // ── Build current SOAP from state ─────────────────────────────────
+  const getCurrentSoap = useCallback((): SoapInput => {
+    if (viewMode === "merged") {
+      // In merged mode, parse the single text into SOAP sections
+      return parseSoapFromText(noteContent);
+    }
+    // In split mode, use soapState directly
+    return {
+      subjective: soapState.subjective || null,
+      objective: soapState.objective || null,
+      assessment: soapState.assessment || null,
+      plan: soapState.plan || null,
+    };
+  }, [viewMode, noteContent, soapState]);
+
   // ── Save Note ─────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     setSavingSoap(true);
     setSoapSaveError(null);
     try {
-      // Store the entire note content in the subjective field
-      const soap: SoapInput = {
-        subjective: noteContent || null,
-        objective: null,
-        assessment: null,
-        plan: null,
-      };
+      const soap = getCurrentSoap();
       await saveSoap(soap, isAmending ? "Amended" : null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -197,19 +395,14 @@ function NoteEditor({
     } finally {
       setSavingSoap(false);
     }
-  }, [saveSoap, noteContent, isAmending]);
+  }, [saveSoap, getCurrentSoap, isAmending]);
 
   // ── Finalize Encounter ────────────────────────────────────────────
   const handleFinalize = useCallback(async () => {
     setFinalizing(true);
     setFinalizeError(null);
     try {
-      const soap: SoapInput = {
-        subjective: noteContent || null,
-        objective: null,
-        assessment: null,
-        plan: null,
-      };
+      const soap = getCurrentSoap();
       await finalizeEncounter(soap);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -218,7 +411,7 @@ function NoteEditor({
     } finally {
       setFinalizing(false);
     }
-  }, [finalizeEncounter, noteContent]);
+  }, [finalizeEncounter, getCurrentSoap]);
 
   return (
     <div className="space-y-5">
@@ -272,21 +465,140 @@ function NoteEditor({
         </div>
       )}
 
-      {/* ── Single note textarea ──────────────────────────────────────── */}
-      <div>
-        <label className={LABEL_CLS} htmlFor="encounter-note">
-          Clinical Note
-        </label>
-        <textarea
-          id="encounter-note"
-          className={INPUT_CLS}
-          rows={20}
-          readOnly={isReadOnly}
-          value={noteContent}
-          onChange={(e) => setNoteContent(e.target.value)}
-          placeholder={isReadOnly ? "" : "Enter your clinical note here..."}
-        />
+      {/* ── View mode toggle ──────────────────────────────────────────── */}
+      <div className="flex items-center gap-1">
+        <span className="mr-2 text-xs font-medium text-gray-500 uppercase tracking-wide">View:</span>
+        <button
+          type="button"
+          onClick={() => setViewMode("split")}
+          className={[
+            "rounded-l-md px-3 py-1 text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1",
+            viewMode === "split"
+              ? "bg-indigo-600 text-white border-indigo-600"
+              : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50",
+          ].join(" ")}
+        >
+          Split View
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            // Sync current split state to merged content before switching
+            setNoteContent(mergeNoteContent(soapState));
+            setViewMode("merged");
+          }}
+          className={[
+            "rounded-r-md px-3 py-1 text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1",
+            viewMode === "merged"
+              ? "bg-indigo-600 text-white border-indigo-600"
+              : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50",
+          ].join(" ")}
+        >
+          Merged View
+        </button>
       </div>
+
+      {/* ── Split View: 4 SOAP section textareas ──────────────────────── */}
+      {viewMode === "split" && (
+        <div className="space-y-3">
+          {SOAP_SECTIONS.map(({ key, label, placeholder }) => {
+            const isCollapsed = collapsedSections[key];
+            const content = soapState[key] ?? "";
+            const hasContent = !!content.trim();
+
+            return (
+              <div
+                key={key}
+                className="rounded-lg border border-gray-200 bg-gray-50/50 overflow-hidden"
+              >
+                {/* Section header — clickable to collapse/expand */}
+                <button
+                  type="button"
+                  onClick={() => toggleSection(key)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={[
+                        "text-xs font-bold tracking-wider",
+                        hasContent ? "text-indigo-700" : "text-gray-500",
+                      ].join(" ")}
+                    >
+                      {label}
+                    </span>
+                    {hasContent && (
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {isCollapsed ? "+" : "\u2212"}
+                  </span>
+                </button>
+
+                {/* Section body */}
+                {!isCollapsed && (
+                  <div className="border-t border-gray-200 px-3 py-2">
+                    <div className="flex items-center justify-end mb-1">
+                      {!isReadOnly && (
+                        <DictationButton
+                          onTranscript={(text) => {
+                            const current = soapState[key] ?? "";
+                            const separator = current.trim() ? " " : "";
+                            updateSoapField(key, current + separator + text);
+                          }}
+                          disabled={isReadOnly}
+                        />
+                      )}
+                    </div>
+                    <textarea
+                      id={`soap-${key}`}
+                      className={[
+                        INPUT_CLS,
+                        "bg-white min-h-[100px] resize-y",
+                      ].join(" ")}
+                      rows={4}
+                      readOnly={isReadOnly}
+                      value={content}
+                      onChange={(e) => updateSoapField(key, e.target.value)}
+                      placeholder={isReadOnly ? "" : placeholder}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Merged View: single textarea ──────────────────────────────── */}
+      {viewMode === "merged" && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className={LABEL_CLS} htmlFor="encounter-note-merged">
+              Clinical Note
+            </label>
+            {!isReadOnly && (
+              <DictationButton
+                onTranscript={(text) => {
+                  const separator = noteContent.trim() ? " " : "";
+                  syncMergedToSplit(noteContent + separator + text);
+                }}
+                disabled={isReadOnly}
+                size="md"
+              />
+            )}
+          </div>
+          <textarea
+            id="encounter-note-merged"
+            className={INPUT_CLS}
+            rows={20}
+            readOnly={isReadOnly}
+            value={noteContent}
+            onChange={(e) => syncMergedToSplit(e.target.value)}
+            placeholder={isReadOnly ? "" : "Enter your clinical note here..."}
+          />
+        </div>
+      )}
 
       {/* ── Save error ───────────────────────────────────────────────────── */}
       {soapSaveError && (
@@ -442,17 +754,40 @@ export function EncounterWorkspace({
     encounterId,
   });
 
-  // ── Single note content state (replaces 4 SOAP fields) ──────────────
+  // ── Single note content state (merged view) ──────────────────────────
   const [noteContent, setNoteContent] = useState("");
   const [noteSeededForId, setNoteSeededForId] = useState<string | null>(null);
 
-  // Seed noteContent from soapState when encounter loads
+  // Seed noteContent and soapState from encounter when it loads
   useEffect(() => {
     if (!encounter) return;
     if (noteSeededForId === encounter.id) return;
-    setNoteContent(mergeNoteContent(soapState));
+
+    // Check if only subjective is filled (legacy single-field mode)
+    const hasOnlySubjective =
+      soapState.subjective &&
+      !soapState.objective &&
+      !soapState.assessment &&
+      !soapState.plan;
+
+    if (hasOnlySubjective && soapState.subjective) {
+      // Try to auto-detect SOAP sections in the subjective text
+      const parsed = parseSoapFromText(soapState.subjective);
+      // Only apply parsed sections if we found at least 2 distinct sections
+      const filledCount = [parsed.subjective, parsed.objective, parsed.assessment, parsed.plan]
+        .filter((v) => v !== null && v.trim() !== "")
+        .length;
+      if (filledCount >= 2) {
+        setSoapState(parsed);
+        setNoteContent(mergeNoteContent(parsed));
+      } else {
+        setNoteContent(mergeNoteContent(soapState));
+      }
+    } else {
+      setNoteContent(mergeNoteContent(soapState));
+    }
     setNoteSeededForId(encounter.id);
-  }, [encounter, soapState, noteSeededForId]);
+  }, [encounter, soapState, noteSeededForId, setSoapState]);
 
   // ── Amendment state ──────────────────────────────────────────────────
   const [isAmending, setIsAmending] = useState(false);

@@ -74,7 +74,7 @@ interface RouterProviderProps {
 /** Wrap the authenticated app tree with this provider to enable navigation. */
 export function RouterProvider({
   children,
-  initialRoute = { page: "patients" },
+  initialRoute = { page: "schedule" },
 }: RouterProviderProps) {
   const [currentRoute, setCurrentRoute] = useState<Route>(initialRoute);
   const [history, setHistory] = useState<Route[]>([]);

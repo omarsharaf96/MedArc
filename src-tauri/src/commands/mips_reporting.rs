@@ -89,6 +89,7 @@ pub const MEASURE_128: &str = "128";
 /// oswestry / ndi       → "220" (spine)
 /// dash                 → "221" (upper extremity)
 /// anything else        → None
+#[allow(dead_code)]
 pub fn measure_type_to_mips_id(measure_type: &str) -> Option<&'static str> {
     match measure_type {
         "lefs" => Some(MEASURE_217),
@@ -512,7 +513,7 @@ pub fn get_mips_performance(
         });
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -645,7 +646,7 @@ pub fn get_mips_eligible_patients(
         }
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -720,7 +721,7 @@ pub fn record_phq2_screening(
         |row| row.get(0),
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -810,7 +811,7 @@ pub fn record_falls_screening(
         |row| row.get(0),
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -912,7 +913,7 @@ pub fn get_mips_dashboard(
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,

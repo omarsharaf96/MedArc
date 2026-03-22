@@ -1178,7 +1178,7 @@ pub async fn create_encounter(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1248,7 +1248,7 @@ pub async fn get_encounter(
     let resource: serde_json::Value = serde_json::from_str(&resource_str)
         .map_err(|e| AppError::Serialization(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1349,7 +1349,7 @@ pub async fn list_encounters(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1432,7 +1432,7 @@ pub async fn update_encounter(
         .map_err(|e| AppError::Database(e.to_string()))?;
 
         // Log the amendment audit entry
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: sess.user_id.clone(),
@@ -1521,7 +1521,7 @@ pub async fn update_encounter(
         .map_err(|e| AppError::Database(e.to_string()))?;
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1591,7 +1591,7 @@ pub async fn delete_encounter(
     .map_err(|e| AppError::Database(e.to_string()))?;
 
     if rows == 0 {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: sess.user_id.clone(),
@@ -1607,7 +1607,7 @@ pub async fn delete_encounter(
         return Err(AppError::NotFound(format!("Encounter {} not found in fhir_resources", encounter_id)));
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1696,7 +1696,7 @@ pub async fn record_vitals(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1805,7 +1805,7 @@ pub async fn list_vitals(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1859,7 +1859,7 @@ pub async fn save_ros(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1926,7 +1926,7 @@ pub async fn get_ros(
             let resource: serde_json::Value = serde_json::from_str(&resource_str)
                 .map_err(|e| AppError::Serialization(e.to_string()))?;
 
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: sess.user_id.clone(),
@@ -1991,7 +1991,7 @@ pub async fn save_physical_exam(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -2057,7 +2057,7 @@ pub async fn get_physical_exam(
             let resource: serde_json::Value = serde_json::from_str(&resource_str)
                 .map_err(|e| AppError::Serialization(e.to_string()))?;
 
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: sess.user_id.clone(),
@@ -2217,7 +2217,7 @@ pub async fn request_cosign(
         )
         .ok();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -2347,7 +2347,7 @@ pub async fn approve_cosign(
         )
         .ok();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -2442,7 +2442,7 @@ pub async fn list_pending_cosigns(
         )
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -2649,7 +2649,7 @@ pub async fn check_drug_allergy_alerts(
         }
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

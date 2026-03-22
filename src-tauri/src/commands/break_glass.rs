@@ -7,6 +7,7 @@ use crate::auth::session::SessionManager;
 use crate::db::connection::Database;
 use crate::device_id::DeviceId;
 use crate::error::AppError;
+use crate::rbac::roles::Role;
 
 /// Response from break-glass activation.
 #[derive(Debug, Clone, Serialize)]
@@ -36,7 +37,8 @@ pub fn activate_break_glass(
     patient_id: Option<String>,
 ) -> Result<BreakGlassResponse, AppError> {
     // 1. Require active session
-    let (user_id, role) = session.get_current_user()?;
+    let (user_id, role_raw) = session.get_current_user()?;
+    let role = Role::from_str(&role_raw)?.as_str().to_string();
 
     // 2. Validate reason is non-empty (HIPAA requires documented justification)
     if reason.trim().is_empty() {
@@ -45,7 +47,7 @@ pub fn activate_break_glass(
             .conn
             .lock()
             .map_err(|e| AppError::Database(e.to_string()))?;
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -78,7 +80,7 @@ pub fn activate_break_glass(
         .map_err(|_| AppError::Authentication("User not found".to_string()))?;
 
     if let Err(e) = password::verify(&password, &password_hash) {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -115,7 +117,7 @@ pub fn activate_break_glass(
     )?;
 
     // 6. Audit the activation (success)
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: user_id.clone(),
@@ -172,7 +174,7 @@ pub fn deactivate_break_glass(
         rusqlite::params![now, user_id.clone()],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,

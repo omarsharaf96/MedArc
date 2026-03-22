@@ -26,6 +26,7 @@ impl Role {
     }
 
     /// Convert role to its database string representation.
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             Role::SystemAdmin => "system_admin",
@@ -38,6 +39,7 @@ impl Role {
 }
 
 /// Resources protected by RBAC.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resource {
     ClinicalRecords,
@@ -243,6 +245,7 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (FrontDesk, Backup, _) => false,
 
         // ── PdfExport resource (M003/S05) ─────────────────────────────────────
+        #[allow(unreachable_patterns)]
         (SystemAdmin, PdfExport, _) => true,
         (Provider, PdfExport, _) => true,
         (NurseMa, PdfExport, Read) => true,
@@ -250,6 +253,9 @@ pub fn has_permission(role: Role, resource: Resource, action: Action) -> bool {
         (BillingStaff, PdfExport, Read) => true,
         (BillingStaff, PdfExport, _) => false,
         (FrontDesk, PdfExport, _) => false,
+
+        #[allow(unreachable_patterns)]
+        _ => false,
     }
 }
 

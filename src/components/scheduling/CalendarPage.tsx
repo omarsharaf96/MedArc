@@ -24,7 +24,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { AppointmentRecord } from "../../types/scheduling";
+import type { AppointmentRecord, CalendarSettings } from "../../types/scheduling";
 import { extractAppointmentDisplay } from "../../lib/fhirExtract";
 import { useNav } from "../../contexts/RouterContext";
 import { useAuth } from "../../hooks/useAuth";
@@ -87,15 +87,12 @@ const APPT_TYPE_COLOR_MAP: Record<string, string> = {
   pt_treatment: "#3B82F6",         // blue
 };
 
-// ─── Calendar layout constants ────────────────────────────────────────────────
+// ─── Calendar layout constants (defaults, overridden by CalendarSettings) ─────
 
-/** Visible hour range — 08:00 through 18:00 (10 hours × 60px = 600px). */
-const START_HOUR = 8;
-const END_HOUR = 18;
-const HOUR_HEIGHT_PX = 60;
-
-/** Minute offset from midnight for the first visible row. */
-const GRID_START_MIN = START_HOUR * 60; // 480
+/** Default visible hour range. */
+const DEFAULT_START_HOUR = 6;
+const DEFAULT_END_HOUR = 20;
+const DEFAULT_HOUR_HEIGHT_PX = 60;
 
 /** Day labels for the week-view header (Sun–Sat). */
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -125,6 +122,8 @@ export interface CalendarPageProps {
   onUpdateStatus?: (appointmentId: string, status: string) => Promise<void>;
   /** Called when the user confirms deletion of an appointment. */
   onDeleteAppointment?: (appointmentId: string) => Promise<void>;
+  /** Calendar display settings loaded from the backend. */
+  calendarSettings?: CalendarSettings | null;
 }
 
 // ─── CalendarHeader ───────────────────────────────────────────────────────────
@@ -271,6 +270,9 @@ interface AppointmentCardProps {
     timeLabel: string,
   ) => void;
   isDragging?: boolean;
+  gridStartMin?: number;
+  gridEndHour?: number;
+  hourHeightPx?: number;
 }
 
 function AppointmentCard({
@@ -280,20 +282,23 @@ function AppointmentCard({
   draggable,
   onDragStart,
   isDragging,
+  gridStartMin = DEFAULT_START_HOUR * 60,
+  gridEndHour = DEFAULT_END_HOUR,
+  hourHeightPx = DEFAULT_HOUR_HEIGHT_PX,
 }: AppointmentCardProps) {
   const display = extractAppointmentDisplay(appt.resource);
 
   const startStr = display.start ?? "";
-  const startMin = startStr ? startMinuteOfDay(startStr) : GRID_START_MIN;
+  const startMin = startStr ? startMinuteOfDay(startStr) : gridStartMin;
   const duration = display.durationMin ?? 30;
 
   // Clamp: don't render above START_HOUR or below END_HOUR
-  const clampedStart = Math.max(startMin, GRID_START_MIN);
-  const clampedEnd = Math.min(startMin + duration, END_HOUR * 60);
+  const clampedStart = Math.max(startMin, gridStartMin);
+  const clampedEnd = Math.min(startMin + duration, gridEndHour * 60);
   const visibleDuration = Math.max(clampedEnd - clampedStart, 15); // 15px minimum
 
-  const topPx = (clampedStart - GRID_START_MIN) * (HOUR_HEIGHT_PX / 60);
-  const heightPx = visibleDuration * (HOUR_HEIGHT_PX / 60);
+  const topPx = (clampedStart - gridStartMin) * (hourHeightPx / 60);
+  const heightPx = visibleDuration * (hourHeightPx / 60);
 
   // Use type-based auto-color; fall back to stored color, then default blue
   const bgColor =
@@ -302,6 +307,16 @@ function AppointmentCard({
     "#3B82F6";
   const label = display.apptTypeDisplay ?? display.apptType ?? "Appointment";
   const timeLabel = startStr ? formatTime(startStr) : "";
+  const endTimeLabel = display.end ? formatTime(display.end) : "";
+  const timeRangeLabel = timeLabel && endTimeLabel ? `${timeLabel} - ${endTimeLabel}` : timeLabel;
+
+  // Status-based border: green for attended, red for no-show, subtle dark default
+  const borderStyle =
+    display.status === "fulfilled" || display.status === "arrived"
+      ? "3px solid #16a34a"
+      : display.status === "noshow"
+      ? "3px solid #dc2626"
+      : "1px solid rgba(0,0,0,0.4)";
 
   function handleMouseDown(e: React.MouseEvent) {
     if (!draggable || !onDragStart) return;
@@ -337,7 +352,7 @@ function AppointmentCard({
   return (
     <div
       onMouseDown={handleMouseDown}
-      title={`${label} at ${timeLabel}`}
+      title={`${label} at ${timeRangeLabel}`}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -351,13 +366,14 @@ function AppointmentCard({
         top: `${topPx}px`,
         height: `${heightPx}px`,
         backgroundColor: bgColor,
+        border: borderStyle,
       }}
     >
       <div className="px-1 py-0.5 truncate leading-tight">
         <span className="block truncate">
           {patientLabel ? patientLabel(appt.patientId) : label}
         </span>
-        <span className="block truncate opacity-90">{timeLabel}</span>
+        <span className="block truncate opacity-90">{timeRangeLabel}</span>
       </div>
     </div>
   );
@@ -374,6 +390,7 @@ interface CalendarGridProps {
   patientLabel?: (patientId: string) => string;
   onReschedule?: (appointmentId: string, newStartTime: string) => void;
   canWrite?: boolean;
+  calendarSettings?: CalendarSettings | null;
 }
 
 function CalendarGrid({
@@ -385,14 +402,23 @@ function CalendarGrid({
   patientLabel,
   onReschedule,
   canWrite,
+  calendarSettings,
 }: CalendarGridProps) {
+  const START_HOUR = calendarSettings?.startHour ?? DEFAULT_START_HOUR;
+  const END_HOUR = calendarSettings?.endHour ?? DEFAULT_END_HOUR;
+  const HOUR_HEIGHT_PX = calendarSettings?.hourHeightPx ?? DEFAULT_HOUR_HEIGHT_PX;
+  const GRID_START_MIN = START_HOUR * 60;
+  const showHalfHourLines = calendarSettings?.showHalfHourLines ?? true;
+  const showSaturday = calendarSettings?.showSaturday ?? true;
+  const showSunday = calendarSettings?.showSunday ?? true;
+
   const hours = Array.from(
     { length: END_HOUR - START_HOUR },
     (_, i) => START_HOUR + i,
   );
   const totalHeightPx = hours.length * HOUR_HEIGHT_PX;
 
-  // Build column date strings for week view
+  // Build column date strings for week view, filtering days based on settings
   const columns: string[] = [];
   if (view === "day") {
     columns.push(currentDate.toLocaleDateString("sv"));
@@ -401,6 +427,9 @@ function CalendarGrid({
     const sunday = new Date(currentDate);
     sunday.setDate(currentDate.getDate() - dayOfWeek);
     for (let i = 0; i < 7; i++) {
+      // i=0 is Sunday, i=6 is Saturday
+      if (i === 0 && !showSunday) continue;
+      if (i === 6 && !showSaturday) continue;
       const d = new Date(sunday);
       d.setDate(sunday.getDate() + i);
       columns.push(d.toLocaleDateString("sv"));
@@ -594,9 +623,11 @@ function CalendarGrid({
 
       {/* Day columns */}
       <div className={`flex flex-1 min-w-0 ${view === "week" ? "divide-x divide-gray-200" : ""}`}>
-        {columns.map((dateStr, colIdx) => {
+        {columns.map((dateStr) => {
           const dayAppts = appointmentsForDate(dateStr);
-          const dayLabel = view === "week" ? DAY_LABELS[colIdx] : "";
+          // Derive day-of-week label from the date string itself
+          const dateObj = new Date(dateStr + "T12:00:00");
+          const dayLabel = view === "week" ? DAY_LABELS[dateObj.getDay()] : "";
           // Parse date for numeric label in week view
           const dateParts = dateStr.split("-");
           const dayNum = dateParts[2] ? parseInt(dateParts[2], 10) : "";
@@ -647,6 +678,17 @@ function CalendarGrid({
                   />
                 ))}
 
+                {/* Half-hour lines (dotted) */}
+                {showHalfHourLines && hours.map((h) => (
+                  <div
+                    key={`half-${h}`}
+                    className="absolute inset-x-0 border-t border-dotted border-gray-100 pointer-events-none"
+                    style={{
+                      top: `${(h - START_HOUR) * HOUR_HEIGHT_PX + HOUR_HEIGHT_PX / 2}px`,
+                    }}
+                  />
+                ))}
+
                 {/* Appointment cards */}
                 {dayAppts.map((appt) => (
                   <AppointmentCard
@@ -659,6 +701,9 @@ function CalendarGrid({
                       handleCardDragStart(dateStr, apptId, grabY, topPx, heightPx, bg, lbl, tl)
                     }
                     isDragging={dragState?.appointmentId === appt.id}
+                    gridStartMin={GRID_START_MIN}
+                    gridEndHour={END_HOUR}
+                    hourHeightPx={HOUR_HEIGHT_PX}
                   />
                 ))}
 
@@ -723,6 +768,9 @@ function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppoi
   // State for status update
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+
+  // State for copy appointments feedback
+  const [copiedAppts, setCopiedAppts] = useState(false);
 
   // State for delete confirmation
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -905,6 +953,61 @@ function InfoPopover({ appt, onClose, canWrite, onEditAppointment, onCancelAppoi
             {openingEncounter ? "Opening..." : "Open Encounter"}
           </button>
 
+          {/* View patient chart */}
+          <button
+            onClick={() => {
+              onClose();
+              navigate({ page: "patient-detail", patientId: appt.patientId });
+            }}
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            View Patient Chart
+          </button>
+
+          {/* Print & copy appointments */}
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                const now = new Date().toLocaleDateString("sv");
+                const future = new Date();
+                future.setFullYear(future.getFullYear() + 1);
+                const result = await commands.generateSchedulePdf(now, future.toLocaleDateString("sv"), appt.patientId, null);
+                await commands.openFileInDefaultApp(result.filePath);
+              }}
+              className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              Print Appts
+            </button>
+            <button
+              onClick={async () => {
+                const now = new Date().toLocaleDateString("sv");
+                const future = new Date();
+                future.setFullYear(future.getFullYear() + 1);
+                const appts = await commands.listAppointments(now, future.toLocaleDateString("sv"), appt.patientId, null);
+                const lines = appts
+                  .filter(a => {
+                    const d = extractAppointmentDisplay(a.resource);
+                    return d.status !== "cancelled" && d.status !== "noshow";
+                  })
+                  .map(a => {
+                    const d = extractAppointmentDisplay(a.resource);
+                    if (!d.start) return "";
+                    const dt = new Date(d.start);
+                    const dd = dt.getDate().toString().padStart(2, "0");
+                    const mm = (dt.getMonth() + 1).toString().padStart(2, "0");
+                    return `${dt.toLocaleDateString("en-US", { weekday: "long" })} ${dd}/${mm} ${dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+                  })
+                  .filter(Boolean);
+                await navigator.clipboard.writeText(`Your upcoming appointments are:\n${lines.join("\n")}`);
+                setCopiedAppts(true);
+                setTimeout(() => setCopiedAppts(false), 2000);
+              }}
+              className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              {copiedAppts ? "Copied!" : "Copy Appts"}
+            </button>
+          </div>
+
           {/* Edit appointment — write-gated, not cancelled/fulfilled */}
           {canWrite && display.status !== "cancelled" && display.status !== "fulfilled" && (
             <button
@@ -1003,6 +1106,7 @@ export function CalendarPage({
   onReschedule,
   onUpdateStatus,
   onDeleteAppointment,
+  calendarSettings,
 }: CalendarPageProps) {
   const [selectedCard, setSelectedCard] = useState<AppointmentRecord | null>(null);
 
@@ -1034,6 +1138,7 @@ export function CalendarPage({
         patientLabel={patientLabel}
         onReschedule={onReschedule}
         canWrite={canWrite}
+        calendarSettings={calendarSettings}
       />
       {selectedCard && (
         <InfoPopover

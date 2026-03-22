@@ -223,3 +223,68 @@ npm run tauri:build               # Production macOS DMG
 # DB location: ~/Library/Application Support/com.medarc.emr/medarc.db
 # Encryption key: macOS Keychain → "com.medarc.emr.db-key"
 ```
+
+## Development Framework
+
+We use **GSD 2** for orchestration and **Superpowers** for quality discipline.
+
+- **GSD 2** controls the workflow: Milestone → Slice → Task. Fresh context per task. Deterministic execution.
+- **Superpowers** enforces TDD and code review quality within each task.
+- State lives in `.gsd/`. Decisions live in `.gsd/DECISIONS.md`. Research lives in `.gsd/research/`.
+
+### TDD Rules (Superpowers)
+
+These are non-negotiable:
+
+1. Write the failing test FIRST. Run it. Watch it fail.
+2. Write the MINIMAL code to make the test pass. Nothing extra.
+3. If code was written before the test: DELETE IT. Start over.
+4. Each red-green cycle gets its own commit.
+5. Test BEHAVIOR, not implementation details.
+6. Use real implementations over mocks wherever possible.
+
+**Anti-rationalization:** "This is too simple to test" → wrong, write the test. "I'll write tests after" → wrong, tests-after verify what you built, not what's needed. "Let me prototype first" → wrong, prototypes become production code.
+
+### Code Review (Two-Stage)
+
+1. **Spec compliance:** Does implementation match the acceptance criteria in `docs/PRD.md`? Nothing missing? Nothing extra?
+2. **Code quality:** Clean separation, proper error handling, no unnecessary abstractions, tests verify behavior?
+
+Critical issues block merge. Important issues should fix before merge. Minor issues note for later.
+
+### Context Management
+
+- Target < 50% context utilization per task
+- Use `/compact` manually if approaching 50%
+- State lives in files (`.gsd/`, `docs/`), not conversation history
+- Fresh context per task — never accumulate history across tasks
+- Use ultrathink for complex architectural decisions
+- Use subagents for research — they explore extensively but return condensed results
+
+### What NOT to Do
+
+- Don't add features not in the spec (YAGNI)
+- Don't add comments, docstrings, or type annotations to code you didn't change
+- Don't over-engineer for hypothetical future requirements
+- Don't mock the database in tests — use real PostgreSQL (test transactions rollback)
+- Don't commit `.env`, credentials, or API keys
+- Don't skip the service layer (routers should not contain business logic)
+- Don't use `any` in TypeScript
+- Don't write code before the test
+
+### Final Build Verification
+
+Once all tasks are completed, **automatically** run the full production build and fix any issues — do not wait to be asked:
+
+```bash
+npx tauri build --target universal-apple-darwin --features whisper
+```
+
+All compiler warnings must be squashed — treat warnings as errors. The build must complete cleanly with zero warnings before work is considered done.
+
+### Work Delegation
+
+- **All implementation work must be done by subagents**, not by the main agent. The main agent orchestrates and reviews; subagents execute.
+- Before starting work, **always create a task list** and present it to the user. Execution begins immediately — no approval required.
+- The task list is a **living document** — the user can add new tasks at any time while subagents are working. The main agent should pick up new tasks as subagents complete existing ones.
+- **Default: just run.** Do not ask for permission or confirmation before executing tasks. Execute immediately unless the user explicitly says otherwise.

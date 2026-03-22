@@ -17,6 +17,7 @@ pub enum SessionState {
     Locked {
         user_id: String,
         role: String,
+        #[allow(dead_code)]
         locked_at: DateTime<Utc>,
         session_id: String,
     },
@@ -43,6 +44,7 @@ pub struct SessionInfo {
 /// Manages session state with configurable timeout.
 pub struct SessionManager {
     pub state: Mutex<SessionState>,
+    #[allow(dead_code)]
     pub timeout_minutes: Mutex<u32>,
 }
 
@@ -109,7 +111,7 @@ impl SessionManager {
     }
 
     /// Transition from Locked back to Active state.
-    pub fn unlock(&self, _user_id: &str) -> Result<(), AppError> {
+    pub fn unlock(&self, requesting_user_id: &str) -> Result<(), AppError> {
         let mut state = self
             .state
             .lock()
@@ -121,6 +123,11 @@ impl SessionManager {
                 session_id,
                 ..
             } => {
+                if user_id != requesting_user_id {
+                    return Err(AppError::Authentication(
+                        "User ID does not match the locked session".to_string(),
+                    ));
+                }
                 *state = SessionState::Active {
                     user_id,
                     role,
@@ -148,20 +155,38 @@ impl SessionManager {
     }
 
     /// Check if the session has timed out. Returns true if timed out.
-    pub fn check_timeout(&self) -> bool {
-        let state = self.state.lock().unwrap();
-        let timeout = *self.timeout_minutes.lock().unwrap();
+    #[allow(dead_code)]
+    pub fn check_timeout(&self) -> Result<bool, AppError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| AppError::Authentication("Session lock poisoned".to_string()))?;
+        let timeout = *self
+            .timeout_minutes
+            .lock()
+            .map_err(|_| AppError::Authentication("Session lock poisoned".to_string()))?;
         match &*state {
             SessionState::Active { last_activity, .. } => {
-                Utc::now() - *last_activity > chrono::Duration::minutes(timeout as i64)
+                Ok(Utc::now() - *last_activity > chrono::Duration::minutes(timeout as i64))
             }
-            _ => false,
+            _ => Ok(false),
         }
     }
 
     /// Get current session info for the frontend.
     pub fn get_state(&self) -> SessionInfo {
-        let state = self.state.lock().unwrap();
+        let state = match self.state.lock() {
+            Ok(s) => s,
+            Err(_) => {
+                return SessionInfo {
+                    session_id: None,
+                    user_id: None,
+                    role: None,
+                    state: "unauthenticated".to_string(),
+                    last_activity: None,
+                };
+            }
+        };
         match &*state {
             SessionState::Unauthenticated => SessionInfo {
                 session_id: None,
@@ -314,7 +339,7 @@ mod tests {
         let manager = SessionManager::new(15);
         manager.login("user-1", "Physician").unwrap();
         assert!(
-            !manager.check_timeout(),
+            !manager.check_timeout().unwrap(),
             "Session should not be timed out immediately after login"
         );
     }

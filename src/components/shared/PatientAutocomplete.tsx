@@ -50,6 +50,10 @@ export interface PatientAutocompleteProps {
   onChange: (patientId: string | null) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Called when the user clicks "Create new patient" from the empty-results state. */
+  onCreatePatient?: (name: string) => void;
+  /** Auto-focus the input field when the component mounts. */
+  autoFocus?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -59,6 +63,8 @@ export function PatientAutocomplete({
   onChange,
   placeholder = "Search by name…",
   disabled = false,
+  onCreatePatient,
+  autoFocus = false,
 }: PatientAutocompleteProps) {
   // Text shown in the input field.
   const [inputText, setInputText] = useState("");
@@ -76,15 +82,26 @@ export function PatientAutocomplete({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // ── Reliable auto-focus (handles modal rendering timing) ─────────────────
+  useEffect(() => {
+    if (autoFocus && inputRef.current) {
+      // Small delay to ensure modal/DOM is fully mounted
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [autoFocus]);
+
   // ── Sync display text when value is controlled externally ────────────────
   useEffect(() => {
     if (value === null) {
-      setInputText("");
+      if (!open) {
+        setInputText("");
+      }
       setSelectedName(null);
-    } else if (selectedName) {
+    } else if (selectedName && !open) {
       setInputText(selectedName);
     }
-  }, [value, selectedName]);
+  }, [value, selectedName, open]);
 
   // ── Debounced search ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -107,7 +124,7 @@ export function PatientAutocomplete({
         });
         setResults(hits);
         setOpen(true);
-        setHighlightIdx(-1);
+        setHighlightIdx(hits.length > 0 ? 0 : -1);
       } catch {
         setResults([]);
         setOpen(false);
@@ -171,17 +188,13 @@ export function PatientAutocomplete({
         break;
       case "ArrowUp":
         e.preventDefault();
-        setHighlightIdx((i) => Math.max(i - 1, -1));
+        setHighlightIdx((i) => Math.max(i - 1, 0));
         break;
       case "Enter":
         e.preventDefault();
         if (highlightIdx >= 0 && highlightIdx < results.length) {
           selectPatient(results[highlightIdx]);
         }
-        break;
-      case "Escape":
-        setOpen(false);
-        setHighlightIdx(-1);
         break;
     }
   }
@@ -217,6 +230,7 @@ export function PatientAutocomplete({
           }}
           placeholder={placeholder}
           disabled={disabled}
+          autoFocus={autoFocus}
           autoComplete="off"
           aria-autocomplete="list"
           aria-expanded={open}
@@ -271,8 +285,21 @@ export function PatientAutocomplete({
           className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg max-h-60 overflow-y-auto"
         >
           {results.length === 0 ? (
-            <li className="px-4 py-3 text-sm text-gray-500 select-none">
-              No patients found
+            <li className="px-4 py-3 text-sm select-none">
+              <span className="text-gray-500">No patients found.</span>
+              {onCreatePatient && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onCreatePatient(inputText.trim());
+                    setOpen(false);
+                  }}
+                  className="ml-2 text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  Create &ldquo;{inputText.trim()}&rdquo; as new patient
+                </button>
+              )}
             </li>
           ) : (
             results.map((patient, idx) => (
@@ -288,7 +315,7 @@ export function PatientAutocomplete({
                 onMouseEnter={() => setHighlightIdx(idx)}
                 className={`cursor-pointer px-4 py-2.5 text-sm ${
                   idx === highlightIdx
-                    ? "bg-blue-50 text-blue-900"
+                    ? "bg-blue-100 text-blue-900 font-semibold"
                     : "text-gray-900 hover:bg-gray-50"
                 }`}
               >

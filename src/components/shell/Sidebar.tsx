@@ -52,7 +52,6 @@ const NAV_ITEMS_BY_ROLE: Record<string, NavItem[]> = {
     { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
     { label: "Analytics", route: { page: "analytics" }, page: "analytics", icon: "📊" },
-    { label: "MIPS", route: { page: "mips" }, page: "mips", icon: "🏆" },
     { label: "Settings", route: { page: "settings" }, page: "settings", icon: "⚙️" },
   ],
   SystemAdmin: [
@@ -60,9 +59,7 @@ const NAV_ITEMS_BY_ROLE: Record<string, NavItem[]> = {
     { label: "Patients", route: { page: "patients" }, page: "patients", icon: "👥" },
     { label: "Fax", route: { page: "fax" }, page: "fax", icon: "📠", badgeKey: "faxInbox" },
     { label: "Analytics", route: { page: "analytics" }, page: "analytics", icon: "📊" },
-    { label: "MIPS", route: { page: "mips" }, page: "mips", icon: "🏆" },
     { label: "Settings", route: { page: "settings" }, page: "settings", icon: "⚙️" },
-    { label: "Audit Log", route: { page: "audit-log" }, page: "audit-log", icon: "🔍" },
   ],
 };
 

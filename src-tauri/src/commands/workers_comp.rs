@@ -408,7 +408,7 @@ pub fn create_wc_case(
         row_to_wc_case,
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -449,7 +449,7 @@ pub fn get_wc_case(
         )
         .map_err(|_| AppError::NotFound(format!("WC case '{}' not found", case_id)))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -501,7 +501,7 @@ pub fn list_wc_cases(
         rows
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -577,7 +577,7 @@ pub fn update_wc_case(
         row_to_wc_case,
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -652,7 +652,7 @@ pub fn add_wc_contact(
         },
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -704,7 +704,7 @@ pub fn list_wc_contacts(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -781,7 +781,7 @@ pub fn update_wc_contact(
         },
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -942,7 +942,7 @@ pub fn generate_froi(
         case_id = case_id,
     );
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1010,7 +1010,7 @@ pub fn lookup_wc_fee(
             ))
         })?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1097,7 +1097,7 @@ pub fn record_impairment_rating(
         },
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1153,7 +1153,7 @@ pub fn list_impairment_ratings(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1231,7 +1231,7 @@ pub fn log_wc_communication(
         },
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1285,7 +1285,7 @@ pub fn list_wc_communications(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

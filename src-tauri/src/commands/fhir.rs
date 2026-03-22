@@ -61,7 +61,7 @@ fn audit_denied(
     reason: &str,
 ) {
     if let Ok(conn) = db.conn.lock() {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.to_string(),
@@ -127,7 +127,7 @@ pub fn create_resource(
 
     match insert_result {
         Ok(_) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -151,7 +151,7 @@ pub fn create_resource(
             })
         }
         Err(e) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -231,7 +231,7 @@ pub fn get_resource(
     match fetch_result {
         Ok(mut resource) => {
             let patient_id = extract_patient_id(&resource.resource_type, &resource.resource);
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -250,7 +250,7 @@ pub fn get_resource(
             Ok(resource)
         }
         Err(e) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -326,7 +326,7 @@ pub fn list_resources(
         Ok(t) => t,
         Err(e) => {
             let rt_label = resource_type.unwrap_or_else(|| "all".to_string());
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id,
@@ -373,7 +373,7 @@ pub fn list_resources(
         .collect();
 
     let rt_label = resource_type.unwrap_or_else(|| "all".to_string());
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -436,7 +436,7 @@ pub fn update_resource(
     let current_version = match version_result {
         Ok(v) => v,
         Err(rusqlite::Error::QueryReturnedNoRows) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: user_id.clone(),
@@ -455,7 +455,7 @@ pub fn update_resource(
             )));
         }
         Err(e) => {
-            write_audit_entry(
+            let _ = write_audit_entry(
                 &conn,
                 AuditEntryInput {
                     user_id: user_id.clone(),
@@ -484,7 +484,7 @@ pub fn update_resource(
     );
 
     if let Err(e) = update_result {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id: user_id.clone(),
@@ -521,7 +521,7 @@ pub fn update_resource(
     })?;
 
     let patient_id = extract_patient_id(&resource.resource_type, &resource.resource);
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,
@@ -602,7 +602,7 @@ pub fn delete_resource(
     )?;
 
     if rows_affected == 0 {
-        write_audit_entry(
+        let _ = write_audit_entry(
             &conn,
             AuditEntryInput {
                 user_id,
@@ -618,7 +618,7 @@ pub fn delete_resource(
         return Err(AppError::NotFound(format!("Resource not found: {}", id)));
     }
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id,

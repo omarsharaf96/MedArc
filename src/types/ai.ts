@@ -23,6 +23,8 @@ export interface StopRecordingResult {
   wavPath: string;
   /** Duration of the recording in seconds. */
   durationSeconds: number;
+  /** Peak audio level from recorded samples (0.0–1.0). */
+  peakLevel: number;
 }
 
 /** Current audio level for the frontend visualizer. */
@@ -131,7 +133,20 @@ export interface PatientContext {
 }
 
 /** LLM provider type. */
-export type LlmProvider = "ollama" | "bedrock";
+export type LlmProvider = "ollama" | "bedrock" | "claude";
+
+/** Full LLM settings returned from the backend (secrets masked). */
+export interface FullLlmSettings {
+  provider: string;
+  model: string | null;
+  ollamaUrl: string | null;
+  claudeApiKey: string | null;
+  claudeModel: string | null;
+  bedrockAccessKey: string | null;
+  bedrockSecretKey: string | null;
+  bedrockRegion: string | null;
+  bedrockModel: string | null;
+}
 
 /** LLM settings returned from the backend. */
 export interface LlmSettings {
@@ -147,4 +162,7 @@ export interface LlmSettingsInput {
   ollamaUrl: string | null;
   apiKey: string | null;
   apiSecret: string | null;
+  bedrockRegion?: string | null;
+  claudeModel?: string | null;
+  bedrockModel?: string | null;
 }

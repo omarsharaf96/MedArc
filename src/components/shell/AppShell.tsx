@@ -13,9 +13,7 @@
  * an ancestor of `AppShell` (wired in T05 App.tsx changes).
  */
 
-import { useState, useEffect } from "react";
 import { useIdleTimer } from "../../hooks/useIdleTimer";
-import { commands } from "../../lib/tauri";
 import { Sidebar } from "./Sidebar";
 import { ContentArea } from "./ContentArea";
 
@@ -39,25 +37,9 @@ interface AppShellProps {
  * when the user is authenticated and the shell is mounted.
  */
 export function AppShell({ onLogout, userRole, displayName }: AppShellProps) {
-  const [timeoutMinutes, setTimeoutMinutes] = useState(15);
-
-  // Fetch the configured session timeout from the backend on mount.
-  // Defaults to 15 minutes if the command fails (e.g. backend unreachable).
-  useEffect(() => {
-    async function fetchTimeout() {
-      try {
-        const timeout = await commands.getSessionTimeout();
-        setTimeoutMinutes(timeout);
-      } catch {
-        // Use default 15 minutes
-      }
-    }
-    fetchTimeout();
-  }, []);
-
-  // Active = this component is mounted = user is authenticated and shell is visible.
-  // Pass `true` as the second arg; the hook's own `enabled` check gates event listeners.
-  useIdleTimer(timeoutMinutes, true);
+  // Idle timer disabled — timeout fixed at 0 (no auto-lock).
+  // To re-enable, fetch timeout from backend: commands.getSessionTimeout()
+  useIdleTimer(0, true);
 
   return (
     <div className="flex min-h-screen bg-gray-50">

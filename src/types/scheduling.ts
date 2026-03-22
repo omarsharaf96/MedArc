@@ -152,3 +152,27 @@ export interface FlowBoardEntry {
   room: string | null;
   checkedInAt: string | null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Calendar Settings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Calendar display settings stored in app_settings. */
+export interface CalendarSettings {
+  /** Whether to show Saturday in the week view. */
+  showSaturday: boolean;
+  /** Whether to show Sunday in the week view. */
+  showSunday: boolean;
+  /** Start hour for the calendar grid (5-10, default 6). */
+  startHour: number;
+  /** End hour for the calendar grid (17-22, default 20). */
+  endHour: number;
+  /** Default appointment duration in minutes (15/30/45/60, default 60). */
+  defaultDurationMinutes: number;
+  /** Default calendar view: "day" or "week". */
+  defaultView: string;
+  /** Height in pixels per hour in the calendar grid (40/60/80, default 60). */
+  hourHeightPx: number;
+  /** Whether to show dotted half-hour lines in the calendar grid. */
+  showHalfHourLines: boolean;
+}

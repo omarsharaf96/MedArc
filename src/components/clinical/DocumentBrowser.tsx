@@ -39,11 +39,13 @@ interface DocumentBrowserProps {
 
 const CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All" },
-  { value: "clinical-note", label: "Clinical Note" },
+  { value: "referral_rx", label: "Referral/Rx" },
   { value: "imaging", label: "Imaging" },
-  { value: "lab-report", label: "Lab Report" },
-  { value: "consent", label: "Consent" },
-  { value: "referral", label: "Referral" },
+  { value: "consent_forms", label: "Consent Forms" },
+  { value: "intake_surveys", label: "Intake/Surveys" },
+  { value: "insurance", label: "Insurance" },
+  { value: "legal", label: "Legal" },
+  { value: "home_exercise_program", label: "HEP" },
   { value: "other", label: "Other" },
 ];
 
@@ -65,18 +67,18 @@ function formatDate(iso: string): string {
 }
 
 /**
- * Base64-encode a Uint8Array in 8 KB chunks using btoa.
- * Chunked to avoid stack overflow from String.fromCharCode spread on large
- * arrays (> ~1 MB would overflow with a single spread call).
+ * Base64-encode a Uint8Array.
+ * Builds a binary string in 8 KB chunks to avoid stack overflow from
+ * String.fromCharCode spread on large arrays, then encodes once via btoa.
  * ⚠️ REDACTION CONSTRAINT: callers must never log the return value.
  */
 function bytesToBase64(bytes: Uint8Array): string {
   const CHUNK = 8192;
-  let result = "";
+  let binaryStr = "";
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    result += btoa(String.fromCharCode(...bytes.subarray(i, i + CHUNK)));
+    binaryStr += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
-  return result;
+  return btoa(binaryStr);
 }
 
 /** Detect MIME type from file extension. */

@@ -88,18 +88,6 @@ pub struct PdfExportResult {
     pub pages: u32,
 }
 
-/// One row from the export_log table.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportLogEntry {
-    pub export_id: String,
-    pub patient_id: String,
-    pub export_type: String,
-    pub file_path: String,
-    pub generated_at: String,
-    pub generated_by: String,
-}
-
 /// Practice settings loaded from app_settings for letterhead rendering.
 #[derive(Debug, Clone)]
 pub struct PracticeSettings {
@@ -113,7 +101,6 @@ pub struct PracticeSettings {
 /// Patient demographic info extracted from the database for PDF headers.
 #[derive(Debug, Clone)]
 struct PatientInfo {
-    patient_id: String,
     family_name: String,
     given_name: String,
     birth_date: String,
@@ -206,19 +193,6 @@ pub fn wrap_text(text: &str, font_size: f32) -> Vec<String> {
 /// is less than the minimum needed.
 pub fn needs_new_page(current_y_mm: f32, min_needed_mm: f32) -> bool {
     current_y_mm - min_needed_mm < MARGIN_BOTTOM_MM
-}
-
-/// Validate that an export type string is one of the allowed values.
-pub fn validate_export_type(export_type: &str) -> Result<(), AppError> {
-    match export_type {
-        "note_pdf" | "progress_report" | "insurance_narrative" | "legal_report" | "chart_export" => {
-            Ok(())
-        }
-        _ => Err(AppError::Validation(format!(
-            "Invalid export type '{}'. Must be one of: note_pdf, progress_report, insurance_narrative, legal_report, chart_export",
-            export_type
-        ))),
-    }
 }
 
 /// Build the letterhead text lines for the practice header.
@@ -474,7 +448,21 @@ impl PdfBuilder {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Load practice settings from the `app_settings` table.
+///
+/// First checks the `export_settings` JSON blob (written by the Settings UI),
+/// then falls back to individual `practice_*` keys (written by reminders setup).
 fn load_practice_settings(conn: &rusqlite::Connection) -> PracticeSettings {
+    // Try to load from the export_settings JSON blob first (set via Settings > Export tab)
+    let export_settings: Option<ExportSettings> = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'export_settings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|json_str| serde_json::from_str(&json_str).ok());
+
+    // Fallback: read individual keys (legacy / reminders module)
     let get_setting = |key: &str, default: &str| -> String {
         conn.query_row(
             "SELECT value FROM app_settings WHERE key = ?1",
@@ -484,12 +472,31 @@ fn load_practice_settings(conn: &rusqlite::Connection) -> PracticeSettings {
         .unwrap_or_else(|_| default.to_string())
     };
 
-    PracticeSettings {
-        practice_name: get_setting("practice_name", "Physical Therapy Practice"),
-        practice_address: get_setting("practice_address", ""),
-        practice_phone: get_setting("practice_phone", ""),
-        practice_fax: get_setting("practice_fax", ""),
-        practice_npi: get_setting("practice_npi", ""),
+    if let Some(es) = export_settings {
+        PracticeSettings {
+            practice_name: es
+                .practice_name
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| get_setting("practice_name", "Physical Therapy Practice")),
+            practice_address: es
+                .practice_address
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| get_setting("practice_address", "")),
+            practice_phone: es
+                .practice_phone
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| get_setting("practice_phone", "")),
+            practice_fax: get_setting("practice_fax", ""),
+            practice_npi: get_setting("practice_npi", ""),
+        }
+    } else {
+        PracticeSettings {
+            practice_name: get_setting("practice_name", "Physical Therapy Practice"),
+            practice_address: get_setting("practice_address", ""),
+            practice_phone: get_setting("practice_phone", ""),
+            practice_fax: get_setting("practice_fax", ""),
+            practice_npi: get_setting("practice_npi", ""),
+        }
     }
 }
 
@@ -499,16 +506,15 @@ fn load_patient_info(
     patient_id: &str,
 ) -> Result<PatientInfo, AppError> {
     conn.query_row(
-        "SELECT patient_id, family_name, COALESCE(given_name, ''), COALESCE(birth_date, ''), mrn
+        "SELECT family_name, COALESCE(given_name, ''), COALESCE(birth_date, ''), mrn
          FROM patient_index WHERE patient_id = ?1",
         rusqlite::params![patient_id],
         |row| {
             Ok(PatientInfo {
-                patient_id: row.get(0)?,
-                family_name: row.get(1)?,
-                given_name: row.get(2)?,
-                birth_date: row.get(3)?,
-                mrn: row.get(4)?,
+                family_name: row.get(0)?,
+                given_name: row.get(1)?,
+                birth_date: row.get(2)?,
+                mrn: row.get(3)?,
             })
         },
     )
@@ -531,6 +537,23 @@ fn load_provider_info(
         },
     )
     .map_err(|_| AppError::NotFound(format!("Provider not found: {}", user_id)))
+}
+
+/// Get the effective provider name for signature lines.
+///
+/// Prefers `provider_name_credentials` from export settings (e.g. "Omar Safwat Sharaf, PT, DPT"),
+/// falling back to the provider's `display_name` from the users table.
+fn effective_signature_name(conn: &rusqlite::Connection, provider: &ProviderInfo) -> String {
+    conn.query_row(
+        "SELECT value FROM app_settings WHERE key = 'export_settings'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|json_str| serde_json::from_str::<ExportSettings>(&json_str).ok())
+    .and_then(|es| es.provider_name_credentials)
+    .filter(|s| !s.is_empty())
+    .unwrap_or_else(|| provider.display_name.clone())
 }
 
 /// Log an export to the export_log table.
@@ -851,7 +874,7 @@ pub fn generate_note_pdf(
 
     render_encounter(&mut builder, &resource, &encounter_date);
 
-    builder.add_signature_line(&provider.display_name);
+    builder.add_signature_line(&effective_signature_name(&conn, &provider));
 
     let file_path = temp_pdf_path("note")?;
     let page_count = builder.page_count;
@@ -860,7 +883,7 @@ pub fn generate_note_pdf(
     // Log the export
     log_export(&conn, &patient_id, "note_pdf", &file_path, &session.user_id)?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -977,7 +1000,7 @@ pub fn generate_progress_report(
     builder.add_section_heading("Continued Care Justification");
     builder.add_text_block("[To be completed by treating provider]");
 
-    builder.add_signature_line(&provider.display_name);
+    builder.add_signature_line(&effective_signature_name(&conn, &provider));
 
     let file_path = temp_pdf_path("progress-report")?;
     let page_count = builder.page_count;
@@ -991,7 +1014,7 @@ pub fn generate_progress_report(
         &session.user_id,
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1098,7 +1121,7 @@ pub fn generate_insurance_narrative(
     builder.add_section_heading("Clinical Evidence of Progress");
     builder.add_text_block("[To be completed by treating provider]");
 
-    builder.add_signature_line(&provider.display_name);
+    builder.add_signature_line(&effective_signature_name(&conn, &provider));
 
     let file_path = temp_pdf_path("insurance-narrative")?;
     let page_count = builder.page_count;
@@ -1112,7 +1135,7 @@ pub fn generate_insurance_narrative(
         &session.user_id,
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1211,7 +1234,7 @@ pub fn generate_legal_report(
     builder.add_section_heading("Prognosis Statement");
     builder.add_text_block("[To be completed by treating provider]");
 
-    builder.add_signature_line(&provider.display_name);
+    builder.add_signature_line(&effective_signature_name(&conn, &provider));
 
     let file_path = temp_pdf_path("legal-report")?;
     let page_count = builder.page_count;
@@ -1225,7 +1248,7 @@ pub fn generate_legal_report(
         &session.user_id,
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1332,7 +1355,7 @@ pub fn generate_chart_export(
         render_encounter(&mut builder, resource, date);
     }
 
-    builder.add_signature_line(&provider.display_name);
+    builder.add_signature_line(&effective_signature_name(&conn, &provider));
 
     let file_path = temp_pdf_path("chart-export")?;
     let page_count = builder.page_count;
@@ -1346,7 +1369,7 @@ pub fn generate_chart_export(
         &session.user_id,
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1435,7 +1458,7 @@ pub fn generate_encounter_note_pdf(
     // Render the encounter SOAP sections
     render_encounter(&mut builder, &resource, &encounter_date);
 
-    builder.add_signature_line(&provider.display_name);
+    builder.add_signature_line(&effective_signature_name(&conn, &provider));
 
     let file_path = temp_pdf_path("encounter-note")?;
     let page_count = builder.page_count;
@@ -1450,7 +1473,7 @@ pub fn generate_encounter_note_pdf(
         &session.user_id,
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1574,7 +1597,7 @@ pub fn fax_encounter_note(
     builder.add_letterhead(&settings);
     builder.add_patient_header(&patient, &report_date);
     render_encounter(&mut builder, &resource, &encounter_date);
-    builder.add_signature_line(&provider.display_name);
+    builder.add_signature_line(&effective_signature_name(&conn, &provider));
 
     let pdf_path = temp_pdf_path("fax-encounter-note")?;
     builder.save(&pdf_path)?;
@@ -1682,7 +1705,7 @@ pub fn fax_encounter_note(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: session.user_id.clone(),
@@ -1709,6 +1732,39 @@ pub fn fax_encounter_note(
 // ─────────────────────────────────────────────────────────────────────────────
 // Export Settings (Letterhead + Signature configuration)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Schedule print settings stored as JSON in app_settings under key "schedule_print_settings".
+/// Configures how schedule PDFs are rendered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchedulePrintSettings {
+    /// Whether to include calendar events (non-appointment items) in the printout.
+    pub include_calendar_events: Option<bool>,
+    /// Whether to include cancelled appointments in the printout.
+    pub include_cancelled: Option<bool>,
+    /// Date display format: "MM/DD/YYYY", "DD/MM/YYYY", or "YYYY-MM-DD".
+    pub date_format: Option<String>,
+    /// Whether to show patient date of birth in the patient column.
+    pub show_patient_dob: Option<bool>,
+    /// Whether to show the appointment type column.
+    pub show_appointment_type: Option<bool>,
+    /// Whether to show the appointment status column.
+    pub show_appointment_status: Option<bool>,
+    /// Clinic name override for letterhead.
+    pub clinic_name: Option<String>,
+    /// Clinic address override for letterhead.
+    pub clinic_address: Option<String>,
+    /// Clinic phone override for letterhead.
+    pub clinic_phone: Option<String>,
+    /// Whether to include the clinic logo in the letterhead.
+    pub include_clinic_logo: Option<bool>,
+    /// Document format: "letter" (8.5x11) or "a4".
+    pub document_format: Option<String>,
+    /// Page orientation: "portrait" or "landscape".
+    pub orientation: Option<String>,
+    /// Whether to show the provider name in the header.
+    pub show_provider_name: Option<bool>,
+}
 
 /// Export settings stored as JSON in app_settings under key "export_settings".
 /// Contains letterhead and signature configuration for PDF exports.
@@ -1816,6 +1872,603 @@ pub async fn set_export_settings(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Schedule PDF Generation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Format a date string according to the configured date format.
+///
+/// Supports:
+///   - "MM/DD/YYYY" → e.g. "04/15/2026"
+///   - "DD/MM/YYYY" → e.g. "15/04/2026"
+///   - "YYYY-MM-DD" → e.g. "2026-04-15" (pass-through)
+///
+/// Input should be "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS".
+fn format_date_display(date_str: &str, format: &str) -> String {
+    let date_part = date_str.split('T').next().unwrap_or(date_str);
+    let parts: Vec<&str> = date_part.split('-').collect();
+    if parts.len() < 3 {
+        return date_str.to_string();
+    }
+    match format {
+        "MM/DD/YYYY" => format!("{}/{}/{}", parts[1], parts[2], parts[0]),
+        "DD/MM/YYYY" => format!("{}/{}/{}", parts[2], parts[1], parts[0]),
+        _ => date_part.to_string(), // YYYY-MM-DD default
+    }
+}
+
+/// Generate a schedule PDF for a date range.
+///
+/// Renders a table of appointments for the specified date range with
+/// configurable columns and letterhead. Reads `schedule_print_settings`
+/// from `app_settings` to control output.
+///
+/// RBAC: Provider, SystemAdmin, FrontDesk, NurseMa — AppointmentScheduling::Read + PdfExport::Create.
+#[tauri::command]
+pub fn generate_schedule_pdf(
+    start_date: String,
+    end_date: String,
+    patient_id: Option<String>,
+    provider_id: Option<String>,
+    session_manager: State<'_, SessionManager>,
+    db: State<'_, Database>,
+    device_id: State<'_, DeviceId>,
+) -> Result<PdfExportResult, AppError> {
+    let session = middleware::require_authenticated(&session_manager)?;
+    middleware::require_permission(session.role, Resource::PdfExport, Action::Create)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Load schedule print settings from app_settings
+    let print_settings: Option<SchedulePrintSettings> = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'schedule_print_settings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok());
+
+    let include_cancelled = print_settings
+        .as_ref()
+        .and_then(|s| s.include_cancelled)
+        .unwrap_or(false);
+    let date_format = print_settings
+        .as_ref()
+        .and_then(|s| s.date_format.clone())
+        .unwrap_or_else(|| "MM/DD/YYYY".to_string());
+    let show_patient_dob = print_settings
+        .as_ref()
+        .and_then(|s| s.show_patient_dob)
+        .unwrap_or(false);
+    let show_appointment_type = print_settings
+        .as_ref()
+        .and_then(|s| s.show_appointment_type)
+        .unwrap_or(true);
+    let show_appointment_status = print_settings
+        .as_ref()
+        .and_then(|s| s.show_appointment_status)
+        .unwrap_or(true);
+    let show_provider_name = print_settings
+        .as_ref()
+        .and_then(|s| s.show_provider_name)
+        .unwrap_or(true);
+    let include_clinic_logo = print_settings
+        .as_ref()
+        .and_then(|s| s.include_clinic_logo)
+        .unwrap_or(true);
+    let document_format = print_settings
+        .as_ref()
+        .and_then(|s| s.document_format.clone())
+        .unwrap_or_else(|| "letter".to_string());
+    let orientation = print_settings
+        .as_ref()
+        .and_then(|s| s.orientation.clone())
+        .unwrap_or_else(|| "portrait".to_string());
+    let _include_calendar_events = print_settings
+        .as_ref()
+        .and_then(|s| s.include_calendar_events)
+        .unwrap_or(true);
+
+    // Determine page dimensions based on format and orientation
+    let (page_w, page_h) = match (document_format.as_str(), orientation.as_str()) {
+        ("a4", "portrait") => (210.0_f32, 297.0_f32),
+        ("a4", "landscape") => (297.0_f32, 210.0_f32),
+        ("letter", "landscape") => (PAGE_HEIGHT_MM, PAGE_WIDTH_MM),
+        _ => (PAGE_WIDTH_MM, PAGE_HEIGHT_MM), // letter portrait default
+    };
+
+    // Build practice settings for letterhead — prefer print-settings overrides
+    let practice_settings = load_practice_settings(&conn);
+    let letterhead_settings = PracticeSettings {
+        practice_name: print_settings
+            .as_ref()
+            .and_then(|s| s.clinic_name.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(practice_settings.practice_name),
+        practice_address: print_settings
+            .as_ref()
+            .and_then(|s| s.clinic_address.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(practice_settings.practice_address),
+        practice_phone: print_settings
+            .as_ref()
+            .and_then(|s| s.clinic_phone.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(practice_settings.practice_phone),
+        practice_fax: practice_settings.practice_fax,
+        practice_npi: practice_settings.practice_npi,
+    };
+
+    // Query appointments
+    let mut query = String::from(
+        "SELECT ai.appointment_id, ai.patient_id, ai.provider_id,
+                ai.start_time, ai.status, ai.appt_type,
+                fr.resource
+         FROM appointment_index ai
+         JOIN fhir_resources fr ON fr.id = ai.appointment_id
+         WHERE ai.start_time >= ?1 AND ai.start_time < ?2",
+    );
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+        Box::new(start_date.clone()),
+        Box::new(end_date.clone()),
+    ];
+
+    if !include_cancelled {
+        query.push_str(" AND ai.status != 'cancelled'");
+    }
+
+    if let Some(ref pat) = patient_id {
+        query.push_str(&format!(" AND ai.patient_id = ?{}", params.len() + 1));
+        params.push(Box::new(pat.clone()));
+    }
+
+    if let Some(ref prov) = provider_id {
+        query.push_str(&format!(" AND ai.provider_id = ?{}", params.len() + 1));
+        params.push(Box::new(prov.clone()));
+    }
+
+    query.push_str(" ORDER BY ai.start_time ASC");
+
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        params.iter().map(|p| p.as_ref()).collect();
+
+    struct ScheduleRow {
+        start_time: String,
+        patient_id: String,
+        provider_id: String,
+        status: String,
+        appt_type: String,
+    }
+
+    let mut stmt = conn
+        .prepare(&query)
+        .map_err(|e| AppError::Database(e.to_string()))?;
+    let rows: Vec<ScheduleRow> = stmt
+        .query_map(param_refs.as_slice(), |row| {
+            Ok(ScheduleRow {
+                start_time: row.get(3)?,
+                patient_id: row.get(1)?,
+                provider_id: row.get(2)?,
+                status: row.get(4)?,
+                appt_type: row.get(5)?,
+            })
+        })
+        .map_err(|e| AppError::Database(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Resolve patient names and DOBs
+    let mut patient_cache: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+    for row in &rows {
+        if !patient_cache.contains_key(&row.patient_id) {
+            let info = conn
+                .query_row(
+                    "SELECT COALESCE(given_name, ''), family_name, COALESCE(birth_date, '')
+                     FROM patient_index WHERE patient_id = ?1",
+                    rusqlite::params![&row.patient_id],
+                    |r| {
+                        let given: String = r.get(0)?;
+                        let family: String = r.get(1)?;
+                        let dob: String = r.get(2)?;
+                        Ok((format!("{} {}", given, family).trim().to_string(), dob))
+                    },
+                )
+                .unwrap_or_else(|_| (row.patient_id.clone(), String::new()));
+            patient_cache.insert(row.patient_id.clone(), info);
+        }
+    }
+
+    // Resolve provider names
+    let mut provider_cache: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for row in &rows {
+        if !provider_cache.contains_key(&row.provider_id) {
+            let name = conn
+                .query_row(
+                    "SELECT display_name FROM users WHERE id = ?1",
+                    rusqlite::params![&row.provider_id],
+                    |r| r.get::<_, String>(0),
+                )
+                .unwrap_or_else(|_| row.provider_id.clone());
+            provider_cache.insert(row.provider_id.clone(), name);
+        }
+    }
+
+    // Build the PDF using custom dimensions
+    let (doc, page, layer) = PdfDocument::new(
+        &format!("Schedule {} to {}", start_date, end_date),
+        Mm(page_w),
+        Mm(page_h),
+        "Layer 1",
+    );
+
+    let font_regular = doc
+        .add_builtin_font(BuiltinFont::Helvetica)
+        .map_err(|e| AppError::Validation(format!("Failed to load Helvetica font: {}", e)))?;
+    let font_bold = doc
+        .add_builtin_font(BuiltinFont::HelveticaBold)
+        .map_err(|e| {
+            AppError::Validation(format!("Failed to load Helvetica-Bold font: {}", e))
+        })?;
+
+    let margin_left = MARGIN_LEFT_MM;
+    let margin_right = MARGIN_RIGHT_MM;
+    let content_width = page_w - margin_left - margin_right;
+    let mut current_page = page;
+    let mut current_layer = layer;
+    let mut y_pos = page_h - MARGIN_TOP_MM;
+    let mut page_count: u32 = 1;
+
+    // Helper closures
+    let get_layer = |doc: &PdfDocumentReference, pg: PdfPageIndex, ly: PdfLayerIndex| {
+        doc.get_page(pg).get_layer(ly)
+    };
+
+    // Render letterhead (if logo setting is not disabled)
+    if include_clinic_logo {
+        let lh_lines = build_letterhead_lines(&letterhead_settings);
+        if let Some(first) = lh_lines.first() {
+            let lyr = get_layer(&doc, current_page, current_layer);
+            lyr.use_text(first, FONT_SIZE_TITLE, Mm(margin_left), Mm(y_pos), &font_bold);
+            y_pos -= line_height_mm(FONT_SIZE_TITLE);
+        }
+        for line in lh_lines.iter().skip(1) {
+            let lyr = get_layer(&doc, current_page, current_layer);
+            lyr.use_text(line, FONT_SIZE_SMALL, Mm(margin_left), Mm(y_pos), &font_regular);
+            y_pos -= line_height_mm(FONT_SIZE_SMALL);
+        }
+        // Separator line
+        y_pos -= 2.0;
+        let lyr = get_layer(&doc, current_page, current_layer);
+        let line = Line {
+            points: vec![
+                (Point::new(Mm(margin_left), Mm(y_pos)), false),
+                (Point::new(Mm(page_w - margin_right), Mm(y_pos)), false),
+            ],
+            is_closed: false,
+        };
+        lyr.add_line(line);
+        y_pos -= 4.0;
+    }
+
+    // Provider name in header (if configured)
+    if show_provider_name {
+        if let Some(ref prov_id) = provider_id {
+            if let Some(prov_name) = provider_cache.get(prov_id) {
+                let lyr = get_layer(&doc, current_page, current_layer);
+                lyr.use_text(
+                    &format!("Provider: {}", prov_name),
+                    FONT_SIZE_BODY,
+                    Mm(margin_left),
+                    Mm(y_pos),
+                    &font_bold,
+                );
+                y_pos -= line_height_mm(FONT_SIZE_BODY);
+            }
+        }
+    }
+
+    // Schedule title
+    let formatted_start = format_date_display(&start_date, &date_format);
+    let formatted_end = format_date_display(&end_date, &date_format);
+    {
+        let lyr = get_layer(&doc, current_page, current_layer);
+        lyr.use_text(
+            &format!("Schedule: {} - {}", formatted_start, formatted_end),
+            FONT_SIZE_HEADING,
+            Mm(margin_left),
+            Mm(y_pos),
+            &font_bold,
+        );
+        y_pos -= line_height_mm(FONT_SIZE_HEADING) + 2.0;
+    }
+
+    // Table header
+    {
+        let lyr = get_layer(&doc, current_page, current_layer);
+        let mut x = margin_left;
+        let col_time = 30.0;
+        let col_patient = if show_patient_dob { 55.0 } else { 50.0 };
+        let col_type = if show_appointment_type { 35.0 } else { 0.0 };
+        let col_status = if show_appointment_status { 25.0 } else { 0.0 };
+        let col_provider = if show_provider_name && provider_id.is_none() { 40.0 } else { 0.0 };
+
+        lyr.use_text("Time", FONT_SIZE_SMALL, Mm(x), Mm(y_pos), &font_bold);
+        x += col_time;
+        lyr.use_text("Patient", FONT_SIZE_SMALL, Mm(x), Mm(y_pos), &font_bold);
+        x += col_patient;
+        if show_appointment_type {
+            lyr.use_text("Type", FONT_SIZE_SMALL, Mm(x), Mm(y_pos), &font_bold);
+            x += col_type;
+        }
+        if show_appointment_status {
+            lyr.use_text("Status", FONT_SIZE_SMALL, Mm(x), Mm(y_pos), &font_bold);
+            x += col_status;
+        }
+        if col_provider > 0.0 {
+            lyr.use_text("Provider", FONT_SIZE_SMALL, Mm(x), Mm(y_pos), &font_bold);
+        }
+        let _ = content_width; // used for layout reference
+        y_pos -= line_height_mm(FONT_SIZE_SMALL);
+
+        // Header underline
+        let line = Line {
+            points: vec![
+                (Point::new(Mm(margin_left), Mm(y_pos)), false),
+                (Point::new(Mm(page_w - margin_right), Mm(y_pos)), false),
+            ],
+            is_closed: false,
+        };
+        lyr.add_line(line);
+        y_pos -= 2.0;
+    }
+
+    // Table rows
+    for row in &rows {
+        // Check if we need a new page
+        if y_pos - line_height_mm(FONT_SIZE_BODY) < MARGIN_BOTTOM_MM {
+            let (pg, ly) = doc.add_page(Mm(page_w), Mm(page_h), "Layer 1");
+            current_page = pg;
+            current_layer = ly;
+            y_pos = page_h - MARGIN_TOP_MM;
+            page_count += 1;
+        }
+
+        let lyr = get_layer(&doc, current_page, current_layer);
+        let mut x = margin_left;
+        let col_time = 30.0;
+        let col_patient = if show_patient_dob { 55.0 } else { 50.0 };
+        let col_type = if show_appointment_type { 35.0 } else { 0.0 };
+        let col_status = if show_appointment_status { 25.0 } else { 0.0 };
+        let col_provider = if show_provider_name && provider_id.is_none() { 40.0 } else { 0.0 };
+
+        // Time column — extract time portion and format
+        let time_display = {
+            let time_part = row.start_time.split('T').nth(1).unwrap_or("00:00");
+            let parts: Vec<&str> = time_part.split(':').collect();
+            if parts.len() >= 2 {
+                if let (Ok(h), Ok(m)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                    let suffix = if h >= 12 { "PM" } else { "AM" };
+                    let display_h = if h % 12 == 0 { 12 } else { h % 12 };
+                    format!("{}:{:02} {}", display_h, m, suffix)
+                } else {
+                    time_part.to_string()
+                }
+            } else {
+                time_part.to_string()
+            }
+        };
+        lyr.use_text(&time_display, FONT_SIZE_BODY, Mm(x), Mm(y_pos), &font_regular);
+        x += col_time;
+
+        // Patient column
+        let (patient_name, patient_dob) = patient_cache
+            .get(&row.patient_id)
+            .cloned()
+            .unwrap_or_else(|| (row.patient_id.clone(), String::new()));
+        let patient_text = if show_patient_dob && !patient_dob.is_empty() {
+            let formatted_dob = format_date_display(&patient_dob, &date_format);
+            format!("{} (DOB: {})", patient_name, formatted_dob)
+        } else {
+            patient_name
+        };
+        lyr.use_text(&patient_text, FONT_SIZE_BODY, Mm(x), Mm(y_pos), &font_regular);
+        x += col_patient;
+
+        // Type column
+        if show_appointment_type {
+            let type_display = row.appt_type.replace('_', " ");
+            lyr.use_text(&type_display, FONT_SIZE_BODY, Mm(x), Mm(y_pos), &font_regular);
+            x += col_type;
+        }
+
+        // Status column
+        if show_appointment_status {
+            lyr.use_text(&row.status, FONT_SIZE_BODY, Mm(x), Mm(y_pos), &font_regular);
+            x += col_status;
+        }
+
+        // Provider column (only when not filtering by single provider)
+        if col_provider > 0.0 {
+            let prov_name = provider_cache
+                .get(&row.provider_id)
+                .cloned()
+                .unwrap_or_else(|| row.provider_id.clone());
+            lyr.use_text(&prov_name, FONT_SIZE_BODY, Mm(x), Mm(y_pos), &font_regular);
+        }
+
+        y_pos -= line_height_mm(FONT_SIZE_BODY);
+    }
+
+    // Footer — appointment count
+    y_pos -= 4.0;
+    if y_pos - line_height_mm(FONT_SIZE_SMALL) < MARGIN_BOTTOM_MM {
+        let (pg, ly) = doc.add_page(Mm(page_w), Mm(page_h), "Layer 1");
+        current_page = pg;
+        current_layer = ly;
+        y_pos = page_h - MARGIN_TOP_MM;
+        page_count += 1;
+    }
+    {
+        let lyr = get_layer(&doc, current_page, current_layer);
+        lyr.use_text(
+            &format!("Total appointments: {}", rows.len()),
+            FONT_SIZE_SMALL,
+            Mm(margin_left),
+            Mm(y_pos),
+            &font_bold,
+        );
+    }
+
+    // Save the document
+    let file_path = temp_pdf_path("schedule")?;
+    let file = std::fs::File::create(&file_path).map_err(AppError::Io)?;
+    let mut writer = std::io::BufWriter::new(file);
+    doc.save(&mut writer)
+        .map_err(|e| AppError::Validation(format!("Failed to save PDF: {}", e)))?;
+
+    let _ = write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: session.user_id.clone(),
+            action: "pdf_export.generate_schedule_pdf".to_string(),
+            resource_type: "PdfExport".to_string(),
+            resource_id: None,
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some(format!(
+                "generated schedule PDF: {} ({} appointments)",
+                file_path,
+                rows.len()
+            )),
+        },
+    );
+
+    Ok(PdfExportResult {
+        file_path,
+        export_type: "schedule_pdf".to_string(),
+        pages: page_count,
+    })
+}
+
+/// Retrieve schedule print settings from app_settings.
+///
+/// Returns the stored SchedulePrintSettings or defaults if not yet configured.
+#[tauri::command]
+pub async fn get_schedule_print_settings(
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+) -> Result<SchedulePrintSettings, AppError> {
+    let _sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(_sess.role, Resource::PdfExport, Action::Read)?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let json_str: String = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'schedule_print_settings'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "{}".to_string());
+
+    let settings: SchedulePrintSettings =
+        serde_json::from_str(&json_str).unwrap_or_else(|_| SchedulePrintSettings {
+            include_calendar_events: Some(true),
+            include_cancelled: Some(false),
+            date_format: Some("MM/DD/YYYY".to_string()),
+            show_patient_dob: Some(false),
+            show_appointment_type: Some(true),
+            show_appointment_status: Some(true),
+            clinic_name: None,
+            clinic_address: None,
+            clinic_phone: None,
+            include_clinic_logo: Some(true),
+            document_format: Some("letter".to_string()),
+            orientation: Some("portrait".to_string()),
+            show_provider_name: Some(true),
+        });
+
+    Ok(settings)
+}
+
+/// Save schedule print settings to app_settings.
+///
+/// Overwrites any existing schedule_print_settings value.
+#[tauri::command]
+pub async fn save_schedule_print_settings(
+    settings: SchedulePrintSettings,
+    db: State<'_, Database>,
+    session: State<'_, SessionManager>,
+    device_id: State<'_, DeviceId>,
+) -> Result<SchedulePrintSettings, AppError> {
+    let sess = middleware::require_authenticated(&session)?;
+    middleware::require_permission(sess.role, Resource::PdfExport, Action::Update)?;
+
+    let json_str = serde_json::to_string(&settings)
+        .map_err(|e| AppError::Serialization(e.to_string()))?;
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('schedule_print_settings', ?1, datetime('now'))",
+        rusqlite::params![json_str],
+    )
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: sess.user_id.clone(),
+            action: "pdf_export.schedule_print_settings.update".to_string(),
+            resource_type: "AppSettings".to_string(),
+            resource_id: Some("schedule_print_settings".to_string()),
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some("Schedule print settings updated".to_string()),
+        },
+    )?;
+
+    Ok(settings)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Open file in default application
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Open a file in the system's default application (Preview for PDF, etc.).
+#[tauri::command]
+pub fn open_file_in_default_app(file_path: String) -> Result<(), AppError> {
+    use std::process::Command;
+
+    if !std::path::Path::new(&file_path).exists() {
+        return Err(AppError::NotFound(format!(
+            "File not found: {}",
+            file_path
+        )));
+    }
+
+    Command::new("open")
+        .arg(&file_path)
+        .spawn()
+        .map_err(|e| AppError::Io(e))?;
+
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Unit tests
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1892,25 +2545,7 @@ mod tests {
         );
     }
 
-    // ── Test 3: Export type validation ─────────────────────────────────────
-
-    #[test]
-    fn valid_export_types_accepted() {
-        assert!(validate_export_type("note_pdf").is_ok());
-        assert!(validate_export_type("progress_report").is_ok());
-        assert!(validate_export_type("insurance_narrative").is_ok());
-        assert!(validate_export_type("legal_report").is_ok());
-        assert!(validate_export_type("chart_export").is_ok());
-    }
-
-    #[test]
-    fn invalid_export_type_rejected() {
-        assert!(validate_export_type("invalid").is_err());
-        assert!(validate_export_type("").is_err());
-        assert!(validate_export_type("NOTE_PDF").is_err()); // case-sensitive
-    }
-
-    // ── Test 4: Word wrapping ─────────────────────────────────────────────
+    // ── Test 3: Word wrapping ─────────────────────────────────────────────
 
     #[test]
     fn wrap_text_splits_long_lines() {
@@ -2059,5 +2694,76 @@ mod tests {
         assert!(json.contains("\"exportType\""), "camelCase exportType expected");
         assert!(json.contains("\"pages\""), "pages field expected");
         assert!(json.contains("3"), "page count value expected");
+    }
+
+    // ── Test 10: format_date_display ─────────────────────────────────────
+
+    #[test]
+    fn format_date_display_mm_dd_yyyy() {
+        assert_eq!(
+            format_date_display("2026-04-15", "MM/DD/YYYY"),
+            "04/15/2026"
+        );
+    }
+
+    #[test]
+    fn format_date_display_dd_mm_yyyy() {
+        assert_eq!(
+            format_date_display("2026-04-15", "DD/MM/YYYY"),
+            "15/04/2026"
+        );
+    }
+
+    #[test]
+    fn format_date_display_iso_default() {
+        assert_eq!(
+            format_date_display("2026-04-15", "YYYY-MM-DD"),
+            "2026-04-15"
+        );
+    }
+
+    #[test]
+    fn format_date_display_strips_time_part() {
+        assert_eq!(
+            format_date_display("2026-04-15T09:30:00", "MM/DD/YYYY"),
+            "04/15/2026"
+        );
+    }
+
+    // ── Test 11: SchedulePrintSettings serialization ─────────────────────
+
+    #[test]
+    fn schedule_print_settings_serializes_camelcase() {
+        let settings = SchedulePrintSettings {
+            include_calendar_events: Some(true),
+            include_cancelled: Some(false),
+            date_format: Some("MM/DD/YYYY".to_string()),
+            show_patient_dob: Some(true),
+            show_appointment_type: Some(true),
+            show_appointment_status: Some(true),
+            clinic_name: Some("Test Clinic".to_string()),
+            clinic_address: None,
+            clinic_phone: None,
+            include_clinic_logo: Some(true),
+            document_format: Some("letter".to_string()),
+            orientation: Some("portrait".to_string()),
+            show_provider_name: Some(true),
+        };
+        let json = serde_json::to_string(&settings).expect("should serialize");
+        assert!(json.contains("\"includeCalendarEvents\""), "camelCase includeCalendarEvents expected");
+        assert!(json.contains("\"includeCancelled\""), "camelCase includeCancelled expected");
+        assert!(json.contains("\"dateFormat\""), "camelCase dateFormat expected");
+        assert!(json.contains("\"showPatientDob\""), "camelCase showPatientDob expected");
+        assert!(json.contains("\"clinicName\""), "camelCase clinicName expected");
+        assert!(json.contains("\"documentFormat\""), "camelCase documentFormat expected");
+        assert!(json.contains("\"orientation\""), "camelCase orientation expected");
+    }
+
+    #[test]
+    fn schedule_print_settings_deserializes_from_empty_json() {
+        let settings: SchedulePrintSettings = serde_json::from_str("{}").expect("should parse {}");
+        assert_eq!(settings.include_cancelled, None);
+        assert_eq!(settings.date_format, None);
+        assert_eq!(settings.clinic_name, None);
     }
 }

@@ -237,6 +237,7 @@ pub fn compute_remaining(cumulative_charges: f64, threshold: f64) -> f64 {
 }
 
 /// Parse a comma-separated modifiers string and check for a specific modifier.
+#[allow(dead_code)]
 pub fn has_modifier(modifiers: &Option<String>, modifier: &str) -> bool {
     match modifiers {
         None => false,
@@ -403,6 +404,7 @@ fn kx_required_flag(cumulative: f64) -> bool {
 }
 
 /// Read a therapy_cap_tracking row by patient/year/payer.
+#[allow(dead_code)]
 fn query_cap_status(
     conn: &rusqlite::Connection,
     patient_id: &str,
@@ -495,7 +497,7 @@ pub async fn check_therapy_cap(
 
     let cumulative = compute_cumulative_from_db(&conn, &patient_id, year)?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -550,7 +552,7 @@ pub async fn refresh_therapy_cap_tracking(
 
     let status = upsert_cap_tracking(&conn, &patient_id, year, "medicare", None)?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -640,7 +642,7 @@ pub async fn apply_kx_modifier(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -758,7 +760,7 @@ pub async fn generate_abn(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -825,7 +827,7 @@ pub async fn record_abn_choice(
 
     let record = query_abn_record(&conn, &input.abn_id)?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -911,7 +913,7 @@ pub async fn list_abns(
         )
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -977,7 +979,7 @@ pub async fn check_pta_modifier(
         "Provider is not a PTA — CQ modifier not required".to_string()
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

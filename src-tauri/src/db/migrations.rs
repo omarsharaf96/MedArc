@@ -1121,6 +1121,64 @@ pub static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
               ('wf_wa_97530', 'WA', '97530', 38.00, '2026-01-01'),
               ('wf_wa_99213', 'WA', '99213', 82.00, '2026-01-01');"
         ),
+        // Migration 32: AI Assistant conversations and messages tables
+        M::up(
+            "CREATE TABLE IF NOT EXISTS conversations (
+              id TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              title TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
+            CREATE TABLE IF NOT EXISTS assistant_messages (
+              id TEXT PRIMARY KEY,
+              conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+              role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),
+              content TEXT NOT NULL,
+              actions_json TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_assistant_messages_conv ON assistant_messages(conversation_id);"
+        ),
+        // Migration 33: Calendar events table for non-patient time blocks
+        M::up(
+            "CREATE TABLE IF NOT EXISTS calendar_events (
+              event_id TEXT PRIMARY KEY,
+              provider_id TEXT NOT NULL,
+              title TEXT NOT NULL,
+              start_time TEXT NOT NULL,
+              end_time TEXT NOT NULL,
+              color TEXT,
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_calendar_events_provider ON calendar_events(provider_id);
+            CREATE INDEX IF NOT EXISTS idx_calendar_events_time ON calendar_events(start_time, end_time);"
+        ),
+        // Migration 34: AI Exercise Library table
+        M::up(
+            "CREATE TABLE IF NOT EXISTS ai_exercise_library (
+              id TEXT PRIMARY KEY,
+              category TEXT NOT NULL CHECK(category IN ('therapeutic_exercise','neuromuscular_reeducation','therapeutic_activities')),
+              name TEXT NOT NULL,
+              description TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_exercise_category ON ai_exercise_library(category);"
+        ),
+        // Migration 35: AI Note Samples table for LLM style reference (M003/S03)
+        M::up(
+            "CREATE TABLE IF NOT EXISTS ai_note_samples (
+              id TEXT PRIMARY KEY,
+              note_type TEXT NOT NULL CHECK(note_type IN ('initial_eval','progress_note','daily_treatment')),
+              title TEXT NOT NULL,
+              content TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_note_samples_type ON ai_note_samples(note_type);"
+        ),
     ])
 });
 

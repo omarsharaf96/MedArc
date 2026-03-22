@@ -51,6 +51,36 @@ export interface FaxEncounterNoteInput {
   patientId: string | null;
 }
 
+/** Schedule print settings for configuring schedule PDF output. */
+export interface SchedulePrintSettings {
+  /** Whether to include calendar events in the printout. */
+  includeCalendarEvents: boolean | null;
+  /** Whether to include cancelled appointments. */
+  includeCancelled: boolean | null;
+  /** Date display format: "MM/DD/YYYY", "DD/MM/YYYY", or "YYYY-MM-DD". */
+  dateFormat: string | null;
+  /** Whether to show patient date of birth. */
+  showPatientDob: boolean | null;
+  /** Whether to show the appointment type column. */
+  showAppointmentType: boolean | null;
+  /** Whether to show the appointment status column. */
+  showAppointmentStatus: boolean | null;
+  /** Clinic name override for letterhead. */
+  clinicName: string | null;
+  /** Clinic address override for letterhead. */
+  clinicAddress: string | null;
+  /** Clinic phone override for letterhead. */
+  clinicPhone: string | null;
+  /** Whether to include the clinic logo in the letterhead. */
+  includeClinicLogo: boolean | null;
+  /** Document format: "letter" or "a4". */
+  documentFormat: string | null;
+  /** Page orientation: "portrait" or "landscape". */
+  orientation: string | null;
+  /** Whether to show the provider name in the header. */
+  showProviderName: boolean | null;
+}
+
 /** Result of the fax-encounter-note workflow. */
 export interface FaxEncounterNoteResult {
   /** Path to the generated PDF that was faxed. */

@@ -350,7 +350,7 @@ pub async fn get_operational_kpis(
         )
         .unwrap_or(0);
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -557,7 +557,7 @@ pub async fn get_financial_kpis(
         )
         .unwrap_or(0.0);
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -839,7 +839,7 @@ pub async fn get_clinical_outcomes(
         0.0
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -959,7 +959,7 @@ pub async fn get_payer_mix(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1303,7 +1303,7 @@ pub async fn get_dashboard_summary(
         period_end: end.clone(),
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1429,7 +1429,7 @@ pub async fn save_kpi_snapshot(
     )
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1558,7 +1558,7 @@ pub async fn list_kpi_snapshots(
             .collect()
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),

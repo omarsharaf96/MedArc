@@ -56,6 +56,7 @@ pub enum DocumentCategory {
     Other,
 }
 
+#[allow(dead_code)]
 impl DocumentCategory {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -71,18 +72,23 @@ impl DocumentCategory {
     }
 
     pub fn from_str(s: &str) -> Result<Self, AppError> {
-        match s {
+        // Normalize hyphens to underscores for compatibility with old category formats
+        let normalized = s.replace('-', "_");
+        match normalized.as_str() {
             "referral_rx" => Ok(DocumentCategory::ReferralRx),
+            "referral" => Ok(DocumentCategory::ReferralRx),
             "imaging" => Ok(DocumentCategory::Imaging),
-            "consent_forms" => Ok(DocumentCategory::ConsentForms),
+            "consent_forms" | "consent" => Ok(DocumentCategory::ConsentForms),
             "intake_surveys" => Ok(DocumentCategory::IntakeSurveys),
             "insurance" => Ok(DocumentCategory::Insurance),
             "legal" => Ok(DocumentCategory::Legal),
-            "home_exercise_program" => Ok(DocumentCategory::HomeExerciseProgram),
+            "home_exercise_program" | "hep" => Ok(DocumentCategory::HomeExerciseProgram),
             "other" => Ok(DocumentCategory::Other),
+            "clinical_note" => Ok(DocumentCategory::Other),
+            "lab_report" => Ok(DocumentCategory::Other),
             _ => Err(AppError::Validation(format!(
                 "Invalid document category '{}'. Must be one of: referral_rx, imaging, consent_forms, \
-                 intake_surveys, insurance, legal, home_exercise_program, other",
+                 intake_surveys, insurance, legal, home_exercise_program, hep, other",
                 s
             ))),
         }
@@ -149,6 +155,7 @@ pub enum SurveyFieldType {
 }
 
 impl SurveyFieldType {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             SurveyFieldType::Text => "text",
@@ -731,7 +738,7 @@ pub fn upload_categorized_document(
         ],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -861,7 +868,7 @@ pub fn list_patient_documents(
         }
     };
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -933,7 +940,7 @@ pub fn get_document(
 
     let resource = serde_json::from_str(&res_str).unwrap_or(serde_json::Value::Null);
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1051,7 +1058,7 @@ pub fn update_document_category(
             },
         )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1076,6 +1083,64 @@ pub fn update_document_category(
         uploaded_at: uploaded,
         resource,
     })
+}
+
+/// Rename a document's file name.
+///
+/// RBAC: Provider, NurseMa, SystemAdmin (update).
+#[tauri::command]
+pub fn rename_document(
+    document_id: String,
+    new_name: String,
+    session_manager: State<SessionManager>,
+    db: State<Database>,
+    device_id: State<DeviceId>,
+) -> Result<(), AppError> {
+    let sess = middleware::require_authenticated(&session_manager)?;
+    let caller_role = sess.role;
+    middleware::require_permission(caller_role, Resource::PatientDocuments, Action::Update)?;
+
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Document name cannot be empty.".to_string()));
+    }
+
+    let conn = db
+        .conn
+        .lock()
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Update the file_name in document_category_index
+    let updated = conn.execute(
+        "UPDATE document_category_index SET file_name = ?1 WHERE document_id = ?2",
+        rusqlite::params![trimmed, document_id],
+    ).map_err(|e| AppError::Database(e.to_string()))?;
+
+    if updated == 0 {
+        return Err(AppError::NotFound(format!("Document {} not found.", document_id)));
+    }
+
+    // Also update the FHIR resource's content.attachment.title if present
+    let _ = conn.execute(
+        "UPDATE fhir_resources SET resource = json_set(resource, '$.content[0].attachment.title', ?1), version_id = version_id + 1, last_updated = datetime('now') WHERE id = ?2",
+        rusqlite::params![trimmed, document_id],
+    );
+
+    let _ = write_audit_entry(
+        &conn,
+        AuditEntryInput {
+            user_id: sess.user_id.clone(),
+            action: "document.rename".to_string(),
+            resource_type: "DocumentReference".to_string(),
+            resource_id: Some(document_id),
+            patient_id: None,
+            device_id: device_id.get().to_string(),
+            success: true,
+            details: Some(format!("new_name={}", trimmed)),
+        },
+    )?;
+
+    Ok(())
 }
 
 /// Soft-delete a document (marks FHIR status as entered-in-error).
@@ -1133,7 +1198,7 @@ pub fn delete_document(
         rusqlite::params![document_id],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1205,7 +1270,7 @@ pub fn create_survey_template(
         rusqlite::params![id, input.name, field_count, now],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1289,7 +1354,7 @@ pub fn list_survey_templates(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1352,7 +1417,7 @@ pub fn get_survey_template(
     let resource = serde_json::from_str(&res_str).unwrap_or(serde_json::Value::Null);
     let fields = extract_fields_from_fhir(&resource);
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1445,7 +1510,7 @@ pub fn submit_survey_response(
         rusqlite::params![id, input.template_id, input.patient_id, now],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1522,7 +1587,7 @@ pub fn list_survey_responses(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1580,7 +1645,7 @@ pub fn get_survey_response(
     let resource = serde_json::from_str(&res_str).unwrap_or(serde_json::Value::Null);
     let responses = resource["item"].clone();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1667,7 +1732,7 @@ pub fn create_referral(
         ],
     )?;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1758,7 +1823,7 @@ pub fn get_referral(
         .and_then(|n| n["text"].as_str())
         .map(|s| s.to_string());
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1865,7 +1930,7 @@ pub fn list_referrals(
         })
         .collect();
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -1952,7 +2017,7 @@ pub fn update_referral(
     // Suppress unused-variable warning; we read resource_str to confirm existence above.
     let _ = resource_str;
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -2087,6 +2152,26 @@ pub struct DocumentContentResult {
     pub file_size: i64,
 }
 
+/// Repair base64 strings that were produced by the old chunked btoa() encoder.
+///
+/// The old frontend `bytesToBase64()` called `btoa()` on each 8 KB chunk
+/// independently, producing valid base64 per chunk but with `=` padding
+/// characters embedded in the middle of the concatenated result.
+///
+/// This function strips all `=` padding, then re-applies correct trailing
+/// padding so the string decodes as one contiguous byte stream.
+fn repair_chunked_base64(s: &str) -> String {
+    // Strip all padding characters
+    let stripped: String = s.chars().filter(|&c| c != '=').collect();
+    // Re-apply correct trailing padding
+    let pad = match stripped.len() % 4 {
+        2 => "==",
+        3 => "=",
+        _ => "",
+    };
+    format!("{}{}", stripped, pad)
+}
+
 /// Retrieve the base64-encoded content of a document for inline preview.
 ///
 /// Reads the FHIR DocumentReference resource and extracts the
@@ -2113,8 +2198,8 @@ pub fn get_document_content(
     // Fetch document metadata and FHIR resource
     let (doc_id, mime, fname, fsize, res_str): (String, String, String, i64, String) = conn
         .query_row(
-            "SELECT d.document_id, d.mime_type, d.file_name, d.file_size, r.resource
-             FROM document_category_index d
+            "SELECT d.document_id, d.content_type, d.title, d.file_size_bytes, r.resource
+             FROM document_index d
              JOIN fhir_resources r ON r.id = d.document_id
              WHERE d.document_id = ?1",
             rusqlite::params![document_id],
@@ -2140,9 +2225,9 @@ pub fn get_document_content(
         .and_then(|c| c.get("attachment"))
         .and_then(|a| a.get("data"))
         .and_then(|d| d.as_str())
-        .map(|s| s.to_string());
+        .map(|s| repair_chunked_base64(s));
 
-    write_audit_entry(
+    let _ = write_audit_entry(
         &conn,
         AuditEntryInput {
             user_id: sess.user_id.clone(),
@@ -2185,10 +2270,18 @@ mod tests {
         assert!(DocumentCategory::from_str("home_exercise_program").is_ok());
         assert!(DocumentCategory::from_str("other").is_ok());
 
+        // Hyphenated aliases (backward compat with old DocumentBrowser)
+        assert!(DocumentCategory::from_str("referral-rx").is_ok());
+        assert!(DocumentCategory::from_str("consent-forms").is_ok());
+        assert!(DocumentCategory::from_str("clinical-note").is_ok());
+        assert!(DocumentCategory::from_str("lab-report").is_ok());
+        assert!(DocumentCategory::from_str("referral").is_ok());
+        assert!(DocumentCategory::from_str("consent").is_ok());
+        assert!(DocumentCategory::from_str("hep").is_ok());
+
         // Invalid categories
         assert!(DocumentCategory::from_str("invalid").is_err());
         assert!(DocumentCategory::from_str("").is_err());
-        assert!(DocumentCategory::from_str("clinical-note").is_err());
 
         // Roundtrip
         for cat_str in DocumentCategory::all_values() {
