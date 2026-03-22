@@ -1211,10 +1211,11 @@ pub(crate) async fn call_llm_vision(
             .map_err(|e| AppError::Serialization(format!("Failed to serialize: {}", e)))?;
 
         let host = format!("bedrock-runtime.{}.amazonaws.com", creds.region);
-        let uri = format!("/model/{}/invoke", model_id);
-        let url = format!("https://{}{}", host, uri);
+        let encoded_model = model_id.replace(':', "%3A");
+        let uri = format!("/model/{}/invoke", encoded_model);
+        let url_str = format!("https://{}{}", host, uri);
 
-        // SigV4 signing
+        // SigV4 signing — canonical URI must use the percent-encoded path
         let now = chrono::Utc::now();
         let date_stamp = now.format("%Y%m%d").to_string();
         let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
@@ -1244,8 +1245,10 @@ pub(crate) async fn call_llm_vision(
             .build()
             .map_err(|e| AppError::Serialization(format!("HTTP client error: {}", e)))?;
 
+        let parsed_url = reqwest::Url::parse(&url_str)
+            .map_err(|e| AppError::Serialization(format!("Invalid Bedrock URL: {}", e)))?;
         let response = client
-            .post(&url)
+            .post(parsed_url)
             .header("Content-Type", "application/json")
             .header("Host", &host)
             .header("X-Amz-Date", &amz_date)
@@ -1602,10 +1605,11 @@ async fn call_bedrock_generate(
         .map_err(|e| AppError::Serialization(format!("Failed to serialize request body: {}", e)))?;
 
     let host = format!("bedrock-runtime.{}.amazonaws.com", credentials.region);
-    let uri = format!("/model/{}/invoke", model_id);
-    let url = format!("https://{}{}", host, uri);
+    let encoded_model = model_id.replace(':', "%3A");
+    let uri = format!("/model/{}/invoke", encoded_model);
+    let url_str = format!("https://{}{}", host, uri);
 
-    // SigV4 signing
+    // SigV4 signing — canonical URI must use the percent-encoded path
     let now = chrono::Utc::now();
     let date_stamp = now.format("%Y%m%d").to_string();
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
@@ -1634,8 +1638,10 @@ async fn call_bedrock_generate(
         .build()
         .map_err(|e| AppError::Serialization(format!("Failed to create HTTP client: {}", e)))?;
 
+    let parsed_url = reqwest::Url::parse(&url_str)
+        .map_err(|e| AppError::Serialization(format!("Invalid Bedrock URL: {}", e)))?;
     let response = client
-        .post(&url)
+        .post(parsed_url)
         .header("Content-Type", "application/json")
         .header("Host", &host)
         .header("X-Amz-Date", &amz_date)
