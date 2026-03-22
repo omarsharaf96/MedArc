@@ -281,6 +281,11 @@ fn render_logo_inline(
         Err(_) => return 0.0,
     };
 
+    // Convert to RGB8 to strip alpha channel. printpdf 0.7 has a bug in its
+    // SMask generation for RGBA images (uses width for height), which produces
+    // structurally invalid PDFs (error 135). Converting to RGB avoids that path.
+    let dyn_image = image_crate::DynamicImage::ImageRgb8(dyn_image.to_rgb8());
+
     let img_w_px = dyn_image.width() as f32;
     let img_h_px = dyn_image.height() as f32;
     if img_w_px == 0.0 || img_h_px == 0.0 {
@@ -497,6 +502,11 @@ impl PdfBuilder {
             Ok(img) => img,
             Err(_) => return 0.0,
         };
+
+        // Convert to RGB8 to strip alpha channel. printpdf 0.7 has a bug in its
+        // SMask generation for RGBA images (uses width for height), which produces
+        // structurally invalid PDFs (error 135). Converting to RGB avoids that path.
+        let dyn_image = image_crate::DynamicImage::ImageRgb8(dyn_image.to_rgb8());
 
         let img_w_px = dyn_image.width() as f32;
         let img_h_px = dyn_image.height() as f32;
