@@ -12,12 +12,19 @@ import { useState, useEffect, useRef } from "react";
 import { commands } from "../../lib/tauri";
 import type { AssistantAction, ActionResult } from "../../types/assistant";
 
-/** Actions that modify data and need user confirmation. */
-const MUTATING_ACTIONS = new Set([
-  "schedule_appointment",
-  "cancel_appointment",
-  "create_note",
-]);
+/** Prefixes for actions that only read data and can auto-execute silently. */
+const READ_ONLY_PREFIXES = [
+  "get_",
+  "list_",
+  "search_",
+  "read_",
+  "find_",
+];
+
+/** Check whether an action is read-only (no data mutation). */
+function isReadOnly(actionName: string): boolean {
+  return READ_ONLY_PREFIXES.some((p) => actionName.startsWith(p));
+}
 
 interface ActionCardProps {
   actions: AssistantAction[];
@@ -69,9 +76,11 @@ export function ActionCard({
   const [result, setResult] = useState<ActionResult | null>(null);
   const autoExecuted = useRef(false);
 
-  // Auto-execute read-only (non-mutating) actions without confirmation
+  /** True when every action in the batch is read-only. */
+  const allReadOnly = actions.every((a) => isReadOnly(a.action));
+
+  // Auto-execute read-only actions without confirmation
   useEffect(() => {
-    const allReadOnly = actions.every(a => !MUTATING_ACTIONS.has(a.action));
     if (allReadOnly && !executing && !result && !dismissed && !autoExecuted.current) {
       autoExecuted.current = true;
       handleConfirm();
@@ -156,6 +165,10 @@ export function ActionCard({
   }
 
   if (result) {
+    // Read-only actions execute silently — no result card shown on success.
+    // Only show the card if a read-only action *failed* (so the user knows).
+    if (allReadOnly && result.success) return null;
+
     return (
       <div
         className={`mb-3 rounded-lg border p-3 text-sm ${
