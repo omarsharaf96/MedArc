@@ -1211,18 +1211,19 @@ pub(crate) async fn call_llm_vision(
             .map_err(|e| AppError::Serialization(format!("Failed to serialize: {}", e)))?;
 
         let host = format!("bedrock-runtime.{}.amazonaws.com", creds.region);
-        let encoded_model = model_id.replace(':', "%3A");
-        let uri = format!("/model/{}/invoke", encoded_model);
-        let url_str = format!("https://{}{}", host, uri);
+        let canonical_uri = format!("/model/{}/invoke", model_id.replace(':', "%3A"));
+        let raw_uri = format!("/model/{}/invoke", model_id);
+        let url_str = format!("https://{}{}", host, raw_uri);
 
-        // SigV4 signing — canonical URI must use the percent-encoded path
+        // SigV4 signing — canonical URI must URI-encode special chars,
+        // but the actual HTTP URL uses raw chars so reqwest doesn't double-encode
         let now = chrono::Utc::now();
         let date_stamp = now.format("%Y%m%d").to_string();
         let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
         let payload_hash = hex::encode(Sha256::digest(&body_bytes));
         let canonical_headers = format!("content-type:application/json\nhost:{}\nx-amz-date:{}\n", host, amz_date);
         let signed_headers = "content-type;host;x-amz-date";
-        let canonical_request = format!("POST\n{}\n\n{}\n{}\n{}", uri, canonical_headers, signed_headers, payload_hash);
+        let canonical_request = format!("POST\n{}\n\n{}\n{}\n{}", canonical_uri, canonical_headers, signed_headers, payload_hash);
         let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
         let scope = format!("{}/{}/bedrock/aws4_request", date_stamp, creds.region);
         let sts = format!("AWS4-HMAC-SHA256\n{}\n{}\n{}", amz_date, scope, canonical_hash);
@@ -1605,18 +1606,19 @@ async fn call_bedrock_generate(
         .map_err(|e| AppError::Serialization(format!("Failed to serialize request body: {}", e)))?;
 
     let host = format!("bedrock-runtime.{}.amazonaws.com", credentials.region);
-    let encoded_model = model_id.replace(':', "%3A");
-    let uri = format!("/model/{}/invoke", encoded_model);
-    let url_str = format!("https://{}{}", host, uri);
+    let canonical_uri = format!("/model/{}/invoke", model_id.replace(':', "%3A"));
+    let raw_uri = format!("/model/{}/invoke", model_id);
+    let url_str = format!("https://{}{}", host, raw_uri);
 
-    // SigV4 signing — canonical URI must use the percent-encoded path
+    // SigV4 signing — canonical URI must URI-encode special chars,
+    // but the actual HTTP URL uses raw chars so reqwest doesn't double-encode
     let now = chrono::Utc::now();
     let date_stamp = now.format("%Y%m%d").to_string();
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
     let payload_hash = hex::encode(Sha256::digest(&body_bytes));
     let canonical_headers = format!("content-type:application/json\nhost:{}\nx-amz-date:{}\n", host, amz_date);
     let signed_headers = "content-type;host;x-amz-date";
-    let canonical_request = format!("POST\n{}\n\n{}\n{}\n{}", uri, canonical_headers, signed_headers, payload_hash);
+    let canonical_request = format!("POST\n{}\n\n{}\n{}\n{}", canonical_uri, canonical_headers, signed_headers, payload_hash);
     let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
     let scope = format!("{}/{}/bedrock/aws4_request", date_stamp, credentials.region);
     let sts = format!("AWS4-HMAC-SHA256\n{}\n{}\n{}", amz_date, scope, canonical_hash);
@@ -2646,5 +2648,32 @@ mod tests {
         };
         let available: Vec<String> = vec![];
         assert_eq!(select_model(&settings, &available), DEFAULT_MODEL);
+    }
+
+    // ── Test: SigV4 canonical URI encoding ──────────────────────────────
+
+    #[test]
+    fn test_sigv4_canonical_uri_encodes_colon() {
+        let model_id = "anthropic.claude-3-haiku-20240307-v1:0";
+        let canonical_uri = format!("/model/{}/invoke", model_id.replace(':', "%3A"));
+        let raw_uri = format!("/model/{}/invoke", model_id);
+
+        // Canonical URI must have %3A (colon encoded)
+        assert_eq!(
+            canonical_uri,
+            "/model/anthropic.claude-3-haiku-20240307-v1%3A0/invoke"
+        );
+        // Raw URI used for HTTP request must have literal colon
+        assert_eq!(
+            raw_uri,
+            "/model/anthropic.claude-3-haiku-20240307-v1:0/invoke"
+        );
+        // reqwest::Url::parse must preserve raw colon (not encode it)
+        let url = reqwest::Url::parse(&format!("https://bedrock-runtime.us-east-1.amazonaws.com{}", raw_uri)).unwrap();
+        assert!(
+            url.path().contains(':'),
+            "reqwest Url::parse must keep raw colon in path, got: {}",
+            url.path()
+        );
     }
 }
