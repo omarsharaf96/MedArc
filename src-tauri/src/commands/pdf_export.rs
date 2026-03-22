@@ -435,6 +435,19 @@ impl PdfBuilder {
         let lines = build_letterhead_lines(settings);
         let text_start_y = self.y_pos;
 
+        // Calculate total text block height for vertical centering
+        let text_block_height = if lines.is_empty() {
+            0.0
+        } else {
+            line_height_mm(FONT_SIZE_TITLE)
+                + (lines.len().saturating_sub(1) as f32) * line_height_mm(FONT_SIZE_SMALL)
+        };
+
+        // Vertically center text relative to logo when logo is taller
+        if logo_height_mm > text_block_height {
+            self.y_pos -= (logo_height_mm - text_block_height) / 2.0;
+        }
+
         // Practice name in title font
         if let Some(first) = lines.first() {
             let layer = self.layer();
@@ -2326,6 +2339,20 @@ pub fn generate_schedule_pdf(
         let text_start_y = y_pos;
 
         let lh_lines = build_letterhead_lines(&letterhead_settings);
+
+        // Calculate total text block height for vertical centering
+        let text_block_height = if lh_lines.is_empty() {
+            0.0
+        } else {
+            line_height_mm(FONT_SIZE_TITLE)
+                + (lh_lines.len().saturating_sub(1) as f32) * line_height_mm(FONT_SIZE_SMALL)
+        };
+
+        // Vertically center text relative to logo when logo is taller
+        if logo_height_mm > text_block_height {
+            y_pos -= (logo_height_mm - text_block_height) / 2.0;
+        }
+
         if let Some(first) = lh_lines.first() {
             let lyr = get_layer(&doc, current_page, current_layer);
             lyr.use_text(first, FONT_SIZE_TITLE, Mm(text_x), Mm(y_pos), &font_bold);
