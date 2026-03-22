@@ -359,6 +359,7 @@ export function SettingsPage() {
   const [exportPracticeAddress, setExportPracticeAddress] = useState("");
   const [exportPracticePhone, setExportPracticePhone] = useState("");
   const [exportPracticeLogoBase64, setExportPracticeLogoBase64] = useState<string | null>(null);
+  const [exportLogoWidthPx, setExportLogoWidthPx] = useState(200);
   const [exportSignatureBase64, setExportSignatureBase64] = useState<string | null>(null);
   const [exportProviderCredentials, setExportProviderCredentials] = useState("");
   const [exportLicenseNumber, setExportLicenseNumber] = useState("");
@@ -495,6 +496,7 @@ export function SettingsPage() {
         setExportPracticeAddress(settings.practiceAddress ?? "");
         setExportPracticePhone(settings.practicePhone ?? "");
         setExportPracticeLogoBase64(settings.practiceLogoBase64 ?? null);
+        setExportLogoWidthPx(settings.logoWidthPx ?? 200);
         setExportSignatureBase64(settings.signatureImageBase64 ?? null);
         setExportProviderCredentials(settings.providerNameCredentials ?? "");
         setExportLicenseNumber(settings.licenseNumber ?? "");
@@ -915,14 +917,16 @@ export function SettingsPage() {
   /**
    * Base64-encode a Uint8Array in 8 KB chunks using btoa.
    * Chunked to avoid stack overflow from String.fromCharCode spread on large arrays.
+   * We build the full binary string first, then call btoa once so intermediate
+   * padding characters don't corrupt the output.
    */
   function bytesToBase64(bytes: Uint8Array): string {
     const CHUNK = 8192;
-    let result = "";
+    let binaryStr = "";
     for (let i = 0; i < bytes.length; i += CHUNK) {
-      result += btoa(String.fromCharCode(...bytes.subarray(i, i + CHUNK)));
+      binaryStr += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
     }
-    return result;
+    return btoa(binaryStr);
   }
 
   const handleSaveExportSettings = useCallback(async () => {
@@ -935,6 +939,7 @@ export function SettingsPage() {
         practiceAddress: exportPracticeAddress.trim() || null,
         practicePhone: exportPracticePhone.trim() || null,
         practiceLogoBase64: exportPracticeLogoBase64,
+        logoWidthPx: exportLogoWidthPx,
         signatureImageBase64: exportSignatureBase64,
         providerNameCredentials: exportProviderCredentials.trim() || null,
         licenseNumber: exportLicenseNumber.trim() || null,
@@ -948,7 +953,7 @@ export function SettingsPage() {
     }
   }, [
     exportPracticeName, exportPracticeAddress, exportPracticePhone,
-    exportPracticeLogoBase64, exportSignatureBase64,
+    exportPracticeLogoBase64, exportLogoWidthPx, exportSignatureBase64,
     exportProviderCredentials, exportLicenseNumber,
   ]);
 
@@ -2055,12 +2060,32 @@ export function SettingsPage() {
                         )}
                       </div>
                       {exportPracticeLogoBase64 && (
-                        <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 inline-block">
-                          <img
-                            src={exportPracticeLogoBase64}
-                            alt="Practice logo"
-                            className="max-h-20 max-w-[200px] object-contain"
-                          />
+                        <div className="mt-3 space-y-3">
+                          <div className="rounded-md border border-gray-200 bg-gray-50 p-3 inline-block">
+                            <img
+                              src={exportPracticeLogoBase64}
+                              alt="Practice logo"
+                              style={{ width: `${exportLogoWidthPx}px`, height: "auto" }}
+                              className="object-contain"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-gray-600">
+                              Logo Width: {exportLogoWidthPx}px
+                            </label>
+                            <input
+                              type="range"
+                              min={50}
+                              max={500}
+                              value={exportLogoWidthPx}
+                              onChange={(e) => setExportLogoWidthPx(Number(e.target.value))}
+                              className="w-64 accent-blue-600"
+                            />
+                            <div className="flex justify-between text-xs text-gray-400 w-64">
+                              <span>50px</span>
+                              <span>500px</span>
+                            </div>
+                          </div>
                         </div>
                       )}
                       <p className="mt-1 text-xs text-gray-400">
@@ -2157,7 +2182,8 @@ export function SettingsPage() {
                           <img
                             src={exportPracticeLogoBase64}
                             alt="Logo preview"
-                            className="h-14 w-auto object-contain"
+                            style={{ width: `${Math.min(exportLogoWidthPx, 200)}px`, height: "auto" }}
+                            className="object-contain"
                           />
                         )}
                         <div className="flex-1">

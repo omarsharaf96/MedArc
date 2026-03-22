@@ -3010,7 +3010,8 @@ async fn execute_read_document(
         }
     };
 
-    // Decode base64 — repair chunked base64 (strip internal padding, re-pad correctly)
+    // Decode base64 — use a lenient engine that tolerates missing/extra padding
+    // and non-canonical trailing bits (from the old chunked btoa() encoder).
     use base64::Engine as _;
     let cleaned_b64: String = content_b64.chars().filter(|&c| c != '=' && c != '\n' && c != '\r' && c != ' ').collect();
     let padded_b64 = match cleaned_b64.len() % 4 {
@@ -3018,7 +3019,13 @@ async fn execute_read_document(
         3 => format!("{}=", cleaned_b64),
         _ => cleaned_b64,
     };
-    let decoded = base64::engine::general_purpose::STANDARD
+    let lenient_engine = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        base64::engine::GeneralPurposeConfig::new()
+            .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
+            .with_decode_allow_trailing_bits(true),
+    );
+    let decoded = lenient_engine
         .decode(&padded_b64)
         .map_err(|e| AppError::Serialization(format!("Failed to decode document: {}", e)))?;
 

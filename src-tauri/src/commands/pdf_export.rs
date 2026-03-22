@@ -26,6 +26,7 @@
 /// Audit
 /// -----
 /// Every command writes an audit row (success or failure) using `write_audit_entry`.
+use base64::Engine as _;
 use printpdf::*;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -96,6 +97,10 @@ pub struct PracticeSettings {
     pub practice_phone: String,
     pub practice_fax: String,
     pub practice_npi: String,
+    /// Base64 data-URL for the practice logo (e.g. "data:image/png;base64,…").
+    pub practice_logo_base64: Option<String>,
+    /// Logo display width in pixels (default 200).
+    pub logo_width_px: u32,
 }
 
 /// Patient demographic info extracted from the database for PDF headers.
@@ -245,6 +250,69 @@ fn build_signature_lines(provider_name: &str) -> Vec<String> {
     ]
 }
 
+/// Render the practice logo inline on a given page/layer (for use outside PdfBuilder).
+/// Returns the rendered height in mm, or 0.0 if no logo is available.
+fn render_logo_inline(
+    doc: &PdfDocumentReference,
+    page: PdfPageIndex,
+    layer_idx: PdfLayerIndex,
+    x_mm: f32,
+    y_mm: f32,
+    settings: &PracticeSettings,
+) -> f32 {
+    let logo_b64 = match &settings.practice_logo_base64 {
+        Some(s) if !s.is_empty() => s,
+        _ => return 0.0,
+    };
+
+    let raw_b64 = if let Some(idx) = logo_b64.find(',') {
+        &logo_b64[idx + 1..]
+    } else {
+        logo_b64.as_str()
+    };
+
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(raw_b64) {
+        Ok(b) => b,
+        Err(_) => return 0.0,
+    };
+
+    let dyn_image = match image_crate::load_from_memory(&bytes) {
+        Ok(img) => img,
+        Err(_) => return 0.0,
+    };
+
+    let img_w_px = dyn_image.width() as f32;
+    let img_h_px = dyn_image.height() as f32;
+    if img_w_px == 0.0 || img_h_px == 0.0 {
+        return 0.0;
+    }
+
+    let target_w_mm = settings.logo_width_px as f32 * 25.4 / 96.0;
+    let aspect = img_h_px / img_w_px;
+    let target_h_mm = target_w_mm * aspect;
+
+    let dpi = 72.0_f32;
+    let target_w_pt = target_w_mm / 25.4 * 72.0;
+    let target_h_pt = target_h_mm / 25.4 * 72.0;
+    let scale_x = target_w_pt / img_w_px;
+    let scale_y = target_h_pt / img_h_px;
+
+    let pdf_image = Image::from_dynamic_image(&dyn_image);
+    let layer = doc.get_page(page).get_layer(layer_idx);
+
+    let transform = ImageTransform {
+        translate_x: Some(Mm(x_mm)),
+        translate_y: Some(Mm(y_mm - target_h_mm)),
+        scale_x: Some(scale_x),
+        scale_y: Some(scale_y),
+        dpi: Some(dpi),
+        ..Default::default()
+    };
+
+    pdf_image.add_to_layer(layer, transform);
+    target_h_mm
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PDF Document Builder
 // ─────────────────────────────────────────────────────────────────────────────
@@ -347,17 +415,38 @@ impl PdfBuilder {
         self.y_pos -= line_height_mm(font_size);
     }
 
-    /// Add the practice letterhead at the current position.
+    /// Add the practice letterhead at the current position, optionally with logo.
     fn add_letterhead(&mut self, settings: &PracticeSettings) {
+        // Try to embed the logo image if provided
+        let logo_height_mm = self.try_add_logo(settings);
+        let text_x = if logo_height_mm > 0.0 {
+            // Place text to the right of the logo; logo_width_mm + gap
+            let logo_width_mm = Self::px_to_mm(settings.logo_width_px as f32);
+            MARGIN_LEFT_MM + logo_width_mm + 4.0
+        } else {
+            MARGIN_LEFT_MM
+        };
+
         let lines = build_letterhead_lines(settings);
+        let text_start_y = self.y_pos;
 
         // Practice name in title font
         if let Some(first) = lines.first() {
-            self.write_bold(first, FONT_SIZE_TITLE);
+            let layer = self.layer();
+            layer.use_text(first, FONT_SIZE_TITLE, Mm(text_x), Mm(self.y_pos), &self.font_bold);
+            self.y_pos -= line_height_mm(FONT_SIZE_TITLE);
         }
         // Remaining lines in small font
         for line in lines.iter().skip(1) {
-            self.write_text(line, FONT_SIZE_SMALL);
+            let layer = self.layer();
+            layer.use_text(line, FONT_SIZE_SMALL, Mm(text_x), Mm(self.y_pos), &self.font_regular);
+            self.y_pos -= line_height_mm(FONT_SIZE_SMALL);
+        }
+
+        // If the logo is taller than the text, move y_pos down to below the logo
+        let text_used = text_start_y - self.y_pos;
+        if logo_height_mm > text_used {
+            self.y_pos = text_start_y - logo_height_mm;
         }
 
         // Separator line
@@ -375,6 +464,81 @@ impl PdfBuilder {
         };
         layer.add_line(line);
         self.y_pos -= 4.0;
+    }
+
+    /// Convert pixels to millimeters at 96 DPI (standard screen resolution).
+    fn px_to_mm(px: f32) -> f32 {
+        px * 25.4 / 96.0
+    }
+
+    /// Try to decode and embed the practice logo. Returns the rendered height in mm,
+    /// or 0.0 if no logo is available or decoding fails.
+    fn try_add_logo(&self, settings: &PracticeSettings) -> f32 {
+        let logo_b64 = match &settings.practice_logo_base64 {
+            Some(s) if !s.is_empty() => s,
+            _ => return 0.0,
+        };
+
+        // Strip data-URL prefix (e.g. "data:image/png;base64,")
+        let raw_b64 = if let Some(idx) = logo_b64.find(",") {
+            &logo_b64[idx + 1..]
+        } else {
+            logo_b64.as_str()
+        };
+
+        // Decode base64 to bytes
+        let bytes = match base64::engine::general_purpose::STANDARD.decode(raw_b64) {
+            Ok(b) => b,
+            Err(_) => return 0.0,
+        };
+
+        // Load image using the image crate (re-exported by printpdf)
+        let dyn_image = match image_crate::load_from_memory(&bytes) {
+            Ok(img) => img,
+            Err(_) => return 0.0,
+        };
+
+        let img_w_px = dyn_image.width() as f32;
+        let img_h_px = dyn_image.height() as f32;
+        if img_w_px == 0.0 || img_h_px == 0.0 {
+            return 0.0;
+        }
+
+        // Target width in mm from the user's pixel setting
+        let target_w_mm = Self::px_to_mm(settings.logo_width_px as f32);
+        // Maintain aspect ratio
+        let aspect = img_h_px / img_w_px;
+        let target_h_mm = target_w_mm * aspect;
+
+        // printpdf Image placement:
+        // At dpi D, the image natural size is (img_w_px / D * 72) pt wide.
+        // We want the image to be target_w_mm wide.
+        // target_w_pt = target_w_mm / 25.4 * 72
+        // natural_w_pt = img_w_px / dpi * 72
+        // scale_x = target_w_pt / natural_w_pt = target_w_mm / 25.4 * dpi / img_w_px
+        let dpi = 72.0_f32; // Use 72 DPI so 1px = 1pt, simplifying scale calc
+        let target_w_pt = target_w_mm / 25.4 * 72.0;
+        let target_h_pt = target_h_mm / 25.4 * 72.0;
+        let natural_w_pt = img_w_px; // at 72 DPI, 1px = 1pt
+        let natural_h_pt = img_h_px;
+        let scale_x = target_w_pt / natural_w_pt;
+        let scale_y = target_h_pt / natural_h_pt;
+
+        let pdf_image = Image::from_dynamic_image(&dyn_image);
+        let layer = self.layer();
+
+        let transform = ImageTransform {
+            translate_x: Some(Mm(MARGIN_LEFT_MM)),
+            translate_y: Some(Mm(self.y_pos - target_h_mm)),
+            scale_x: Some(scale_x),
+            scale_y: Some(scale_y),
+            dpi: Some(dpi),
+            ..Default::default()
+        };
+
+        pdf_image.add_to_layer(layer, transform);
+
+        target_h_mm
     }
 
     /// Add patient demographic header at the current position.
@@ -488,6 +652,8 @@ fn load_practice_settings(conn: &rusqlite::Connection) -> PracticeSettings {
                 .unwrap_or_else(|| get_setting("practice_phone", "")),
             practice_fax: get_setting("practice_fax", ""),
             practice_npi: get_setting("practice_npi", ""),
+            practice_logo_base64: es.practice_logo_base64.filter(|s| !s.is_empty()),
+            logo_width_px: es.logo_width_px.unwrap_or(200),
         }
     } else {
         PracticeSettings {
@@ -496,6 +662,8 @@ fn load_practice_settings(conn: &rusqlite::Connection) -> PracticeSettings {
             practice_phone: get_setting("practice_phone", ""),
             practice_fax: get_setting("practice_fax", ""),
             practice_npi: get_setting("practice_npi", ""),
+            practice_logo_base64: None,
+            logo_width_px: 200,
         }
     }
 }
@@ -1779,6 +1947,8 @@ pub struct ExportSettings {
     pub practice_phone: Option<String>,
     /// Practice logo as base64-encoded image data.
     pub practice_logo_base64: Option<String>,
+    /// Logo display width in pixels (50–500, default 200).
+    pub logo_width_px: Option<u32>,
     /// Provider signature image as base64-encoded image data.
     pub signature_image_base64: Option<String>,
     /// Provider name/credentials line (e.g. "Omar Safwat Sharaf, PT, DPT").
@@ -1818,6 +1988,7 @@ pub async fn get_export_settings(
             practice_address: None,
             practice_phone: None,
             practice_logo_base64: None,
+            logo_width_px: None,
             signature_image_base64: None,
             provider_name_credentials: None,
             license_number: None,
@@ -2000,6 +2171,8 @@ pub fn generate_schedule_pdf(
             .unwrap_or(practice_settings.practice_phone),
         practice_fax: practice_settings.practice_fax,
         practice_npi: practice_settings.practice_npi,
+        practice_logo_base64: practice_settings.practice_logo_base64.clone(),
+        logo_width_px: practice_settings.logo_width_px,
     };
 
     // Query appointments
@@ -2130,16 +2303,33 @@ pub fn generate_schedule_pdf(
 
     // Render letterhead (if logo setting is not disabled)
     if include_clinic_logo {
+        // Try to embed logo image
+        let logo_height_mm = render_logo_inline(
+            &doc, current_page, current_layer, margin_left, y_pos, &letterhead_settings
+        );
+        let text_x = if logo_height_mm > 0.0 {
+            let logo_w_mm = PdfBuilder::px_to_mm(letterhead_settings.logo_width_px as f32);
+            margin_left + logo_w_mm + 4.0
+        } else {
+            margin_left
+        };
+        let text_start_y = y_pos;
+
         let lh_lines = build_letterhead_lines(&letterhead_settings);
         if let Some(first) = lh_lines.first() {
             let lyr = get_layer(&doc, current_page, current_layer);
-            lyr.use_text(first, FONT_SIZE_TITLE, Mm(margin_left), Mm(y_pos), &font_bold);
+            lyr.use_text(first, FONT_SIZE_TITLE, Mm(text_x), Mm(y_pos), &font_bold);
             y_pos -= line_height_mm(FONT_SIZE_TITLE);
         }
         for line in lh_lines.iter().skip(1) {
             let lyr = get_layer(&doc, current_page, current_layer);
-            lyr.use_text(line, FONT_SIZE_SMALL, Mm(margin_left), Mm(y_pos), &font_regular);
+            lyr.use_text(line, FONT_SIZE_SMALL, Mm(text_x), Mm(y_pos), &font_regular);
             y_pos -= line_height_mm(FONT_SIZE_SMALL);
+        }
+        // Ensure y_pos is below the logo if the logo is taller than text
+        let text_used = text_start_y - y_pos;
+        if logo_height_mm > text_used {
+            y_pos = text_start_y - logo_height_mm;
         }
         // Separator line
         y_pos -= 2.0;
@@ -2486,6 +2676,8 @@ mod tests {
             practice_phone: "(555) 123-4567".to_string(),
             practice_fax: "(555) 123-4568".to_string(),
             practice_npi: "1234567890".to_string(),
+            practice_logo_base64: None,
+            logo_width_px: 200,
         };
 
         let lines = build_letterhead_lines(&settings);
@@ -2506,6 +2698,8 @@ mod tests {
             practice_phone: "".to_string(),
             practice_fax: "".to_string(),
             practice_npi: "".to_string(),
+            practice_logo_base64: None,
+            logo_width_px: 200,
         };
 
         let lines = build_letterhead_lines(&settings);

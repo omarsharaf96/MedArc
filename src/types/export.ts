@@ -31,6 +31,8 @@ export interface ExportSettings {
   practicePhone: string | null;
   /** Practice logo as base64-encoded image data. */
   practiceLogoBase64: string | null;
+  /** Logo display width in pixels (50–500, default 200). */
+  logoWidthPx: number | null;
   /** Provider signature image as base64-encoded image data. */
   signatureImageBase64: string | null;
   /** Provider name/credentials line (e.g. "Omar Safwat Sharaf, PT, DPT"). */
